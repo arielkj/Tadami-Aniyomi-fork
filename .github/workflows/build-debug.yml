@@ -20,20 +20,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # The runner already ships an Android SDK (ANDROID_HOME set, sdkmanager
-      # on PATH). Do NOT use android-actions/setup-android@v3: it runs
-      # `sdkmanager tools`, and the obsolete "tools" package no longer exists
-      # in cmdline-tools 16.0, so that step fails with exit code 1.
+      # The runner already ships an Android SDK (ANDROID_HOME set). Do NOT use
+      # android-actions/setup-android@v3: it runs `sdkmanager tools`, and the
+      # obsolete "tools" package no longer exists in cmdline-tools 16.0, so
+      # that step fails with exit code 1. NOTE: sdkmanager is NOT on PATH on
+      # the runner; it lives at $ANDROID_HOME/cmdline-tools/latest/bin.
       - name: Check preinstalled Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
-          sdkmanager --version
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
           ls "$ANDROID_HOME/platforms" 2>/dev/null || true
 
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
-          yes | sdkmanager --licenses
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          yes | "$SDKMGR" --licenses
 
       - name: Heap sized for the 16 GB runner
         run: |
