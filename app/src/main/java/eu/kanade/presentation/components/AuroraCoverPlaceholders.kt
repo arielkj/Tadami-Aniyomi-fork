@@ -5,6 +5,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.painter.Painter
 import coil3.SingletonImageLoader
+import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import coil3.size.Size
 import com.tadami.aurora.R
@@ -105,7 +106,7 @@ private fun enqueueAuroraCoverThumb(context: Context, data: Any?, thumbKey: Stri
         if (!auroraCoverThumbRequested.add(thumbKey)) return
         if (auroraCoverThumbRequested.size > 1000) auroraCoverThumbRequested.clear()
         val imageLoader = SingletonImageLoader.get(context)
-        if (imageLoader.memoryCache[thumbKey] != null) return
+        if (imageLoader.memoryCache?.get(MemoryCache.Key(thumbKey)) != null) return
         val thumbRequest = ImageRequest.Builder(context)
             .data(resolveAuroraCoverModel(data))
             .memoryCacheKey(thumbKey)
