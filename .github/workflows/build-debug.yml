@@ -1,0 +1,44 @@
+name: Build debug APK (v3)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tadami-v3
+        uses: actions/checkout@v4
+        with:
+          ref: tadami-v3
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          yes | sdkmanager --licenses
+
+      - name: Heap sized for the 16 GB runner
+        run: |
+          sed -i 's/-Xmx512m/-Xmx2g/' gradle.properties
+          sed -i 's/-Xmx6656m/-Xmx10240m/' gradle.properties
+          grep -E 'jvmargs' gradle.properties
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: tadami-debug-apks
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
