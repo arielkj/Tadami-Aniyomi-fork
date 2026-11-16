@@ -37,10 +37,13 @@ jobs:
           "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
           yes | "$SDKMGR" --licenses
 
+      # v4: packageDebug OOMs with a 2g Gradle daemon (ApkFlinger reads whole
+      # files into heap). Gradle 2g -> 4g; Kotlin 10240m -> 8192m so the two
+      # daemons stay inside the 16 GB runner (4g + 8g = 12g).
       - name: Heap sized for the 16 GB runner
         run: |
-          sed -i 's/-Xmx512m/-Xmx2g/' gradle.properties
-          sed -i 's/-Xmx6656m/-Xmx10240m/' gradle.properties
+          sed -i 's/-Xmx512m/-Xmx4g/' gradle.properties
+          sed -i 's/-Xmx6656m/-Xmx8192m/' gradle.properties
           grep -E 'jvmargs' gradle.properties
 
       - name: Build debug APK
