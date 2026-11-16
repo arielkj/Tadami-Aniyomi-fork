@@ -120,11 +120,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import coil3.compose.AsyncImage
 import com.tadami.aurora.BuildConfig
-import eu.kanade.domain.easteregg.lattice.LatticeCarrier
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.components.AppBar
-import eu.kanade.presentation.easteregg.lattice.LatticeCarrierSlot
-import eu.kanade.presentation.library.novel.quotes.NovelQuoteCardShareSheet
 import eu.kanade.presentation.reader.DisplayRefreshHost
 import eu.kanade.presentation.reader.components.AutoScrollActionFab
 import eu.kanade.presentation.theme.AuroraTheme
@@ -559,7 +556,6 @@ internal fun NovelReaderContentHost(
     val editingHighlightItem = editingHighlightId?.let { id ->
         highlightItemList.firstOrNull { it.highlight.id == id }
     }
-    var cardShareItem by remember { mutableStateOf<NovelHighlightWithChapter?>(null) }
     if (editingHighlightItem != null) {
         val context = LocalContext.current
         NovelHighlightEditorSheet(
@@ -592,18 +588,6 @@ internal fun NovelReaderContentHost(
                 }
                 context.startActivity(android.content.Intent.createChooser(intent, null))
             },
-            onShareCard = { note, colorArgb ->
-                cardShareItem = editingHighlightItem.copy(
-                    highlight = editingHighlightItem.highlight.copy(note = note, colorArgb = colorArgb),
-                )
-                editingHighlightId = null
-            },
-        )
-    }
-    cardShareItem?.let { item ->
-        NovelQuoteCardShareSheet(
-            item = item,
-            onDismiss = { cardShareItem = null },
         )
     }
     var pendingProgrammaticTtsBlockIndex by remember(state.chapter.id) { mutableStateOf<Int?>(null) }

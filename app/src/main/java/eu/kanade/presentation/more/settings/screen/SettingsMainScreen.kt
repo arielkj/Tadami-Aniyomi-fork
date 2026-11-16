@@ -37,7 +37,6 @@ import androidx.compose.ui.unit.sp
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.Navigator
 import cafe.adriel.voyager.navigator.currentOrThrow
-import com.tadami.aurora.BuildConfig
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.components.AppBarActions
@@ -61,8 +60,6 @@ import eu.kanade.presentation.theme.LocalIsDefaultAppUiFont
 import eu.kanade.presentation.util.LocalBackPress
 import eu.kanade.presentation.util.Screen
 import kotlinx.collections.immutable.persistentListOf
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.LocalAppHaptics
@@ -84,27 +81,9 @@ object SettingsMainScreen : Screen() {
         val uiStyle = rememberResolvedSettingsUiStyle()
         val uiPreferences = remember { Injekt.get<UiPreferences>() }
         val darkRimLightEnabled by uiPreferences.auroraDarkRimLightEnabled().collectAsState()
-        val unlockableManager = remember { Injekt.get<tachiyomi.data.achievement.UnlockableManager>() }
-        val items = remember {
-            mainSettingsNavigationItems().filter { item ->
-                if (item.key == "treasury") {
-                    shouldShowTreasury(
-                        isDebugBuild = BuildConfig.DEBUG,
-                        unlockedUnlockables = unlockableManager.getUnlockedUnlockables(),
-                    )
-                } else {
-                    true
-                }
-            }
-        }
+        val items = remember { mainSettingsNavigationItems() }
 
         val state = rememberLazyListState()
-
-        // Track settings visit for achievement
-        val achievementHandler = Injekt.get<AchievementHandler>()
-        LaunchedEffect(Unit) {
-            achievementHandler.trackFeatureUsed(AchievementEvent.Feature.SETTINGS)
-        }
 
         SettingsScaffold(
             title = stringResource(MR.strings.label_settings),

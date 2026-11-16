@@ -75,23 +75,12 @@ fun MoreScreenAurora(
     onPlayerSettingsClick: () -> Unit,
     onMangaReaderSettingsClick: () -> Unit,
     onNovelReaderSettingsClick: () -> Unit,
-    onNovelQuotesClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onAboutClick: () -> Unit,
     onDebugAppUpdatePreviewClick: () -> Unit,
     onDebugUpdatedChangelogPreviewClick: () -> Unit,
-    onDebugResetAuroraHeartClick: () -> Unit,
-    onDebugResetLatticeResonanceClick: () -> Unit,
-    onDebugForceLatticeBreachClick: () -> Unit,
-    onStatsClick: () -> Unit,
     onLibraryUpdateErrorsClick: () -> Unit,
-    onAchievementsClick: () -> Unit,
-    onTreasuryClick: () -> Unit,
     onHelpClick: () -> Unit,
-    latticeGridAvailable: Boolean,
-    onOpenLatticeGridClick: () -> Unit,
-    showReelsEntry: Boolean = false,
-    onReelsClick: () -> Unit = {},
     visibleEntryIds: List<MoreEntryId> = MoreEntryId.entries.toList(),
     onCustomizeMenuClick: () -> Unit = {},
 ) {
@@ -127,15 +116,10 @@ fun MoreScreenAurora(
     // caller without this screen knowing anything about them.
     val entries = listOfNotNull(
         MoreEntry(MoreEntryId.MOVED_TAB, onClick = onClickAlt),
-        if (showReelsEntry) MoreEntry(MoreEntryId.REELS, onClick = onReelsClick) else null,
         MoreEntry(MoreEntryId.SETTINGS, onClick = onSettingsClick),
         MoreEntry(MoreEntryId.PLAYER_SETTINGS, onClick = onPlayerSettingsClick),
         MoreEntry(MoreEntryId.READER_MANGA, onClick = onMangaReaderSettingsClick),
         MoreEntry(MoreEntryId.READER_NOVEL, onClick = onNovelReaderSettingsClick),
-        MoreEntry(MoreEntryId.QUOTES, onClick = onNovelQuotesClick),
-        MoreEntry(MoreEntryId.STATS, onClick = onStatsClick),
-        MoreEntry(MoreEntryId.ACHIEVEMENTS, onClick = onAchievementsClick),
-        MoreEntry(MoreEntryId.TREASURY, onClick = onTreasuryClick),
         MoreEntry(MoreEntryId.DATA_STORAGE, onClick = onDataStorageClick),
         MoreEntry(MoreEntryId.UPDATE_ERRORS, onClick = onLibraryUpdateErrorsClick),
         MoreEntry(MoreEntryId.DOWNLOADS, subtitle = downloadSubtitle, onClick = onDownloadClick),
@@ -151,17 +135,6 @@ fun MoreScreenAurora(
             onCheckedChange = onIncognitoModeChange,
         ),
         MoreEntry(MoreEntryId.ABOUT, onClick = onAboutClick),
-        // Safety net for the Frame resonance easter egg: once every carrier is
-        // latched the Grid must always be reachable by hand.
-        if (latticeGridAvailable) {
-            MoreEntry(
-                id = MoreEntryId.LATTICE_GRID,
-                subtitle = stringResource(AYMR.strings.lattice_open_manual_summary),
-                onClick = onOpenLatticeGridClick,
-            )
-        } else {
-            null
-        },
         if (BuildConfig.DEBUG) {
             MoreEntry(
                 id = MoreEntryId.DEBUG_APP_UPDATE,
@@ -176,33 +149,6 @@ fun MoreScreenAurora(
                 id = MoreEntryId.DEBUG_CHANGELOG,
                 subtitle = stringResource(AYMR.strings.debug_updated_changelog_preview_summary),
                 onClick = onDebugUpdatedChangelogPreviewClick,
-            )
-        } else {
-            null
-        },
-        if (BuildConfig.DEBUG) {
-            MoreEntry(
-                id = MoreEntryId.DEBUG_RESET_HEART,
-                subtitle = stringResource(AYMR.strings.debug_reset_aurora_heart_summary),
-                onClick = onDebugResetAuroraHeartClick,
-            )
-        } else {
-            null
-        },
-        if (BuildConfig.DEBUG) {
-            MoreEntry(
-                id = MoreEntryId.DEBUG_RESET_LATTICE,
-                subtitle = stringResource(AYMR.strings.debug_reset_lattice_resonance_summary),
-                onClick = onDebugResetLatticeResonanceClick,
-            )
-        } else {
-            null
-        },
-        if (BuildConfig.DEBUG) {
-            MoreEntry(
-                id = MoreEntryId.DEBUG_FORCE_BREACH,
-                subtitle = stringResource(AYMR.strings.debug_force_lattice_breach_summary),
-                onClick = onDebugForceLatticeBreachClick,
             )
         } else {
             null

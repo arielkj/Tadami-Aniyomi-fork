@@ -28,8 +28,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import tachiyomi.core.common.preference.toggle
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.domain.entries.manga.interactor.GetManga
 import tachiyomi.domain.entries.manga.interactor.NetworkToLocalManga
 import tachiyomi.domain.entries.manga.model.Manga
@@ -45,7 +43,6 @@ abstract class MangaSearchScreenModel(
     private val networkToLocalManga: NetworkToLocalManga = Injekt.get(),
     private val getManga: GetManga = Injekt.get(),
     private val preferences: SourcePreferences = Injekt.get(),
-    private val achievementHandler: AchievementHandler = Injekt.get(),
 ) : StateScreenModel<MangaSearchScreenModel.State>(initialState) {
 
     private var searchJob: Job? = null
@@ -152,21 +149,11 @@ abstract class MangaSearchScreenModel(
 
         if (query.isNullOrBlank()) return
 
-        runCatching {
-            val manager = Injekt.get<eu.kanade.domain.easteregg.aurora.AuroraHeartManager>()
-            if (!manager.state.value.unlocked) {
-                screenModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    manager.offer(query)
-                }
-            }
-        }
-
         val sameQuery = this.lastQuery == query
         if (sameQuery && this.lastSourceFilter == sourceFilter) return
 
         this.lastQuery = query
         this.lastSourceFilter = sourceFilter
-        achievementHandler.trackFeatureUsed(AchievementEvent.Feature.SEARCH)
 
         searchJob?.cancel()
         val sources = getSelectedSources()

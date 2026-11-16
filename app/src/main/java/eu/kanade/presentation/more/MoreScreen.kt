@@ -7,15 +7,11 @@ import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.CloudOff
-import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.GetApp
-import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.NewReleases
-import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.ReportProblem
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.SlowMotionVideo
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.VideoSettings
 import androidx.compose.material3.HorizontalDivider
@@ -49,26 +45,17 @@ fun MoreScreen(
     onClickAlt: () -> Unit,
     onClickDownloadQueue: () -> Unit,
     onClickCategories: () -> Unit,
-    onClickStats: () -> Unit,
     onClickLibraryUpdateErrors: () -> Unit,
     onClickStorage: () -> Unit,
     onClickDataAndStorage: () -> Unit,
     onClickPlayerSettings: () -> Unit,
     onClickMangaReaderSettings: () -> Unit,
     onClickNovelReaderSettings: () -> Unit,
-    onClickNovelQuotes: () -> Unit,
     onClickSettings: () -> Unit,
     onClickAbout: () -> Unit,
     onClickHelp: () -> Unit,
     onClickDebugAppUpdatePreview: () -> Unit,
     onClickDebugUpdatedChangelogPreview: () -> Unit,
-    onClickDebugResetAuroraHeart: () -> Unit,
-    onClickDebugResetLatticeResonance: () -> Unit,
-    onClickDebugForceLatticeBreach: () -> Unit,
-    latticeGridAvailable: Boolean,
-    onClickOpenLatticeGrid: () -> Unit,
-    showReelsEntry: Boolean = false,
-    onClickReels: () -> Unit = {},
 ) {
     TutorialScreenEntry(TipAnchor.MORE_TAB)
     Scaffold { contentPadding ->
@@ -107,28 +94,11 @@ fun MoreScreen(
                 )
             }
 
-            if (showReelsEntry) {
-                item {
-                    TextPreferenceWidget(
-                        title = stringResource(MR.strings.reels_sources_section_header),
-                        icon = Icons.Outlined.SlowMotionVideo,
-                        onPreferenceClick = onClickReels,
-                    )
-                }
-            }
-
             item {
                 TextPreferenceWidget(
                     title = stringResource(AYMR.strings.general_categories),
                     icon = Icons.AutoMirrored.Outlined.Label,
                     onPreferenceClick = onClickCategories,
-                )
-            }
-            item {
-                TextPreferenceWidget(
-                    title = stringResource(MR.strings.label_stats),
-                    icon = Icons.Outlined.QueryStats,
-                    onPreferenceClick = onClickStats,
                 )
             }
             item {
@@ -214,29 +184,10 @@ fun MoreScreen(
             }
             item {
                 TextPreferenceWidget(
-                    title = stringResource(AYMR.strings.novel_quotes_library_title),
-                    icon = Icons.Outlined.FormatQuote,
-                    onPreferenceClick = onClickNovelQuotes,
-                )
-            }
-            item {
-                TextPreferenceWidget(
                     title = stringResource(MR.strings.pref_category_about),
                     icon = Icons.Outlined.Info,
                     onPreferenceClick = onClickAbout,
                 )
-            }
-            // Safety net for the Frame resonance easter egg: once every carrier is latched
-            // the Grid must always be reachable by hand, even if an auto-open was missed.
-            if (latticeGridAvailable) {
-                item {
-                    TextPreferenceWidget(
-                        title = stringResource(AYMR.strings.lattice_open_manual),
-                        subtitle = stringResource(AYMR.strings.lattice_open_manual_summary),
-                        icon = Icons.Outlined.Hub,
-                        onPreferenceClick = onClickOpenLatticeGrid,
-                    )
-                }
             }
             if (BuildConfig.DEBUG) {
                 item {
@@ -253,30 +204,6 @@ fun MoreScreen(
                         subtitle = stringResource(AYMR.strings.debug_updated_changelog_preview_summary),
                         icon = Icons.Outlined.NewReleases,
                         onPreferenceClick = onClickDebugUpdatedChangelogPreview,
-                    )
-                }
-                item {
-                    TextPreferenceWidget(
-                        title = stringResource(AYMR.strings.debug_reset_aurora_heart),
-                        subtitle = stringResource(AYMR.strings.debug_reset_aurora_heart_summary),
-                        icon = Icons.Outlined.ReportProblem,
-                        onPreferenceClick = onClickDebugResetAuroraHeart,
-                    )
-                }
-                item {
-                    TextPreferenceWidget(
-                        title = stringResource(AYMR.strings.debug_reset_lattice_resonance),
-                        subtitle = stringResource(AYMR.strings.debug_reset_lattice_resonance_summary),
-                        icon = Icons.Outlined.ReportProblem,
-                        onPreferenceClick = onClickDebugResetLatticeResonance,
-                    )
-                }
-                item {
-                    TextPreferenceWidget(
-                        title = stringResource(AYMR.strings.debug_force_lattice_breach),
-                        subtitle = stringResource(AYMR.strings.debug_force_lattice_breach_summary),
-                        icon = Icons.Outlined.NewReleases,
-                        onPreferenceClick = onClickDebugForceLatticeBreach,
                     )
                 }
             }

@@ -231,7 +231,6 @@ fun VoidDisintegrationOverlay(
 fun VoidRevealScreen(
     rewards: List<VoidReward>,
     justUnlocked: Boolean = false,
-    onEnterTreasury: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val backgroundReveal = remember { Animatable(0f) }
@@ -469,20 +468,6 @@ fun VoidRevealScreen(
                     Spacer(Modifier.height(12.dp))
                 }
 
-                val enterTreasuryEnabled = activeStep >= 8 + rewards.size
-                SequentialRevealItem(enabled = enterTreasuryEnabled) {
-                    BrutalActionButton(
-                        text = stringResource(AYMR.strings.meltdown_ritual_enter_treasury),
-                        filled = true,
-                        visibleEnabled = enterTreasuryEnabled,
-                        onFinished = {
-                            if (activeStep == 8 + rewards.size) {
-                                activeStep = 9 + rewards.size
-                            }
-                        },
-                        onClick = onEnterTreasury,
-                    )
-                }
                 Spacer(Modifier.height(28.dp))
             }
         }

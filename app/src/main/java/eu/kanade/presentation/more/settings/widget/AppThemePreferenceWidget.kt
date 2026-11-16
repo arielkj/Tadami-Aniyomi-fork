@@ -54,7 +54,6 @@ import eu.kanade.presentation.entries.components.ItemCover
 import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.screen.isThemePreviewUnlocked
-import eu.kanade.presentation.more.settings.screen.visibleUnlockablesForTreasuryPreview
 import eu.kanade.presentation.more.settings.settingsTitleColor
 import eu.kanade.presentation.theme.TachiyomiTheme
 import eu.kanade.tachiyomi.util.system.DeviceUtil
@@ -120,10 +119,6 @@ private fun AppThemesList(
 
     val appThemes = remember(userProfile, debugBypassLocks, rawUnlockedUnlockables) {
         val unlockedThemes = userProfile?.unlockedThemes?.toSet() ?: emptySet()
-        val unlockedUnlockables = visibleUnlockablesForTreasuryPreview(
-            debugBypassLocks = debugBypassLocks,
-            unlockedUnlockables = rawUnlockedUnlockables,
-        )
 
         AppTheme.entries
             .filterNot {
@@ -132,8 +127,9 @@ private fun AppThemesList(
                     (it == AppTheme.MONET && !DeviceUtil.isDynamicColorAvailable) ||
                     (
                         it.isHidden &&
+                            !debugBypassLocks &&
                             !unlockedThemes.contains(it.name) &&
-                            !isThemePreviewUnlocked(it, unlockedUnlockables)
+                            !isThemePreviewUnlocked(it, rawUnlockedUnlockables)
                         )
             }
     }
@@ -187,6 +183,20 @@ private fun AppThemesList(
             }
         }
     }
+}
+
+private fun themeUnlockableIds(theme: AppTheme): Set<String> {
+    return setOf(
+        "theme_${theme.name}",
+        "theme_${theme.name.lowercase()}",
+    )
+}
+
+private fun isThemePreviewUnlocked(
+    theme: AppTheme,
+    unlockedUnlockables: Set<String>,
+): Boolean {
+    return themeUnlockableIds(theme).any(unlockedUnlockables::contains)
 }
 
 @Composable

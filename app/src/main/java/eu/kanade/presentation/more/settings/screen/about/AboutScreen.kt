@@ -74,9 +74,6 @@ import logcat.LogPriority
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.data.achievement.handler.FeatureUsageCollector
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.domain.release.interactor.GetApplicationRelease
 import tachiyomi.domain.release.service.AppUpdatePreferences
 import tachiyomi.i18n.MR
@@ -114,8 +111,6 @@ object AboutScreen : Screen() {
         val handleBack = LocalBackPress.current
         val navigator = LocalNavigator.currentOrThrow
         val uiStyle = rememberResolvedSettingsUiStyle()
-        val achievementHandler = remember { Injekt.get<AchievementHandler>() }
-        val featureUsageCollector = remember { Injekt.get<FeatureUsageCollector>() }
         val hiddenFeatureConfig = remember(context) { loadAboutHiddenFeatureConfig(context) }
         val hiddenFeatureContent = remember(hiddenFeatureConfig?.content) {
             hiddenFeatureConfig?.content?.localizedForLanguage(Locale.getDefault().language)
@@ -191,7 +186,6 @@ object AboutScreen : Screen() {
                     item {
                         LogoHeader(
                             onClick = {
-                                achievementHandler.trackFeatureUsed(AchievementEvent.Feature.LOGO_CLICK)
                                 syncEasterEggPhase { machine ->
                                     when (machine.onPrimarySignal(SystemClock.uptimeMillis())) {
                                         AboutEasterEggTapFeedback.Light -> {
@@ -495,16 +489,7 @@ object AboutScreen : Screen() {
                             machine.onDismissFinished()
                         }
                     },
-                    onRevealComplete = {
-                        val missingLogoClicks = (
-                            10 -
-                                featureUsageCollector.getFeatureCount(AchievementEvent.Feature.LOGO_CLICK)
-                            )
-                            .coerceAtLeast(0)
-                        repeat(missingLogoClicks) {
-                            achievementHandler.trackFeatureUsed(AchievementEvent.Feature.LOGO_CLICK)
-                        }
-                    },
+                    onRevealComplete = {},
                 )
             }
         }

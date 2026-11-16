@@ -13,9 +13,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.data.achievement.handler.AchievementEventBus
-import tachiyomi.domain.achievement.model.AchievementEvent
-import tachiyomi.domain.achievement.repository.ActivityDataRepository
 import tachiyomi.domain.category.novel.interactor.GetNovelCategories
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.entries.novel.model.Novel
@@ -94,8 +91,6 @@ internal class NovelProgressPersistenceController(
     private val host: NovelProgressPersistenceHost,
     private val novelChapterRepository: NovelChapterRepository,
     private val getIncognitoState: GetNovelIncognitoState,
-    private val eventBus: AchievementEventBus?,
-    private val activityDataRepository: ActivityDataRepository,
     private val historyRepository: NovelHistoryRepository?,
     private val downloadPreferences: DownloadPreferences = Injekt.get(),
     private val getNovelCategories: GetNovelCategories = Injekt.get(),
@@ -258,44 +253,6 @@ internal class NovelProgressPersistenceController(
 
             if (nextUpdate.read) {
                 maybeDeleteReadChapterDownloads(nextUpdate)
-            }
-
-            val sessionDuration = nextUpdate.sessionReadDurationMs.coerceAtLeast(0L)
-            if (nextUpdate.emitReadEvent) {
-                runCatching {
-                    if (eu.kanade.domain.easteregg.aurora.AuroraNight.isVeilThin()) {
-                        val manager = Injekt.get<eu.kanade.domain.easteregg.aurora.AuroraHeartManager>()
-                        manager.registerNightAction()
-                    }
-                }
-                eventBus?.tryEmit(
-                    AchievementEvent.NovelChapterRead(
-                        novelId = nextUpdate.novelId,
-                        chapterNumber = nextUpdate.chapterNumber,
-                    ),
-                )
-                if (nextUpdate.emitNovelCompleted) {
-                    eventBus?.tryEmit(AchievementEvent.NovelCompleted(nextUpdate.novelId))
-                }
-                activityDataRepository.recordReading(
-                    id = nextUpdate.chapterId,
-                    chaptersCount = 1,
-                    durationMs = sessionDuration,
-                )
-                if (Injekt.get<eu.kanade.domain.track.service.TrackPreferences>().autoUpdateTrack().get()) {
-                    val context = Injekt.get<Application>()
-                    Injekt.get<TrackNovelChapter>().await(
-                        context,
-                        nextUpdate.novelId,
-                        nextUpdate.chapterNumber.toDouble(),
-                    )
-                }
-            } else if (sessionDuration > 0L) {
-                activityDataRepository.recordReading(
-                    id = nextUpdate.chapterId,
-                    chaptersCount = 0,
-                    durationMs = sessionDuration,
-                )
             }
 
             if (nextUpdate.emitReadEvent) {

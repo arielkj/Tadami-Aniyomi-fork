@@ -72,12 +72,6 @@ class CloudSyncOptionsScreen : Screen() {
                 }
 
                 item {
-                    SectionCard(AYMR.strings.achievements) {
-                        Options(BackupOptions.achievementsOptions, state, model)
-                    }
-                }
-
-                item {
                     SectionCard(MR.strings.label_backup) {
                         Options(BackupOptions.compatOptions, state, model)
                     }

@@ -29,8 +29,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import tachiyomi.core.common.preference.toggle
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.domain.entries.novel.interactor.GetNovel
 import tachiyomi.domain.entries.novel.interactor.NetworkToLocalNovel
 import tachiyomi.domain.entries.novel.model.Novel
@@ -45,7 +43,6 @@ abstract class NovelSearchScreenModel(
     private val networkToLocalNovel: NetworkToLocalNovel = Injekt.get(),
     private val getNovel: GetNovel = Injekt.get(),
     private val preferences: SourcePreferences = Injekt.get(),
-    private val achievementHandler: AchievementHandler = Injekt.get(),
 ) : StateScreenModel<NovelSearchScreenModel.State>(initialState) {
 
     private var searchJob: Job? = null
@@ -138,21 +135,11 @@ abstract class NovelSearchScreenModel(
 
         if (query.isNullOrBlank()) return
 
-        runCatching {
-            val manager = Injekt.get<eu.kanade.domain.easteregg.aurora.AuroraHeartManager>()
-            if (!manager.state.value.unlocked) {
-                screenModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    manager.offer(query)
-                }
-            }
-        }
-
         val sameQuery = this.lastQuery == query
         if (sameQuery && this.lastSourceFilter == sourceFilter) return
 
         this.lastQuery = query
         this.lastSourceFilter = sourceFilter
-        achievementHandler.trackFeatureUsed(AchievementEvent.Feature.SEARCH)
 
         searchJob?.cancel()
 

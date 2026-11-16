@@ -132,9 +132,6 @@ class RestoreBackupScreen(
                                 if (inspection.hasExtensions) {
                                     BackupStatRow(stringResource(MR.strings.label_extensions), "\u2713")
                                 }
-                                if (inspection.hasAchievements) {
-                                    BackupStatRow(stringResource(AYMR.strings.achievements), "\u2713")
-                                }
                             }
                         }
                     }

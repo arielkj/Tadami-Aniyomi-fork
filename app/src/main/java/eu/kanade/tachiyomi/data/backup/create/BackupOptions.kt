@@ -21,10 +21,6 @@ data class BackupOptions(
     val sourceSettings: Boolean = true,
     val privateSettings: Boolean = false,
     val extensions: Boolean = false,
-    val achievements: Boolean = true,
-    val stats: Boolean = true,
-    val reelsFavorites: Boolean = true,
-    val reelsFollows: Boolean = true,
     val discoveryData: Boolean = true,
     val sisterAppCompatible: Boolean = false,
 ) {
@@ -46,15 +42,11 @@ data class BackupOptions(
         sourceSettings,
         privateSettings,
         extensions,
-        achievements,
-        stats,
         backupManga,
         backupAnime,
         backupNovel,
         sisterAppCompatible,
-        reelsFavorites,
         discoveryData,
-        reelsFollows,
     )
 
     fun canCreate(): Boolean {
@@ -65,10 +57,6 @@ data class BackupOptions(
             extensionRepoSettings ||
             customButton ||
             sourceSettings ||
-            achievements ||
-            stats ||
-            reelsFavorites ||
-            reelsFollows ||
             discoveryData
     }
 
@@ -121,16 +109,6 @@ data class BackupOptions(
                 setter = { options, enabled -> options.copy(categories = enabled) },
             ),
             Entry(
-                label = MR.strings.reels_favorites_title,
-                getter = BackupOptions::reelsFavorites,
-                setter = { options, enabled -> options.copy(reelsFavorites = enabled) },
-            ),
-            Entry(
-                label = MR.strings.reels_follows_title,
-                getter = BackupOptions::reelsFollows,
-                setter = { options, enabled -> options.copy(reelsFollows = enabled) },
-            ),
-            Entry(
                 label = AYMR.strings.backup_discovery_data,
                 getter = BackupOptions::discoveryData,
                 setter = { options, enabled -> options.copy(discoveryData = enabled) },
@@ -180,18 +158,6 @@ data class BackupOptions(
             ),
         )
 
-        val achievementsOptions = persistentListOf(
-            Entry(
-                label = AYMR.strings.achievements,
-                getter = BackupOptions::achievements,
-                setter = { options, enabled -> options.copy(achievements = enabled) },
-            ),
-            Entry(
-                label = AYMR.strings.stats,
-                getter = BackupOptions::stats,
-                setter = { options, enabled -> options.copy(stats = enabled) },
-            ),
-        )
 
         val compatOptions = persistentListOf(
             Entry(
@@ -214,15 +180,11 @@ data class BackupOptions(
             sourceSettings = array.getOrNull(9) ?: true,
             privateSettings = array.getOrNull(10) ?: false,
             extensions = array.getOrNull(11) ?: false,
-            achievements = array.getOrNull(12) ?: true,
-            stats = array.getOrNull(13) ?: true,
-            backupManga = array.getOrNull(14) ?: true,
-            backupAnime = array.getOrNull(15) ?: true,
-            backupNovel = array.getOrNull(16) ?: true,
-            sisterAppCompatible = array.getOrNull(17) ?: false,
-            reelsFavorites = array.getOrNull(18) ?: true,
-            discoveryData = array.getOrNull(19) ?: true,
-            reelsFollows = array.getOrNull(20) ?: true,
+            backupManga = array.getOrNull(12) ?: true,
+            backupAnime = array.getOrNull(13) ?: true,
+            backupNovel = array.getOrNull(14) ?: true,
+            sisterAppCompatible = array.getOrNull(15) ?: false,
+            discoveryData = array.getOrNull(16) ?: true,
         )
     }
 

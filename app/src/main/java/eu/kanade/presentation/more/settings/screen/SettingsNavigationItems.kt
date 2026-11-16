@@ -9,13 +9,10 @@ import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.EditNote
-import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Explore
-import androidx.compose.material.icons.outlined.FormatQuote
 import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.GetApp
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PlayCircleOutline
@@ -28,7 +25,6 @@ import androidx.compose.material.icons.outlined.VideoSettings
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.vector.ImageVector
 import dev.icerock.moko.resources.StringResource
-import eu.kanade.presentation.achievement.screen.AchievementScreenVoyager
 import eu.kanade.presentation.more.settings.screen.about.AboutScreen
 import eu.kanade.presentation.more.settings.screen.player.PlayerSettingsAdvancedScreen
 import eu.kanade.presentation.more.settings.screen.player.PlayerSettingsAudioScreen
@@ -40,7 +36,6 @@ import eu.kanade.presentation.more.settings.screen.player.PlayerSettingsTorrentS
 import eu.kanade.presentation.more.settings.screen.player.custombutton.PlayerSettingsCustomButtonScreen
 import eu.kanade.presentation.more.settings.screen.player.editor.PlayerSettingsEditorScreen
 import eu.kanade.presentation.more.settings.screen.player.layout.PlayerSettingsLayoutMainScreen
-import eu.kanade.tachiyomi.ui.library.novel.quotes.NovelQuotesLibraryScreen
 import eu.kanade.tachiyomi.ui.setting.PlayerSettingsScreen
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
@@ -106,26 +101,6 @@ internal fun mainSettingsNavigationItems(): List<SettingsNavigationItem> = listO
         subtitleRes = AYMR.strings.pref_player_settings_summary,
         icon = Icons.Outlined.VideoSettings,
         screen = PlayerSettingsScreen(mainSettings = true),
-    ),
-    SettingsNavigationItem(
-        key = "achievements",
-        titleRes = AYMR.strings.label_achievements,
-        subtitleRes = AYMR.strings.pref_achievements_summary,
-        icon = Icons.Outlined.EmojiEvents,
-        screen = AchievementScreenVoyager,
-    ),
-    SettingsNavigationItem(
-        key = "treasury",
-        titleRes = AYMR.strings.label_treasury,
-        subtitleRes = AYMR.strings.pref_treasury_summary,
-        icon = Icons.Outlined.Inventory2,
-        screen = SettingsTreasuryScreen,
-    ),
-    SettingsNavigationItem(
-        key = "novel_quotes",
-        titleRes = AYMR.strings.novel_quotes_library_title,
-        icon = Icons.Outlined.FormatQuote,
-        screen = NovelQuotesLibraryScreen(),
     ),
     SettingsNavigationItem(
         key = "downloads",

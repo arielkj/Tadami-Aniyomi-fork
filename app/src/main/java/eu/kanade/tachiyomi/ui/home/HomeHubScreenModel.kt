@@ -200,8 +200,8 @@ internal class HomeHubScreenModel(
         }
 
         // Enabled (installed) anime sources for the Home source picker — mirrors Browse's logic.
-        // Feed (Reels) sources are excluded: they are not catalogue sources and cannot be
-        // browsed/searched from the Home picker; they are opened via the dedicated Reels screen.
+        // Feed sources are excluded: they are not catalogue sources and cannot be
+        // browsed/searched from the Home picker.
         screenModelScope.launchIO {
             getEnabledAnimeSources.subscribe().collectLatest { sources ->
                 mutableState.update {

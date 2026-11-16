@@ -82,8 +82,6 @@ import eu.kanade.tachiyomi.data.discovery.DiscoverySeedSources
 import eu.kanade.tachiyomi.data.updater.AppUpdateFileManager
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.ui.player.utils.TrackSelect
-import eu.kanade.tachiyomi.ui.reels.ReelsOfflineStore
-import eu.kanade.tachiyomi.ui.reels.ReelsOfflineStoreImpl
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.protobuf.ProtoBuf
 import mihon.data.extension.repository.ExtensionStoreFetcher
@@ -119,17 +117,7 @@ import mihon.domain.upcoming.manga.interactor.GetUpcomingManga
 import mihon.domain.upcoming.novel.interactor.GetUpcomingNovel
 import tachiyomi.data.achievement.ActivityDataRepositoryImpl
 import tachiyomi.data.achievement.UserProfileManager
-import tachiyomi.data.achievement.handler.AchievementCalculator
-import tachiyomi.data.achievement.handler.AchievementEventBus
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.data.achievement.handler.AchievementRuleRegistry
-import tachiyomi.data.achievement.handler.FeatureUsageCollector
-import tachiyomi.data.achievement.handler.SessionManager
-import tachiyomi.data.achievement.handler.checkers.DiversityAchievementChecker
-import tachiyomi.data.achievement.handler.checkers.FeatureBasedAchievementChecker
 import tachiyomi.data.achievement.handler.checkers.StreakAchievementChecker
-import tachiyomi.data.achievement.handler.checkers.TimeBasedAchievementChecker
-import tachiyomi.data.achievement.repository.AchievementRepositoryImpl
 import tachiyomi.data.book.novel.NovelBookStateRepositoryImpl
 import tachiyomi.data.book.novel.NovelHighlightRepositoryImpl
 import tachiyomi.data.category.anime.AnimeCategoryRepositoryImpl
@@ -150,14 +138,6 @@ import tachiyomi.data.history.novel.NovelHistoryRepositoryImpl
 import tachiyomi.data.items.chapter.ChapterRepositoryImpl
 import tachiyomi.data.items.episode.EpisodeRepositoryImpl
 import tachiyomi.data.items.novelchapter.NovelChapterRepositoryImpl
-import tachiyomi.data.reels.anime.ReelsAlbumRepositoryImpl
-import tachiyomi.data.reels.anime.ReelsCandidateRepositoryImpl
-import tachiyomi.data.reels.anime.ReelsConsumptionRepositoryImpl
-import tachiyomi.data.reels.anime.ReelsFavoriteRepositoryImpl
-import tachiyomi.data.reels.anime.ReelsFollowRepositoryImpl
-import tachiyomi.data.reels.anime.ReelsHiddenRepositoryImpl
-import tachiyomi.data.reels.anime.ReelsSessionRepositoryImpl
-import tachiyomi.data.reels.anime.ReelsWatchRepositoryImpl
 import tachiyomi.data.release.ReleaseServiceImpl
 import tachiyomi.data.series.anime.AnimeSeriesRepositoryImpl
 import tachiyomi.data.series.manga.MangaSeriesRepositoryImpl
@@ -175,7 +155,6 @@ import tachiyomi.data.track.novel.NovelTrackRepositoryImpl
 import tachiyomi.data.updates.anime.AnimeUpdatesRepositoryImpl
 import tachiyomi.data.updates.manga.MangaUpdatesRepositoryImpl
 import tachiyomi.data.updates.novel.NovelUpdatesRepositoryImpl
-import tachiyomi.domain.achievement.repository.AchievementRepository
 import tachiyomi.domain.achievement.repository.ActivityDataRepository
 import tachiyomi.domain.book.novel.interactor.AddNovelHighlight
 import tachiyomi.domain.book.novel.interactor.DeleteNovelBookState
@@ -303,14 +282,6 @@ import tachiyomi.domain.items.novelchapter.repository.NovelChapterRepository
 import tachiyomi.domain.items.season.interactor.GetAnimeSeasonsByParentId
 import tachiyomi.domain.items.season.interactor.SetAnimeDefaultSeasonFlags
 import tachiyomi.domain.items.season.interactor.ShouldUpdateDbSeason
-import tachiyomi.domain.reels.anime.repository.ReelsAlbumRepository
-import tachiyomi.domain.reels.anime.repository.ReelsCandidateRepository
-import tachiyomi.domain.reels.anime.repository.ReelsConsumptionRepository
-import tachiyomi.domain.reels.anime.repository.ReelsFavoriteRepository
-import tachiyomi.domain.reels.anime.repository.ReelsFollowRepository
-import tachiyomi.domain.reels.anime.repository.ReelsHiddenRepository
-import tachiyomi.domain.reels.anime.repository.ReelsSessionRepository
-import tachiyomi.domain.reels.anime.repository.ReelsWatchRepository
 import tachiyomi.domain.release.interactor.GetApplicationRelease
 import tachiyomi.domain.release.service.AppUpdatePreferences
 import tachiyomi.domain.release.service.ReleaseService
@@ -640,7 +611,7 @@ class DomainModule : InjektModule {
         addFactory { GetEpisodesByAnimeId(get()) }
         addFactory { GetEpisodeByUrlAndAnimeId(get()) }
         addFactory { UpdateEpisode(get()) }
-        addFactory { SetSeenStatus(get(), get(), get(), get(), get()) }
+        addFactory { SetSeenStatus(get(), get(), get(), get()) }
         addFactory { ShouldUpdateDbEpisode() }
         addFactory { SyncEpisodesWithSource(get(), get(), get(), get(), get(), get(), get(), get()) }
         addFactory { FilterEpisodesForDownload(get(), get(), get()) }
@@ -650,7 +621,7 @@ class DomainModule : InjektModule {
         addFactory { GetChaptersByMangaId(get()) }
         addFactory { GetChapterByUrlAndMangaId(get()) }
         addFactory { UpdateChapter(get()) }
-        addFactory { SetReadStatus(get(), get(), get(), get(), get()) }
+        addFactory { SetReadStatus(get(), get(), get(), get()) }
         addFactory { ShouldUpdateDbChapter() }
         addFactory { SyncChaptersWithSource(get(), get(), get(), get(), get(), get(), get(), get(), get()) }
         addFactory { GetAvailableScanlators(get()) }
@@ -706,15 +677,6 @@ class DomainModule : InjektModule {
 
         addSingletonFactory<AnimeSourceRepository> { AnimeSourceRepositoryImpl(get(), get()) }
         addSingletonFactory<AnimeStubSourceRepository> { AnimeStubSourceRepositoryImpl(get()) }
-        addSingletonFactory<ReelsFavoriteRepository> { ReelsFavoriteRepositoryImpl(get()) }
-        addSingletonFactory<ReelsFollowRepository> { ReelsFollowRepositoryImpl(get()) }
-        addSingletonFactory<ReelsWatchRepository> { ReelsWatchRepositoryImpl(get()) }
-        addSingletonFactory<ReelsHiddenRepository> { ReelsHiddenRepositoryImpl(get()) }
-        addSingletonFactory<ReelsAlbumRepository> { ReelsAlbumRepositoryImpl(get()) }
-        addSingletonFactory<ReelsConsumptionRepository> { ReelsConsumptionRepositoryImpl(get()) }
-        addSingletonFactory<ReelsCandidateRepository> { ReelsCandidateRepositoryImpl(get()) }
-        addSingletonFactory<ReelsSessionRepository> { ReelsSessionRepositoryImpl(get()) }
-        addSingletonFactory<ReelsOfflineStore> { ReelsOfflineStoreImpl() }
         addFactory { GetEnabledAnimeSources(get(), get()) }
         addFactory { GetLanguagesWithAnimeSources(get(), get()) }
         addFactory { GetRemoteAnime(get()) }
@@ -826,41 +788,17 @@ class DomainModule : InjektModule {
 
         addFactory { TrackSelect(get(), get()) }
 
-        addSingletonFactory<AchievementRepository> { AchievementRepositoryImpl(get()) }
+        // Kept: Home greeting stats / streak display still read the activity profile store.
         addSingletonFactory<tachiyomi.domain.achievement.repository.UserProfileRepository> {
             tachiyomi.data.achievement.UserProfileRepositoryImpl(get())
         }
         addSingletonFactory<tachiyomi.domain.achievement.repository.ActivityDataRepository> {
             tachiyomi.data.achievement.ActivityDataRepositoryImpl(get())
         }
-        addSingletonFactory { DiversityAchievementChecker(get(), get(), get()) }
         addSingletonFactory { StreakAchievementChecker(get()) }
-        addSingletonFactory { FeatureUsageCollector(get()) }
-        addSingletonFactory { TimeBasedAchievementChecker(get(), get()) }
-        addSingletonFactory { FeatureBasedAchievementChecker(get(), get()) }
-        addSingletonFactory { AchievementRuleRegistry(get(), get(), get(), get()) }
-        addSingletonFactory {
-            AchievementCalculator(
-                get(), get(), get(), get(), get(),
-                get(), get(), get(), get(), get(),
-                get(), get(), get(), get(), get(),
-                get(),
-            )
-        }
-        addSingletonFactory { AchievementEventBus() }
-        addSingletonFactory { SessionManager(get(), get()) }
         addSingletonFactory {
             tachiyomi.data.achievement.UserProfileManager(get())
         }
-        addSingletonFactory {
-            AchievementHandler(
-                get(), get(), get(), get(), get(),
-                get(), get(), get(), get(), get(),
-                get(), get(), get(), get(), get(),
-                get(), get(), get(),
-            )
-        }
-        // Note: AchievementLoader, PointsManager, UnlockableManager require Context
-        // They are registered in AppModule instead
+
     }
 }

@@ -28,8 +28,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import tachiyomi.core.common.preference.toggle
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.domain.entries.anime.interactor.GetAnime
 import tachiyomi.domain.entries.anime.interactor.NetworkToLocalAnime
 import tachiyomi.domain.entries.anime.model.Anime
@@ -45,7 +43,6 @@ abstract class AnimeSearchScreenModel(
     private val networkToLocalAnime: NetworkToLocalAnime = Injekt.get(),
     private val getAnime: GetAnime = Injekt.get(),
     private val preferences: SourcePreferences = Injekt.get(),
-    private val achievementHandler: AchievementHandler = Injekt.get(),
 ) : StateScreenModel<AnimeSearchScreenModel.State>(initialState) {
 
     private var searchJob: Job? = null
@@ -156,21 +153,11 @@ abstract class AnimeSearchScreenModel(
 
         if (query.isNullOrBlank()) return
 
-        runCatching {
-            val manager = Injekt.get<eu.kanade.domain.easteregg.aurora.AuroraHeartManager>()
-            if (!manager.state.value.unlocked) {
-                screenModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    manager.offer(query)
-                }
-            }
-        }
-
         val sameQuery = this.lastQuery == query
         if (sameQuery && this.lastSourceFilter == sourceFilter) return
 
         this.lastQuery = query
         this.lastSourceFilter = sourceFilter
-        achievementHandler.trackFeatureUsed(AchievementEvent.Feature.SEARCH)
 
         val sources = getSelectedSources()
 

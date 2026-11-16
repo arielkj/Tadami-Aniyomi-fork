@@ -28,11 +28,6 @@ data class LegacyBackup(
     @ProtoNumber(650) var backupAnimeExtensionStore: List<BackupExtensionStore> = emptyList(),
     @ProtoNumber(651) var backupMangaExtensionStore: List<BackupExtensionStore> = emptyList(),
     @ProtoNumber(652) var backupNovelExtensionStore: List<BackupExtensionStore> = emptyList(),
-    // Achievement system
-    @ProtoNumber(600) var backupAchievements: List<BackupAchievement> = emptyList(),
-    @ProtoNumber(601) var backupUserProfile: BackupUserProfile? = null,
-    @ProtoNumber(602) var backupActivityLog: List<BackupDayActivity> = emptyList(),
-    @ProtoNumber(603) var backupStats: BackupStats? = null,
     @ProtoNumber(620) var backupMangaSeries: List<BackupMangaSeries> = emptyList(),
     @ProtoNumber(621) var backupNovelSeries: List<BackupNovelSeries> = emptyList(),
     // Feed
@@ -62,10 +57,6 @@ data class LegacyBackup(
             backupNovelExtensionRepo = backupNovelExtensionRepo,
             backupAnimeExtensionStore = backupAnimeExtensionStore,
             backupNovelExtensionStore = backupNovelExtensionStore,
-            backupAchievements = backupAchievements,
-            backupUserProfile = backupUserProfile,
-            backupActivityLog = backupActivityLog,
-            backupStats = backupStats,
             backupMangaSeries = backupMangaSeries,
             backupNovelSeries = backupNovelSeries,
             backupAnimeSeries = backupAnimeSeries,
@@ -99,18 +90,10 @@ data class Backup(
     @ProtoNumber(509) var backupNovelCategories: List<BackupCategory> = emptyList(),
     @ProtoNumber(510) var backupNovelSources: List<BackupSource> = emptyList(),
 
-    // Achievement system
-    @ProtoNumber(600) var backupAchievements: List<BackupAchievement> = emptyList(),
-    @ProtoNumber(601) var backupUserProfile: BackupUserProfile? = null,
-    @ProtoNumber(602) var backupActivityLog: List<BackupDayActivity> = emptyList(),
-    @ProtoNumber(603) var backupStats: BackupStats? = null,
     @ProtoNumber(620) var backupMangaSeries: List<BackupMangaSeries> = emptyList(),
     @ProtoNumber(621) var backupNovelSeries: List<BackupNovelSeries> = emptyList(),
     // Feed
     @ProtoNumber(622) var backupFeeds: List<BackupFeed> = emptyList(),
-    // Reels favorites + creator follows
-    @ProtoNumber(623) var backupReelsFavorites: List<BackupReelsFavorite> = emptyList(),
-    @ProtoNumber(626) var backupReelsFollows: List<BackupReelsFollow> = emptyList(),
     // Discovery «Для тебя»: скрытые тайтлы и теговый блэклист (кэш подборок не бэкапится)
     @ProtoNumber(624) var backupDiscoveryHidden: List<BackupDiscoveryHidden> = emptyList(),
     @ProtoNumber(625) var backupDiscoveryBlacklistTags: List<BackupDiscoveryTag> = emptyList(),
@@ -138,10 +121,6 @@ internal fun Backup.mergeLegacyPayloadIfPresent(legacy: LegacyBackup): Backup {
         backupAnimeExtensionStore = backupAnimeExtensionStore.ifEmpty { legacy.backupAnimeExtensionStore },
         backupMangaExtensionStore = backupMangaExtensionStore.ifEmpty { legacy.backupMangaExtensionStore },
         backupNovelExtensionStore = backupNovelExtensionStore.ifEmpty { legacy.backupNovelExtensionStore },
-        backupAchievements = backupAchievements.ifEmpty { legacy.backupAchievements },
-        backupUserProfile = backupUserProfile ?: legacy.backupUserProfile,
-        backupActivityLog = backupActivityLog.ifEmpty { legacy.backupActivityLog },
-        backupStats = backupStats ?: legacy.backupStats,
         backupMangaSeries = backupMangaSeries.ifEmpty { legacy.backupMangaSeries },
         backupNovelSeries = backupNovelSeries.ifEmpty { legacy.backupNovelSeries },
         backupFeeds = backupFeeds.ifEmpty { legacy.backupFeeds },

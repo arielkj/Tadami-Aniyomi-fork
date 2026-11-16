@@ -42,8 +42,6 @@ import kotlinx.serialization.json.jsonArray
 import tachiyomi.core.common.preference.CheckboxState
 import tachiyomi.core.common.preference.mapAsCheckboxState
 import tachiyomi.core.common.util.lang.launchIO
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.domain.category.manga.interactor.GetMangaCategories
 import tachiyomi.domain.category.manga.interactor.SetMangaCategories
 import tachiyomi.domain.category.model.Category
@@ -88,7 +86,6 @@ class BrowseMangaSourceScreenModel(
     private val updateManga: UpdateManga = Injekt.get(),
     private val addTracks: AddMangaTracks = Injekt.get(),
     private val getIncognitoState: GetMangaIncognitoState = Injekt.get(),
-    private val achievementHandler: AchievementHandler = Injekt.get(),
     private val getSavedSearchById: GetSavedSearchById = Injekt.get(),
     private val getSavedSearchBySourceId: GetSavedSearchBySourceId = Injekt.get(),
     private val insertSavedSearch: InsertSavedSearch = Injekt.get(),
@@ -381,36 +378,13 @@ class BrowseMangaSourceScreenModel(
         mutableState.update { it.copy(listing = listing, toolbarQuery = null) }
     }
 
-    // РЕШ-9: the filter sheet mutates the state's FilterList IN PLACE and hands back the same
-    // instance, so the old serialize(filters) vs serialize(state.value.filters) compared the
-    // object with itself - `changed` was always false and browse never tracked the FILTER
-    // achievement (symmetrically in all three media). Compare against a snapshot of the last
-    // applied serialization instead; the first apply in a session counts as a change (the sheet
-    // was used), identical re-applies do not.
-    private var appliedFiltersSnapshot: String? = null
-
-    private fun serializeFiltersSafely(filters: FilterList): String? {
-        return try {
-            kotlinx.serialization.json.Json.encodeToString(filterSerializer.serialize(filters))
-        } catch (e: Exception) {
-            null
-        }
-    }
-
     fun setFilters(filters: FilterList) {
         if (source !is CatalogueSource) return
-
-        val newSnapshot = serializeFiltersSafely(filters)
-        val changed = newSnapshot != appliedFiltersSnapshot
-        appliedFiltersSnapshot = newSnapshot
 
         mutableState.update {
             it.copy(
                 filters = filters,
             )
-        }
-        if (changed) {
-            achievementHandler.trackFeatureUsed(AchievementEvent.Feature.FILTER)
         }
     }
 
@@ -421,17 +395,6 @@ class BrowseMangaSourceScreenModel(
         val currentState = state.value
         val input = currentState.listing as? Listing.Search
             ?: Listing.Search(query = null, filters = currentState.filters)
-
-        val q = query ?: input.query
-        if (!q.isNullOrBlank()) {
-            val f = filters ?: input.filters
-            val hasActiveFilters = serializeFilters(f)?.let { it != defaultFiltersSerialized } ?: f.isNotEmpty()
-            if (hasActiveFilters) {
-                achievementHandler.trackFeatureUsed(AchievementEvent.Feature.ADVANCED_SEARCH)
-            } else {
-                achievementHandler.trackFeatureUsed(AchievementEvent.Feature.SEARCH)
-            }
-        }
 
         mutableState.update {
             it.copy(

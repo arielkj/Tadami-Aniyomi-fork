@@ -5,15 +5,9 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -34,8 +28,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import tachiyomi.core.common.preference.Preference
-import tachiyomi.data.achievement.UnlockableManager
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -47,14 +39,17 @@ import kotlin.random.Random
 /**
  * "Celestial Navigation" — визуальная награда для Aurora Bottom Bar.
  *
- * Смесь трёх эффектов (включается только когда разблокирован unlockable
- * [AURORA_CELESTIAL_NAVBAR_UNLOCKABLE] и активен Aurora-стиль нижней навигации):
- *  - «Ночное небо»   — мерцающие звёзды в стекле бара;
+ * Смесь трёх эффектов (включается переключателем в настройках Aurora):
+ *  - «Ночное небо»   — звёзды в стекле бара (estáticas, sin titilar);
  *  - «Волна света»   — световая волна, пробегающая от старой вкладки к новой;
- *  - «Полярное гало» — светящееся кольцо с двумя орбитальными бликами вокруг
+ *  - «Полярное гало» — светящееся кольцо с dos бликами fijos alrededor de la
  *                      пилюли активной вкладки.
  *
- * Файл самодостаточный: ничего, кроме UnlockableManager (Injekt), не тянет.
+ * V5: las estrellas y el halo son estáticos (sin bucles infinitos); la onda
+ * de luz sigue siendo una animación única de 700 ms al cambiar de pestaña.
+ * El antiguo гейт por unlockable (UnlockableManager) se eliminó: el sistema
+ * de desbloqueo quedó huérfano tras la fase 1 y su observador permanente no
+ * aportaba nada; manda solo el interruptor de preferencias.
  */
 const val AURORA_CELESTIAL_NAVBAR_UNLOCKABLE = "special_navbar_aurora_celestial"
 
@@ -92,36 +87,13 @@ private fun DrawScope.drawCelestialStars(
 }
 
 /**
- * Общий гейт «награды-навбара»: включён переключателем И разблокирован в
- * Сокровищнице. Реактивно обновляется при разблокировке.
- */
-@Composable
-internal fun rememberUnlockableNavbarEnabled(
-    enabled: Preference<Boolean>,
-    unlockableId: String,
-): Boolean {
-    val isEnabled by enabled.collectAsState()
-    val unlockableManager = remember { Injekt.get<UnlockableManager>() }
-    val unlockedUnlockables by remember(unlockableManager) {
-        unlockableManager.observeUnlockedUnlockables()
-    }.collectAsState(initial = unlockableManager.getUnlockedUnlockables())
-    val isUnlocked = remember(unlockedUnlockables) {
-        unlockableManager.isUnlockableAvailable(unlockableId)
-    }
-    return isEnabled && isUnlocked
-}
-
-/**
- * true, когда награда доступна (разблокирована пасхалкой или включён
- * debug-обход замков Сокровищницы). Реактивно обновляется при разблокировке.
+ * True, cuando el interruptor de la barra Celestial está activado en
+ * preferencias. V5: sin гейт por unlockable (ver cabecera del archivo).
  */
 @Composable
 fun rememberAuroraCelestialNavbarUnlocked(): Boolean {
     val uiPreferences = remember { Injekt.get<eu.kanade.domain.ui.UiPreferences>() }
-    return rememberUnlockableNavbarEnabled(
-        enabled = uiPreferences.showCelestialNavbar(),
-        unlockableId = AURORA_CELESTIAL_NAVBAR_UNLOCKABLE,
-    )
+    return uiPreferences.showCelestialNavbar().collectAsState().value
 }
 
 /**
@@ -156,20 +128,8 @@ fun Modifier.auroraCelestialBar(
     tabCount: Int,
 ): Modifier {
     val animate = rememberCelestialAnimationEnabled()
-    val time = if (animate) {
-        val transition = rememberInfiniteTransition(label = "auroraCelestialBar")
-        transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 24_000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "starTime",
-        )
-    } else {
-        remember { mutableFloatStateOf(0f) }
-    }
+    // V5: estrellas estáticas — un solo dibujo con tiempo fijo, sin bucle infinito.
+    val time = remember { mutableFloatStateOf(0.35f) }
 
     // Волна света: перезапускается при смене выбранной вкладки.
     val wave = remember { Animatable(1f) }
@@ -238,21 +198,8 @@ fun Modifier.auroraCelestialHalo(
     enabled: Boolean = true,
 ): Modifier {
     if (!enabled) return this
-    val animate = rememberCelestialAnimationEnabled()
-    val orbit = if (animate) {
-        val transition = rememberInfiniteTransition(label = "auroraCelestialHalo")
-        transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 5_200, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "orbit",
-        )
-    } else {
-        remember { mutableFloatStateOf(0f) }
-    }
+    // V5: блики орбитальные fijos — sin bucle infinito (el anillo ya era estático).
+    val orbit = remember { mutableFloatStateOf(0.25f) }
     val sheen = if (isDark) Color(SHEEN_DARK) else Color.White
 
     return this.drawBehind {
@@ -375,20 +322,8 @@ fun Modifier.auroraCelestialRail(
     tabCount: Int,
 ): Modifier {
     val animate = rememberCelestialAnimationEnabled()
-    val time = if (animate) {
-        val transition = rememberInfiniteTransition(label = "auroraCelestialRail")
-        transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 24_000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "railStarTime",
-        )
-    } else {
-        remember { mutableFloatStateOf(0f) }
-    }
+    // V5: estrellas estáticas — un solo dibujo con tiempo fijo, sin bucle infinito.
+    val time = remember { mutableFloatStateOf(0.35f) }
 
     val wave = remember { Animatable(1f) }
     var previousIndex by remember { mutableIntStateOf(selectedIndex) }

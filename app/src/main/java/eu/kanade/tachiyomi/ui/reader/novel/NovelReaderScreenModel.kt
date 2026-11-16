@@ -143,9 +143,6 @@ import org.jsoup.nodes.Node
 import org.jsoup.nodes.TextNode
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.data.achievement.handler.AchievementEventBus
-import tachiyomi.domain.achievement.model.AchievementEvent
-import tachiyomi.domain.achievement.repository.ActivityDataRepository
 import tachiyomi.domain.book.novel.model.NovelHighlight
 import tachiyomi.domain.book.novel.model.NovelHighlightWithChapter
 import tachiyomi.domain.entries.novel.interactor.GetNovel
@@ -200,8 +197,6 @@ class NovelReaderScreenModel(
         pluginAssetBindings = pluginAssetBindings,
         novelReaderPreferences = novelReaderPreferences,
     ),
-    private val eventBus: AchievementEventBus? = runCatching { Injekt.get<AchievementEventBus>() }.getOrNull(),
-    private val activityDataRepository: ActivityDataRepository = Injekt.get(),
     private val updateNovel: UpdateNovel = Injekt.get(),
     private val mangaReaderPreferences: ReaderPreferences = Injekt.get(),
     private val addNovelHighlight: tachiyomi.domain.book.novel.interactor.AddNovelHighlight = Injekt.get(),
@@ -876,10 +871,6 @@ class NovelReaderScreenModel(
                     pageCount = pageProgress?.totalItems ?: 0,
                 ),
             )
-            // «Чернильница»: пересчёт прогресса по факту БД (QuoteRule слушает это событие).
-            eventBus?.tryEmit(
-                AchievementEvent.FeatureUsed(AchievementEvent.Feature.QUOTE_SAVED),
-            )
         }
     }
 
@@ -1050,8 +1041,6 @@ class NovelReaderScreenModel(
         host = this,
         novelChapterRepository = novelChapterRepository,
         getIncognitoState = getIncognitoState,
-        eventBus = eventBus,
-        activityDataRepository = activityDataRepository,
         historyRepository = historyRepository,
         novelDownloadManager = novelDownloadManager,
     )
@@ -1366,7 +1355,12 @@ class NovelReaderScreenModel(
                 chapterCount = fullChapterOrderList.size,
                 daysOnShelf = daysOnShelf(novel.dateAdded),
                 finishedOn = DateFormat.getDateInstance(DateFormat.SHORT).format(Date()),
-                nightVeil = eu.kanade.domain.easteregg.aurora.AuroraNight.isVeilThin(),
+                nightVeil = run {
+                    val calendar = java.util.Calendar.getInstance()
+                    val minutes = calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 +
+                        calendar.get(java.util.Calendar.MINUTE)
+                    minutes in (2 * 60 + 45)..(4 * 60 + 15)
+                },
             ),
         )
     }

@@ -630,21 +630,21 @@ fun AnimeDetailSynopsisCard(
 // LazyRow instead of a 2-column vertical grid. The tile is unchanged.
 // ---------------------------------------------------------------------------
 
-/** Fixed aurora gradients for episode tiles (no per-item palette work). */
+/** Fixed aurora gradients for episode tiles (no per-item palette work). V5: pares de Color precalculados — antes se creaban dos Color por tarjeta en cada llamada. */
 private val animeDetailEpisodeGradients = listOf(
     // Pink -> teal, as in the approved mockup.
-    0xFFB84A6B to 0xFF2E7D8C,
-    0xFF3E6FB0 to 0xFF7B4BA8,
-    0xFFC96A3B to 0xFF8C2F4D,
-    0xFF3F8F6B to 0xFF2E6B8C,
-    0xFF8C5FB0 to 0xFF3B4A8C,
+    Color(0xFFB84A6B) to Color(0xFF2E7D8C),
+    Color(0xFF3E6FB0) to Color(0xFF7B4BA8),
+    Color(0xFFC96A3B) to Color(0xFF8C2F4D),
+    Color(0xFF3F8F6B) to Color(0xFF2E6B8C),
+    Color(0xFF8C5FB0) to Color(0xFF3B4A8C),
 )
 
 private fun animeDetailEpisodeGradientColors(episodeId: Long): List<Color> {
     val (top, bottom) = animeDetailEpisodeGradients[
         abs((episodeId % animeDetailEpisodeGradients.size).toInt()) % animeDetailEpisodeGradients.size
     ]
-    return listOf(Color(top), Color(bottom))
+    return listOf(top, bottom)
 }
 
 /**

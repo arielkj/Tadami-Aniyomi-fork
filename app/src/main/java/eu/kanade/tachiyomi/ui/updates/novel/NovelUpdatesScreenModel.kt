@@ -30,8 +30,6 @@ import kotlinx.coroutines.flow.update
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.data.achievement.handler.AchievementEventBus
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.domain.items.novelchapter.model.NovelChapterUpdate
 import tachiyomi.domain.items.novelchapter.repository.NovelChapterRepository
 import tachiyomi.domain.library.service.LibraryPreferences
@@ -45,7 +43,6 @@ class NovelUpdatesScreenModel(
     private val getUpdates: GetNovelUpdates = Injekt.get(),
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
     private val chapterRepository: NovelChapterRepository = Injekt.get(),
-    private val eventBus: AchievementEventBus? = runCatching { Injekt.get<AchievementEventBus>() }.getOrNull(),
 ) : ScreenModel {
 
     val lastUpdated by libraryPreferences.lastUpdatedTimestamp().asState(screenModelScope)
@@ -113,14 +110,6 @@ class NovelUpdatesScreenModel(
                     )
                 },
             )
-            updatesBecomingRead.forEach {
-                eventBus?.tryEmit(
-                    AchievementEvent.NovelChapterRead(
-                        novelId = it.update.novelId,
-                        chapterNumber = 0,
-                    ),
-                )
-            }
             toggleAllSelection(false)
         }
     }

@@ -72,16 +72,11 @@ import eu.kanade.domain.source.manga.interactor.GetMangaIncognitoState
 import eu.kanade.domain.source.novel.interactor.GetNovelIncognitoState
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.ui.UserProfilePreferences
-import eu.kanade.presentation.achievement.components.AchievementGroupNotification
-import eu.kanade.presentation.achievement.components.AchievementListDialog
-import eu.kanade.presentation.achievement.components.AchievementPopupSizeTokens
-import eu.kanade.presentation.achievement.components.AchievementUnlockBanner
 import eu.kanade.presentation.components.AppStateBanners
 import eu.kanade.presentation.components.DownloadedOnlyBannerBackgroundColor
 import eu.kanade.presentation.components.IncognitoModeBannerBackgroundColor
 import eu.kanade.presentation.components.IndexingBannerBackgroundColor
 import eu.kanade.presentation.more.UpdatedChangelogScreen
-import eu.kanade.presentation.more.settings.screen.SettingsTreasuryScreen
 import eu.kanade.presentation.more.settings.screen.browse.AnimeExtensionStoreScreen
 import eu.kanade.presentation.more.settings.screen.browse.MangaExtensionStoreScreen
 import eu.kanade.presentation.more.settings.screen.browse.NovelExtensionStoreScreen
@@ -125,8 +120,6 @@ import eu.kanade.tachiyomi.ui.more.OnboardingScreen
 import eu.kanade.tachiyomi.ui.player.ExternalIntents
 import eu.kanade.tachiyomi.ui.player.PlayerActivity
 import eu.kanade.tachiyomi.ui.reader.novel.NovelReaderScreen
-import eu.kanade.tachiyomi.ui.reels.ReelsFullscreen
-import eu.kanade.tachiyomi.ui.reels.ReelsPip
 import eu.kanade.tachiyomi.util.system.dpToPx
 import eu.kanade.tachiyomi.util.system.isNavigationBarNeedsScrim
 import eu.kanade.tachiyomi.util.system.isPreviewBuildType
@@ -153,8 +146,6 @@ import mihon.core.migration.Migrator
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.domain.achievement.model.Achievement
-import tachiyomi.domain.achievement.repository.ActivityDataRepository
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.release.interactor.GetApplicationRelease
 import tachiyomi.domain.release.model.Release
@@ -178,14 +169,10 @@ class MainActivity : BaseActivity() {
     private val getAnimeIncognitoState: GetAnimeIncognitoState by injectLazy()
     private val getMangaIncognitoState: GetMangaIncognitoState by injectLazy()
     private val getNovelIncognitoState: GetNovelIncognitoState by injectLazy()
-    private val activityDataRepository: ActivityDataRepository by injectLazy()
     private val userProfilePreferences: UserProfilePreferences by injectLazy()
 
     // To be checked by splash screen. If true then splash screen will be removed.
     var ready = false
-
-    // Session time tracking for achievements
-    private var appSessionStartTime: Long? = null
 
     private var navigator: Navigator? = null
 
@@ -200,10 +187,6 @@ class MainActivity : BaseActivity() {
         val splashScreen = if (isLaunch) installSplashScreen() else null
 
         super.onCreate(savedInstanceState)
-
-        // A recreated activity may come back directly in PiP; the process-wide flag must
-        // not keep suppressing the reels fullscreen rotation from a previous instance.
-        ReelsPip.updatePictureInPictureMode(isInPictureInPictureMode)
 
         updateMainActivityWindowBackground(
             readerBackdropColor = NovelReaderBackdropSession.backgroundColor,
@@ -413,43 +396,8 @@ class MainActivity : BaseActivity() {
                                     .padding(contentPadding)
                                     .consumeWindowInsets(contentPadding),
                             )
-                            // Achievement unlock banner overlay
-                            AchievementUnlockBanner(
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .windowInsetsPadding(WindowInsets.statusBars)
-                                    .padding(top = AchievementPopupSizeTokens.overlayTopPadding),
-                            )
-                            // Achievement group notification (for multiple achievements after reader/player)
-                            var showAchievementsList by remember { mutableStateOf(false) }
-                            var pendingAchievements by remember { mutableStateOf<List<Achievement>>(emptyList()) }
-
-                            AchievementGroupNotification(
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .windowInsetsPadding(WindowInsets.statusBars)
-                                    .padding(top = AchievementPopupSizeTokens.overlayTopPadding),
-                                onViewAll = { achievements ->
-                                    // Get achievements directly from notification
-                                    pendingAchievements = achievements
-                                    showAchievementsList = true
-                                },
-                            )
-
-                            // Achievement list dialog
-                            if (showAchievementsList && pendingAchievements.isNotEmpty()) {
-                                AchievementListDialog(
-                                    achievements = pendingAchievements,
-                                    onDismiss = {
-                                        showAchievementsList = false
-                                        pendingAchievements = emptyList()
-                                    },
-                                )
-                            }
-                            // Draw navigation bar scrim when needed. Reels software
-                            // fullscreen owns the window; its generic scrim must not cover
-                            // the video (audit U07).
-                            if (remember { isNavigationBarNeedsScrim() } && !ReelsFullscreen.isActive) {
+                            // Draw navigation bar scrim when needed.
+                            if (remember { isNavigationBarNeedsScrim() }) {
                                 Spacer(
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
@@ -459,9 +407,6 @@ class MainActivity : BaseActivity() {
                                         .background(MaterialTheme.colorScheme.surfaceContainer),
                                 )
                             }
-                            // Aurora easter egg overlay
-                            eu.kanade.presentation.easteregg.aurora.AuroraEchoOverlay()
-                            eu.kanade.presentation.easteregg.lattice.LatticeOverlayHost()
                         }
                     }
 
@@ -611,53 +556,11 @@ class MainActivity : BaseActivity() {
             requestedOrientation = orientation
             restoreOrientationAfterPlayerExit = null
         }
-        lifecycleScope.launchIO {
-            val todayLevel = activityDataRepository
-                .getActivityData(days = 1)
-                .first()
-                .lastOrNull()
-                ?.level
-                ?: 0
-            if (todayLevel == 0) {
-                activityDataRepository.recordAppOpen()
-            }
-        }
         // Start session time tracking
         appSessionStartTime = System.currentTimeMillis()
     }
 
-    override fun onPause() {
-        super.onPause()
-        // Save session time to activity data
-        appSessionStartTime?.let { startTime ->
-            val duration = System.currentTimeMillis() - startTime
-            // Only record if session was longer than 5 seconds (filter out accidental opens)
-            if (duration > 5000) {
-                lifecycleScope.launch {
-                    activityDataRepository.recordAppSession(duration)
-                }
-            }
-        }
-        appSessionStartTime = null
-    }
-
-    // Reels picture-in-picture (declutter redesign): the HOME gesture during playback enters
-    // PiP when the feed screen registered its handler (feature toggle + actual playback are
-    // gated inside the handler). No-op for every other screen.
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        ReelsPip.handler?.invoke()
-    }
-
-    override fun onPictureInPictureModeChanged(
-        isInPictureInPictureMode: Boolean,
-        newConfig: Configuration,
-    ) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        ReelsPip.updatePictureInPictureMode(isInPictureInPictureMode)
-    }
-
-    // The manifest configChanges (added for the reels PiP) suppresses rotation recreation,
+    // The manifest configChanges suppresses rotation recreation,
     // but the tablet-UI context override is computed only in attachBaseContext: recreate
     // when the computed tablet mode flips, so phone/tablet layouts keep following rotation.
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
@@ -979,14 +882,6 @@ class MainActivity : BaseActivity() {
                 }
                 null
             }
-            INTENT_OPEN_TREASURY -> {
-                val justUnlocked = intent.getBooleanExtra("just_unlocked", false)
-                eu.kanade.presentation.more.settings.screen.SettingsTreasuryScreen.shouldShowVoidBroadcastBanner =
-                    justUnlocked
-                navigator.popUntilRoot()
-                navigator.push(SettingsTreasuryScreen)
-                null
-            }
             else -> {
                 ready = true
                 return false
@@ -1017,7 +912,6 @@ class MainActivity : BaseActivity() {
         const val INTENT_ANIMESEARCH = "eu.kanade.tachiyomi.ANIMESEARCH"
         const val INTENT_NOVELSEARCH = "eu.kanade.tachiyomi.NOVELSEARCH"
         const val INTENT_OPEN_NOVEL_CHAPTER = "eu.kanade.tachiyomi.OPEN_NOVEL_CHAPTER"
-        const val INTENT_OPEN_TREASURY = "eu.kanade.tachiyomi.OPEN_TREASURY"
         const val INTENT_NOVEL_CHAPTER_ID = "novel_chapter_id"
         const val INTENT_SEARCH_QUERY = "query"
         const val INTENT_SEARCH_FILTER = "filter"

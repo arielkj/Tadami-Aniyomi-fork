@@ -17,10 +17,6 @@ data class RestoreOptions(
     val customButtons: Boolean = true,
     val sourceSettings: Boolean = true,
     val extensions: Boolean = false,
-    val achievements: Boolean = true,
-    val stats: Boolean = true,
-    val reelsFavorites: Boolean = true,
-    val reelsFollows: Boolean = true,
     val discoveryData: Boolean = true,
     /**
      * Explicit user statement that a markerless, Mihon shaped file is an old Tadami sister export.
@@ -47,15 +43,11 @@ data class RestoreOptions(
         customButtons,
         sourceSettings,
         extensions,
-        achievements,
-        stats,
         restoreManga,
         restoreAnime,
         restoreNovel,
         legacySisterFallback,
-        reelsFavorites,
         discoveryData,
-        reelsFollows,
     )
 
     fun canRestore(): Boolean {
@@ -67,10 +59,6 @@ data class RestoreOptions(
             customButtons ||
             sourceSettings ||
             extensions ||
-            achievements ||
-            stats ||
-            reelsFavorites ||
-            reelsFollows ||
             discoveryData
     }
 
@@ -105,16 +93,6 @@ data class RestoreOptions(
                 setter = { options, enabled -> options.copy(categories = enabled) },
             ),
             Entry(
-                label = MR.strings.reels_favorites_title,
-                getter = RestoreOptions::reelsFavorites,
-                setter = { options, enabled -> options.copy(reelsFavorites = enabled) },
-            ),
-            Entry(
-                label = MR.strings.reels_follows_title,
-                getter = RestoreOptions::reelsFollows,
-                setter = { options, enabled -> options.copy(reelsFollows = enabled) },
-            ),
-            Entry(
                 label = AYMR.strings.backup_discovery_data,
                 getter = RestoreOptions::discoveryData,
                 setter = { options, enabled -> options.copy(discoveryData = enabled) },
@@ -144,16 +122,6 @@ data class RestoreOptions(
                 getter = RestoreOptions::extensions,
                 setter = { options, enabled -> options.copy(extensions = enabled) },
             ),
-            Entry(
-                label = AYMR.strings.achievements,
-                getter = RestoreOptions::achievements,
-                setter = { options, enabled -> options.copy(achievements = enabled) },
-            ),
-            Entry(
-                label = AYMR.strings.stats,
-                getter = RestoreOptions::stats,
-                setter = { options, enabled -> options.copy(stats = enabled) },
-            ),
         )
 
         fun fromBooleanArray(array: BooleanArray) = RestoreOptions(
@@ -164,15 +132,11 @@ data class RestoreOptions(
             customButtons = array.getOrNull(4) ?: true,
             sourceSettings = array.getOrNull(5) ?: true,
             extensions = array.getOrNull(6) ?: false,
-            achievements = array.getOrNull(7) ?: true,
-            stats = array.getOrNull(8) ?: true,
-            restoreManga = array.getOrNull(9) ?: true,
-            restoreAnime = array.getOrNull(10) ?: true,
-            restoreNovel = array.getOrNull(11) ?: true,
-            legacySisterFallback = array.getOrNull(12) ?: false,
-            reelsFavorites = array.getOrNull(13) ?: true,
-            discoveryData = array.getOrNull(14) ?: true,
-            reelsFollows = array.getOrNull(15) ?: true,
+            restoreManga = array.getOrNull(7) ?: true,
+            restoreAnime = array.getOrNull(8) ?: true,
+            restoreNovel = array.getOrNull(9) ?: true,
+            legacySisterFallback = array.getOrNull(10) ?: false,
+            discoveryData = array.getOrNull(11) ?: true,
         )
     }
 

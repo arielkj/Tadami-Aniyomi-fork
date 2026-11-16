@@ -7,7 +7,6 @@ import com.tadami.aurora.BuildConfig
 import eu.kanade.tachiyomi.data.backup.BackupDiagnosticLog
 import eu.kanade.tachiyomi.data.backup.BackupOrigin
 import eu.kanade.tachiyomi.data.backup.contentSummary
-import eu.kanade.tachiyomi.data.backup.create.creators.AchievementBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.AnimeBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.AnimeCategoriesBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.AnimeExtensionRepoBackupCreator
@@ -31,8 +30,6 @@ import eu.kanade.tachiyomi.data.backup.create.creators.NovelExtensionStoreBackup
 import eu.kanade.tachiyomi.data.backup.create.creators.NovelSeriesBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.NovelSourcesBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.PreferenceBackupCreator
-import eu.kanade.tachiyomi.data.backup.create.creators.ReelsFavoritesBackupCreator
-import eu.kanade.tachiyomi.data.backup.create.creators.ReelsFollowsBackupCreator
 import eu.kanade.tachiyomi.data.backup.models.Backup
 import eu.kanade.tachiyomi.data.backup.models.BackupAnime
 import eu.kanade.tachiyomi.data.backup.models.BackupAnimeSource
@@ -53,8 +50,6 @@ import kotlinx.serialization.protobuf.ProtoBuf
 import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.domain.backup.service.BackupPreferences
 import tachiyomi.domain.entries.anime.interactor.GetAnimeFavorites
 import tachiyomi.domain.entries.anime.model.Anime
@@ -110,12 +105,8 @@ class BackupCreator(
     private val mangaSeriesBackupCreator: MangaSeriesBackupCreator = MangaSeriesBackupCreator(),
     private val novelSeriesBackupCreator: NovelSeriesBackupCreator = NovelSeriesBackupCreator(),
     private val feedBackupCreator: FeedBackupCreator = FeedBackupCreator(),
-    private val reelsFavoritesBackupCreator: ReelsFavoritesBackupCreator = ReelsFavoritesBackupCreator(),
-    private val reelsFollowsBackupCreator: ReelsFollowsBackupCreator = ReelsFollowsBackupCreator(),
     private val discoveryBackupCreator: DiscoveryBackupCreator = DiscoveryBackupCreator(),
     private val extensionsBackupCreator: ExtensionsBackupCreator = ExtensionsBackupCreator(context),
-    private val achievementBackupCreator: AchievementBackupCreator = AchievementBackupCreator(),
-    private val achievementHandler: AchievementHandler = Injekt.get(),
 ) {
 
     suspend fun backup(uri: Uri, options: BackupOptions): String = backupCreationMutex.withLock {
@@ -193,9 +184,6 @@ class BackupCreator(
                 )
             }
 
-            val achievementData = BackupDiagnosticLog.measure(context, "collect_achievements") {
-                achievementBackupCreator(options)
-            }
             val backupAnimeSeries = BackupDiagnosticLog.measure(context, "collect_anime_series") {
                 if (shouldBackupAnime) animeSeriesBackupCreator() else emptyList()
             }
@@ -207,22 +195,6 @@ class BackupCreator(
             }
             val backupFeeds = BackupDiagnosticLog.measure(context, "collect_feeds") {
                 feedBackupCreator()
-            }
-            // sisterAppCompatible exports drop reels favorites anyway — skip the table read.
-            val backupReelsFavorites = BackupDiagnosticLog.measure(context, "collect_reels_favorites") {
-                if (options.reelsFavorites && !options.sisterAppCompatible) {
-                    reelsFavoritesBackupCreator()
-                } else {
-                    emptyList()
-                }
-            }
-            // Creator follows: same rule as favorites (Tadami-only, never for sister exports).
-            val backupReelsFollows = BackupDiagnosticLog.measure(context, "collect_reels_follows") {
-                if (options.reelsFollows && !options.sisterAppCompatible) {
-                    reelsFollowsBackupCreator()
-                } else {
-                    emptyList()
-                }
             }
             // Discovery «Для тебя»: скрытые тайтлы + теговый блэклист + сигнал-лог
             // вкусов (Tadami-only, не для sister-экспорта).
@@ -295,20 +267,10 @@ class BackupCreator(
                 backupAnimeExtensionStore = backupAnimeExtensionStores(options, includeAnimeType),
                 backupMangaExtensionStore = backupMangaExtensionStores(options, includeMangaType),
                 backupNovelExtensionStore = backupNovelExtensionStores(options, includeNovelType),
-                backupAchievements = if (options.sisterAppCompatible) emptyList() else achievementData.achievements,
-                backupUserProfile = if (options.sisterAppCompatible) null else achievementData.userProfile,
-                backupActivityLog = if (options.sisterAppCompatible) emptyList() else achievementData.activityLog,
-                backupStats = if (options.sisterAppCompatible) null else achievementData.stats,
                 backupMangaSeries = if (options.sisterAppCompatible) emptyList() else backupMangaSeries,
                 backupNovelSeries = if (options.sisterAppCompatible) emptyList() else backupNovelSeries,
                 backupAnimeSeries = if (options.sisterAppCompatible) emptyList() else backupAnimeSeries,
                 backupFeeds = if (options.sisterAppCompatible) emptyList() else backupFeeds,
-                backupReelsFavorites = if (options.sisterAppCompatible) {
-                    emptyList()
-                } else {
-                    backupReelsFavorites
-                },
-                backupReelsFollows = if (options.sisterAppCompatible) emptyList() else backupReelsFollows,
                 backupDiscoveryHidden = if (options.sisterAppCompatible) emptyList() else backupDiscovery.first,
                 backupDiscoveryBlacklistTags = if (options.sisterAppCompatible) emptyList() else backupDiscovery.second,
                 backupDiscoverySignals = if (options.sisterAppCompatible) emptyList() else backupDiscovery.third,
@@ -346,11 +308,6 @@ class BackupCreator(
             if (isAutoBackup) {
                 pruneOldAutoBackups(uri, keep = file)
                 backupPreferences.lastAutoBackupTimestamp().set(Instant.now().toEpochMilli())
-            }
-
-            // Track backup achievement for manual backups only
-            if (!isAutoBackup) {
-                achievementHandler.trackFeatureUsed(AchievementEvent.Feature.BACKUP)
             }
 
             BackupDiagnosticLog.log(context, "creator_done", "origin=$expectedOrigin")

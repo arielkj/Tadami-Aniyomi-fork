@@ -38,7 +38,6 @@ import eu.kanade.domain.tutorial.TutorialPreferences
 import eu.kanade.domain.tutorial.model.TutorialMode
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.ui.model.setAppCompatDelegateThemeMode
-import eu.kanade.presentation.achievement.components.AchievementBannerManager
 import eu.kanade.presentation.components.CoverReloadSignal
 import eu.kanade.presentation.tutorial.CoachTipRegistry
 import eu.kanade.tachiyomi.crash.CrashActivity
@@ -111,11 +110,8 @@ import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.util.system.ImageUtil
-import tachiyomi.data.achievement.loader.AchievementLoader
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.i18n.MR
-import tachiyomi.presentation.widget.entries.anime.AnimeWidgetManager
-import tachiyomi.presentation.widget.entries.manga.MangaWidgetManager
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
@@ -128,10 +124,8 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     private val basePreferences: BasePreferences by injectLazy()
     private val networkPreferences: NetworkPreferences by injectLazy()
     private val appUpdateFileManager: AppUpdateFileManager by injectLazy()
-    private val sessionManager: tachiyomi.data.achievement.handler.SessionManager by injectLazy()
 
     private val disableIncognitoReceiver = DisableIncognitoReceiver()
-    private val achievementScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var isMainProcess = false
 
@@ -170,19 +164,25 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
             WebView.setDataDirectorySuffix(getProcessName())
         }
 
-        // Warm up the WebView default user agent on the main thread before any source loads.
+        // Warm up the WebView default user agent before any source loads.
         // Some sources call WebSettings.getDefaultUserAgent() while being constructed on a
         // background thread. If Chromium needs the main thread at the same time, startup can
         // stall behind the splash.
+        // V5: fuera del camino crítico de onCreate — se lanza con Handler.post al
+        // hilo principal (NO a un hilo de fondo: CookieManager.getInstance()
+        // crashes with NPE inside WebViewFactory when first called from a background
+        // thread before the app is fully attached (Android 16, crash log 0.60.4)).
+        // Se ejecuta en cuanto onCreate retorna, todavía antes de que las fuentes
+        // se construyan, pero sin bloquear el primer frame.
         if (isMainProcess) {
-            try {
-                WebSettings.getDefaultUserAgent(this)
-                // Initialize the WebView cookie provider here too: CookieManager.getInstance()
-                // crashes with NPE inside WebViewFactory when first called from a background
-                // thread before the app is fully attached (Android 16, crash log 0.60.4).
-                CookieManager.getInstance()
-            } catch (e: Throwable) {
-                logcat(LogPriority.ERROR) { "Failed to warm up WebView user agent: ${e.message}" }
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    WebSettings.getDefaultUserAgent(this)
+                    // Initialize the WebView cookie provider here too (main thread only, see above).
+                    CookieManager.getInstance()
+                } catch (e: Throwable) {
+                    logcat(LogPriority.ERROR) { "Failed to warm up WebView user agent: ${e.message}" }
+                }
             }
         }
 
@@ -190,45 +190,6 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
         // graph already exists here, including for workers dispatched by WorkManager's
         // ContentProvider before onCreate ran.
 
-        if (isMainProcess) {
-            // K1/Q8-фикс: награды пасхальных яиц выдаются через идемпотентный
-            // AuroraUnlockRewarder (wasUnlocked-гейт по DB): реплей финала больше не
-            // реплеит XP/счётчики. Зависимости резолвятся в момент события (внутри
-            // achievementScope), как и в прежних хуках.
-            fun newEggRewarder() = eu.kanade.domain.easteregg.aurora.AuroraUnlockRewarder(
-                achievementRepository = Injekt.get(),
-                pointsManager = Injekt.get(),
-                unlockableManager = Injekt.get(),
-                userProfileManager = Injekt.get(),
-                activityDataRepository = Injekt.get(),
-            )
-
-            // Setup Aurora easter egg unlock hook
-            eu.kanade.domain.easteregg.aurora.AuroraEchoBus.onUnlocked = { payload ->
-                achievementScope.launch {
-                    newEggRewarder().grant(
-                        eu.kanade.domain.easteregg.aurora.AuroraUnlockRewarder.aurora(
-                            payload.bonusPoints ?: 0,
-                        ),
-                    )
-                }
-            }
-
-            // Render pipeline maintenance (opaque service hook)
-            eu.kanade.domain.easteregg.lattice.LatticeProtocolManager.get(this).onAppStart()
-            eu.kanade.domain.easteregg.lattice.LatticeSignalBus.onUnlocked = { payload ->
-                achievementScope.launch {
-                    newEggRewarder().grant(
-                        eu.kanade.domain.easteregg.aurora.AuroraUnlockRewarder.lattice(
-                            achievementId = payload.achievementId,
-                            points = payload.bonusPoints,
-                            themeId = payload.themeId,
-                            unlockableIds = payload.unlockables,
-                        ),
-                    )
-                }
-            }
-        }
         SingletonImageLoader.setUnsafe { context -> newImageLoader(context) }
 
         if (isMainProcess) {
@@ -255,7 +216,7 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
 
         if (isMainProcess) {
             Handler(Looper.getMainLooper()).post {
-                achievementScope.launch {
+                applicationScope.launch {
                     runCatching {
                         appUpdateFileManager.cleanupIfInstalledVersionReached(
                             isPreview = isPreviewBuildType,
@@ -320,118 +281,6 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
             .launchIn(scope)
 
         setAppCompatDelegateThemeMode(Injekt.get<UiPreferences>().themeMode().get())
-
-        if (isMainProcess) {
-            // Updates widget update
-            with(MangaWidgetManager(Injekt.get(), Injekt.get())) {
-                init(ProcessLifecycleOwner.get().lifecycleScope)
-            }
-
-            with(AnimeWidgetManager(Injekt.get(), Injekt.get())) {
-                init(ProcessLifecycleOwner.get().lifecycleScope)
-            }
-
-            // Defer achievement initialization past the first frame.
-            // Handler.post fires in the next main-thread message-queue cycle, after onCreate() has
-            // returned and the first activity draw pass has been scheduled. All Injekt modules are
-            // fully imported by then, so DI resolution inside achievementScope (Dispatchers.IO)
-            // is safe. Achievement events can only come from user actions that haven't happened yet.
-            Handler(Looper.getMainLooper()).post {
-                // Initialize achievements from JSON
-                achievementScope.launch {
-                    try {
-                        val loader = Injekt.get<tachiyomi.data.achievement.loader.AchievementLoader>()
-                        loader.loadAchievements()
-                    } catch (e: Exception) {
-                        logcat(LogPriority.ERROR) { "Error during achievement initialization: ${e.message}" }
-                    }
-                }
-
-                // Clean up legacy phantom theme unlockables (theme_achievement_* no longer exist)
-                achievementScope.launch {
-                    try {
-                        val unlockableManager = Injekt.get<tachiyomi.data.achievement.UnlockableManager>()
-                        val userProfileManager = Injekt.get<tachiyomi.data.achievement.UserProfileManager>()
-                        val validThemeIds = eu.kanade.domain.ui.model.AppTheme.entries
-                            .filter { it.titleRes != null }
-                            .map { it.name.uppercase() }
-                            .toSet()
-
-                        unlockableManager.removeUnlockable("theme_achievement_gold")
-                        unlockableManager.removeUnlockable("theme_achievement_sapphire")
-
-                        val staleThemes = userProfileManager.getUnlockedThemes()
-                            .filter { it.uppercase() !in validThemeIds }
-                        staleThemes.forEach { themeId ->
-                            logcat(LogPriority.INFO) { "[ACHIEVEMENTS] Removing stale legacy theme: $themeId" }
-                            userProfileManager.removeTheme(themeId)
-                        }
-                    } catch (e: Exception) {
-                        logcat(LogPriority.ERROR) { "Error during legacy theme cleanup: ${e.message}" }
-                    }
-                }
-
-                // Migrate legacy activity data from SharedPreferences to database (v4 → v5)
-                achievementScope.launch {
-                    try {
-                        val migrator = eu.kanade.tachiyomi.data.backup.restore.LegacyActivityDataMigrator(
-                            context = this@App,
-                            repository = Injekt.get(),
-                        )
-
-                        if (migrator.isMigrationNeeded()) {
-                            logcat(LogPriority.INFO) { "[MIGRATION] Starting legacy activity data migration..." }
-                            val result = migrator.migrate()
-
-                            if (result.success) {
-                                logcat(LogPriority.INFO) {
-                                    "[MIGRATION] Migration completed: ${result.recordsMigrated} records migrated, " +
-                                        "${result.recordsFailed} failed in ${result.duration}ms"
-                                }
-                                // Optional: Clear legacy data after successful migration
-                                // migrator.clearLegacyData()
-                            } else {
-                                logcat(LogPriority.ERROR) { "[MIGRATION] Migration failed: ${result.error}" }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        logcat(LogPriority.ERROR) { "[MIGRATION] Error during legacy data migration: ${e.message}" }
-                    }
-                }
-
-                // Start achievement handler
-                achievementScope.launch {
-                    try {
-                        logcat(LogPriority.INFO) {
-                            "[ACHIEVEMENTS-INIT] About to get AchievementHandler from Injekt..."
-                        }
-                        val achievementHandler = Injekt.get<tachiyomi.data.achievement.handler.AchievementHandler>()
-                        logcat(LogPriority.INFO) { "[ACHIEVEMENTS-INIT] AchievementHandler obtained successfully" }
-
-                        // Set up callback to show unlock banners
-                        achievementHandler.unlockCallback =
-                            object : tachiyomi.data.achievement.handler.AchievementHandler.AchievementUnlockCallback {
-                                override fun onAchievementUnlocked(
-                                    achievement: tachiyomi.domain.achievement.model.Achievement,
-                                ) {
-                                    AchievementBannerManager.showAchievement(achievement)
-                                }
-                            }
-
-                        logcat(LogPriority.INFO) { "[ACHIEVEMENTS-INIT] Calling achievementHandler.start()..." }
-                        achievementHandler.start()
-                        logcat(LogPriority.INFO) { "[ACHIEVEMENTS-INIT] AchievementHandler started successfully" }
-                    } catch (e: Exception) {
-                        logcat(LogPriority.ERROR) {
-                            "[ACHIEVEMENTS-INIT] Failed to start achievement handler: ${e.message}"
-                        }
-                        logcat(LogPriority.ERROR) {
-                            "[ACHIEVEMENTS-INIT] Failed to start achievement handler: ${e.stackTraceToString()}"
-                        }
-                    }
-                }
-            }
-        }
 
         if (!LogcatLogger.isInstalled && networkPreferences.verboseLogging().get()) {
             LogcatLogger.install(AndroidLogcatLogger(LogPriority.VERBOSE))
@@ -564,7 +413,6 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     override fun onStart(owner: LifecycleOwner) {
         if (isMainProcess) {
             SecureActivityDelegate.onApplicationStart()
-            sessionManager.onSessionStart()
             applicationScope.launch {
                 PendingApkInstallStore(basePreferences).resumeIfPermissionGranted(this@App)
                 // Creating the extension managers synchronously loads every installed extension on
@@ -615,7 +463,6 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     override fun onStop(owner: LifecycleOwner) {
         if (isMainProcess) {
             SecureActivityDelegate.onApplicationStopped()
-            sessionManager.onSessionEnd()
         }
     }
 

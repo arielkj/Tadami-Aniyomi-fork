@@ -737,7 +737,6 @@ fun VoidRealityBreachFinale(
     rewards: List<VoidReward>,
     screenshot: Bitmap? = null,
     justUnlocked: Boolean = false,
-    onEnterTreasury: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val time by rememberGlitchTime()
@@ -773,7 +772,6 @@ fun VoidRealityBreachFinale(
             VoidRevealScreen(
                 rewards = rewards,
                 justUnlocked = justUnlocked,
-                onEnterTreasury = onEnterTreasury,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {

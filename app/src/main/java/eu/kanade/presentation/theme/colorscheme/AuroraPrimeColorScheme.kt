@@ -9,7 +9,7 @@ import androidx.compose.ui.graphics.Color
  *
  * Living aurora-metal: polar-lime primary, violet secondary and aurora-teal
  * tertiary over a deep polar night. The live gleam overlay (device tilt +
- * breathing sheen) is applied on top in [eu.kanade.presentation.theme.auroraPrimeOverlay].
+ * breathing sheen).
  */
 internal object AuroraPrimeColorScheme : BaseColorScheme() {
 

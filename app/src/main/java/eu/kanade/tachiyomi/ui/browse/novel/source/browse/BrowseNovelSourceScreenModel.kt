@@ -39,8 +39,6 @@ import kotlinx.coroutines.withContext
 import tachiyomi.core.common.preference.CheckboxState
 import tachiyomi.core.common.preference.mapAsCheckboxState
 import tachiyomi.core.common.util.lang.launchIO
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.category.novel.interactor.GetNovelCategories
 import tachiyomi.domain.category.novel.interactor.SetNovelCategories
@@ -148,14 +146,10 @@ class BrowseNovelSourceScreenModel(
     private val getSavedSearchBySourceIdInteractor: GetSavedSearchBySourceId? = null,
     private val insertSavedSearchInteractor: InsertSavedSearch? = null,
     private val deleteSavedSearchByIdInteractor: DeleteSavedSearchById? = null,
-    private val achievementHandler: AchievementHandler = Injekt.get(),
 ) : StateScreenModel<BrowseNovelSourceScreenModel.State>(State(Listing.valueOf(listingQuery))) {
 
     var displayMode by sourcePreferences.sourceDisplayMode().asState(screenModelScope)
 
-    // BRN-2: written from IO (loadSourceFilters), read on main (search heuristic).
-    @Volatile
-    private var defaultFiltersSerialized: String? = null
 
     val source = sourceManager.getOrStub(sourceId)
 
@@ -268,12 +262,7 @@ class BrowseNovelSourceScreenModel(
                 (source as NovelCatalogueSource).getFilterList()
             }
         }.getOrElse { NovelFilterList() }
-        defaultFiltersSerialized = serializeFilters(filters)
         return filters
-    }
-
-    private fun serializeFilters(filters: NovelFilterList): String? {
-        return runCatching { SavedSearchFilterSerializer.serialize(filters) }.getOrNull()
     }
 
     fun loadSavedSearches() {
@@ -434,16 +423,8 @@ class BrowseNovelSourceScreenModel(
         mutableState.update { it.copy(listing = listing, toolbarQuery = null) }
     }
 
-    // РЕШ-9 (novel mirror): the filter sheet mutates the same FilterList instance the state
-    // holds, so the self-comparison was always equal and browse never tracked FILTER.
-    private var appliedFiltersSnapshot: String? = null
-
     fun setFilters(filters: NovelFilterList) {
         if (source !is NovelCatalogueSource) return
-
-        val newSnapshot = runCatching { SavedSearchFilterSerializer.serialize(filters) }.getOrNull()
-        val changed = newSnapshot != appliedFiltersSnapshot
-        appliedFiltersSnapshot = newSnapshot
 
         mutableState.update { current ->
             val updatedFilters = if (current.listing == Listing.Latest && filters !== current.filters) {
@@ -452,9 +433,6 @@ class BrowseNovelSourceScreenModel(
                 filters
             }
             current.copy(filters = updatedFilters)
-        }
-        if (changed) {
-            achievementHandler.trackFeatureUsed(AchievementEvent.Feature.FILTER)
         }
     }
 
@@ -465,30 +443,6 @@ class BrowseNovelSourceScreenModel(
         val updatedFilters = filters ?: currentState.filters
         val input = currentState.listing as? Listing.Search
             ?: Listing.Search(query = null, filters = updatedFilters)
-
-        val q = query ?: input.query
-        if (!q.isNullOrBlank()) {
-            val f = filters ?: input.filters
-            // BRN-2: getFilterList() used to run SYNCHRONOUSLY on the caller thread here (toolbar
-            // IME / queryEvent paths = main) while every other call site treats it as IO-bound
-            // (loadSourceFilters) - a plugin doing IO there meant NetworkOnMainThreadException/
-            // ANR. It only feeds the achievement heuristic: warm the baseline on IO instead and
-            // fall back to "filters non-empty" until it is ready.
-            if (defaultFiltersSerialized == null) {
-                screenModelScope.launchIO { loadSourceFilters() }
-            }
-            val baseline = defaultFiltersSerialized
-            val hasActiveFilters = if (baseline != null) {
-                serializeFilters(f)?.let { it != baseline } ?: f.isNotEmpty()
-            } else {
-                f.isNotEmpty()
-            }
-            if (hasActiveFilters) {
-                achievementHandler.trackFeatureUsed(AchievementEvent.Feature.ADVANCED_SEARCH)
-            } else {
-                achievementHandler.trackFeatureUsed(AchievementEvent.Feature.SEARCH)
-            }
-        }
 
         mutableState.update {
             it.copy(

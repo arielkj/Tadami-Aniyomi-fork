@@ -5,9 +5,6 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.withNonCancellableContext
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.data.achievement.handler.AchievementEventBus
-import tachiyomi.domain.achievement.model.AchievementEvent
-import tachiyomi.domain.achievement.repository.ActivityDataRepository
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.entries.manga.model.Manga
 import tachiyomi.domain.entries.manga.repository.MangaRepository
@@ -22,8 +19,6 @@ class SetReadStatus(
     private val deleteDownload: DeleteChapterDownload,
     private val mangaRepository: MangaRepository,
     private val chapterRepository: ChapterRepository,
-    private val eventBus: AchievementEventBus,
-    private val activityDataRepository: ActivityDataRepository = Injekt.get(),
     private val readerPreferences: ReaderPreferences = Injekt.get(),
 ) {
 
@@ -73,41 +68,6 @@ class SetReadStatus(
                         chapters = chapters.toTypedArray(),
                     )
                 }
-        }
-
-        if (read) {
-            runCatching {
-                if (eu.kanade.domain.easteregg.aurora.AuroraNight.isVeilThin()) {
-                    val manager = Injekt.get<eu.kanade.domain.easteregg.aurora.AuroraHeartManager>()
-                    manager.registerNightAction()
-                }
-            }
-            // Emit ChapterRead events for achievement tracking
-            chaptersToUpdate.forEach { chapter ->
-                eventBus.tryEmit(
-                    AchievementEvent.ChapterRead(
-                        mangaId = chapter.mangaId,
-                        chapterNumber = chapter.chapterNumber.toInt(),
-                    ),
-                )
-            }
-
-            // Check for manga completion
-            chaptersToUpdate.map { it.mangaId }.distinct().forEach { mangaId ->
-                val allChapters = chapterRepository.getChapterByMangaId(mangaId)
-                if (allChapters.all { it.read }) {
-                    eventBus.tryEmit(AchievementEvent.MangaCompleted(mangaId))
-                }
-            }
-
-            // Record reading activity for stats
-            chaptersToUpdate.forEach { chapter ->
-                activityDataRepository.recordReading(
-                    id = chapter.id,
-                    chaptersCount = 1,
-                    durationMs = 0L, // Duration is tracked separately
-                )
-            }
         }
 
         Result.Success

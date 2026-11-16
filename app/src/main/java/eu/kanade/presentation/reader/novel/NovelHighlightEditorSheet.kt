@@ -52,7 +52,6 @@ fun NovelHighlightEditorSheet(
     onDelete: () -> Unit,
     onCopy: (String) -> Unit,
     onShare: (String) -> Unit,
-    onShareCard: (note: String, colorArgb: Long) -> Unit,
 ) {
     val highlight = item.highlight
     var note by remember(highlight.id) { mutableStateOf(highlight.note) }
@@ -134,12 +133,6 @@ fun NovelHighlightEditorSheet(
                         },
                     ) {
                         Icon(imageVector = Icons.Outlined.Share, contentDescription = null)
-                    }
-                    IconButton(onClick = { onShareCard(note, colorArgb) }) {
-                        Icon(
-                            imageVector = Icons.Outlined.Image,
-                            contentDescription = stringResource(AYMR.strings.novel_quotes_share_as_image),
-                        )
                     }
                     IconButton(onClick = onDelete) {
                         Icon(

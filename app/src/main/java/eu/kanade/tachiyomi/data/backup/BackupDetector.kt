@@ -124,7 +124,7 @@ object BackupDetector {
     private val NATIVE_MARKER_FIELDS =
         setOf(LEGACY_ANIME_FIELD, 4, LEGACY_NOVEL_FIELD, 6) +
             (500..510) +
-            // 622 feeds, 623 reels favorites, 624/625 discovery, 626 reels follows.
+            // 622 feeds, 624/625 discovery.
             (620..626) +
             (650..652)
 

@@ -57,7 +57,6 @@ import eu.kanade.presentation.reader.novel.importNovelReaderCustomFont
 import eu.kanade.presentation.reader.novel.removeNovelReaderCustomFont
 import eu.kanade.presentation.theme.rememberAppFontFamily
 import eu.kanade.presentation.tutorial.CoachTipRegistry
-import eu.kanade.tachiyomi.animesource.AnimeFeedSource
 import eu.kanade.tachiyomi.ui.home.HomeHeaderLayoutEditorScreen
 import eu.kanade.tachiyomi.ui.reader.novel.setting.NovelReaderPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
@@ -67,9 +66,6 @@ import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.collections.immutable.toPersistentList
 import tachiyomi.core.common.i18n.stringResource
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.domain.achievement.model.AchievementEvent
-import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -145,9 +141,6 @@ object SettingsAppearanceScreen : SearchableSettings {
                                 amoled = amoled,
                                 onItemClick = {
                                     appThemePref.set(it)
-                                    // Track theme change for achievement
-                                    val achievementHandler = Injekt.get<AchievementHandler>()
-                                    achievementHandler.trackFeatureUsed(AchievementEvent.Feature.THEME_CHANGE)
                                 },
                             )
                         }
@@ -211,12 +204,6 @@ object SettingsAppearanceScreen : SearchableSettings {
             UiPreferences.dateFormat(dateFormat).format(now)
         }
 
-        val animeSourceManager = remember { Injekt.get<AnimeSourceManager>() }
-        val animeSources by animeSourceManager.sources.collectAsStateWithLifecycle(initialValue = emptyList())
-        val hasReelsSources = remember(animeSources) {
-            animeSources.any { it is AnimeFeedSource }
-        }
-
         return Preference.PreferenceGroup(
             title = stringResource(AYMR.strings.pref_category_app_interface),
             preferenceItems = buildList {
@@ -275,22 +262,6 @@ object SettingsAppearanceScreen : SearchableSettings {
                         ),
                     ),
                 )
-                add(
-                    Preference.PreferenceItem.SwitchPreference(
-                        preference = uiPreferences.showAchievementNotifications(),
-                        title = stringResource(AYMR.strings.pref_show_achievement_notifications),
-                        subtitle = stringResource(AYMR.strings.pref_show_achievement_notifications_summary),
-                    ),
-                )
-                if (hasReelsSources) {
-                    add(
-                        Preference.PreferenceItem.SwitchPreference(
-                            preference = uiPreferences.showReelsVideoFeed(),
-                            title = stringResource(MR.strings.pref_enable_reels_video_feed),
-                            subtitle = stringResource(MR.strings.pref_enable_reels_video_feed_summary),
-                        ),
-                    )
-                }
                 add(
                     Preference.PreferenceItem.ListPreference(
                         preference = uiPreferences.episodeListDensity(),

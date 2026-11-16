@@ -21,9 +21,11 @@ import eu.kanade.tachiyomi.ui.reader.decodeWebtoonScrollProgress
 import tachiyomi.domain.library.service.LibraryPreferences
 
 /**
- * Helpers shared by the manga chapter cards ([MangaChapterCardCompact] and
- * [MangaChapterGridCard]): read-progress fraction and the swipe actions.
- * Moved here so both cards stay in sync instead of duplicating the logic.
+ * Helpers for the manga chapter cards ([MangaChapterCardCompact], used by
+ * the series screen): read-progress fraction and the swipe actions. Kept
+ * here so the cards stay in sync instead of duplicating the logic. The
+ * detail's vertical rows use the classic MangaChapterListItem, which
+ * carries its own swipe actions.
  */
 
 internal fun resolveMangaChapterProgressFraction(

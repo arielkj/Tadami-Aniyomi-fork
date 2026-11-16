@@ -16,8 +16,6 @@ import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.TriState
 import tachiyomi.core.common.preference.getAndSet
 import tachiyomi.core.common.util.lang.launchIO
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.domain.category.anime.interactor.SetAnimeDisplayMode
 import tachiyomi.domain.category.anime.interactor.SetSortModeForAnimeCategory
 import tachiyomi.domain.category.model.Category
@@ -34,7 +32,6 @@ class AnimeLibrarySettingsScreenModel(
     private val setAnimeDisplayMode: SetAnimeDisplayMode = Injekt.get(),
     private val setSortModeForCategory: SetSortModeForAnimeCategory = Injekt.get(),
     trackerManager: TrackerManager = Injekt.get(),
-    private val achievementHandler: AchievementHandler = Injekt.get(),
 ) : ScreenModel {
 
     /**
@@ -68,7 +65,6 @@ class AnimeLibrarySettingsScreenModel(
         preference(libraryPreferences).getAndSet {
             it.next()
         }
-        achievementHandler.trackFeatureUsed(AchievementEvent.Feature.FILTER)
     }
 
     fun toggleTracker(id: Int) {

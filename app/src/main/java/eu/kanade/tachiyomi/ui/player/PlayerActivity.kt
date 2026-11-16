@@ -248,9 +248,6 @@ class PlayerActivity : BaseActivity() {
         registerSecureActivity(this)
         super.onCreate(savedInstanceState)
 
-        // Defer achievement notifications while in player
-        eu.kanade.presentation.achievement.components.AchievementBannerManager.setInReaderOrPlayer(true)
-
         setContentView(binding.root)
 
         setupPlayerMPV()
@@ -325,9 +322,6 @@ class PlayerActivity : BaseActivity() {
         presenceJob?.cancel()
         presenceJob = null
         Injekt.get<DiscordPresenceManager>().clearSession(this)
-
-        // Allow achievement notifications when exiting player
-        eu.kanade.presentation.achievement.components.AchievementBannerManager.setInReaderOrPlayer(false)
 
         player.isExiting = true
 

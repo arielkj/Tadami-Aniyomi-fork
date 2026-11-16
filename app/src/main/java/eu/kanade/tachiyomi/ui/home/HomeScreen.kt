@@ -1485,34 +1485,40 @@ object HomeScreen : Screen() {
         shape: Shape,
         hazeState: HazeState,
     ): Modifier {
+        // V5: blur más barato — radio 12 dp en vez de 24 dp y la mitad de
+        // ruido; en AMOLED no hay haze en absoluto (la base opaca negra ya
+        // está debajo) ni sombra: el blur sobre negro puro no aporta nada.
         val hazeStyle = HazeBlurStyle {
             backgroundColor(colors.background)
             colorEffects(listOf(HazeColorEffect.tint(colors.surface.copy(alpha = 0.65f))))
-            blurRadius(24.dp)
-            noiseFactor(0.12f)
+            blurRadius(12.dp)
+            noiseFactor(0.06f)
         }
         return if (colors.isDark) {
-            this
-                .shadow(
+            // V5: una sola sombra (antes dos: 10 dp + 3 dp); en AMOLED ninguna.
+            val shadowed = if (colors.isAmoled) {
+                this
+            } else {
+                this.shadow(
                     elevation = 10.dp,
                     shape = shape,
-                    // AMOLED: sin brillo blanco alrededor de la barra; el
-                    // resplandor era otro gris visible sobre negro puro.
-                    ambientColor = if (colors.isAmoled) Color.Transparent else Color.White.copy(alpha = 0.12f),
-                    spotColor = if (colors.isAmoled) Color.Transparent else Color.White.copy(alpha = 0.08f),
+                    ambientColor = Color.White.copy(alpha = 0.12f),
+                    spotColor = Color.White.copy(alpha = 0.08f),
                 )
-                .shadow(
-                    elevation = 3.dp,
-                    shape = shape,
-                    ambientColor = if (colors.isAmoled) Color.Transparent else Color.White.copy(alpha = 0.18f),
-                    spotColor = if (colors.isAmoled) Color.Transparent else Color.White.copy(alpha = 0.12f),
-                )
+            }
+            shadowed
                 .clip(shape)
                 // Opaque base under the frost: on first frames after navigation
                 // (e.g. popping back to home) the haze layer has not captured
                 // content yet, so without this the bar flashes transparent.
                 .background(colors.background, shape)
-                .hazeBlur(input = HazeInput.Sources(hazeState), style = hazeStyle)
+                .then(
+                    if (colors.isAmoled) {
+                        Modifier
+                    } else {
+                        Modifier.hazeBlur(input = HazeInput.Sources(hazeState), style = hazeStyle)
+                    },
+                )
                 .border(
                     BorderStroke(width = 1.dp, brush = auroraMenuRimLightBrush(colors)),
                     shape = shape,

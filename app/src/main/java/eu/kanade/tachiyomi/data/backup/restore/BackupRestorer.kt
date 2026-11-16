@@ -15,7 +15,6 @@ import eu.kanade.tachiyomi.data.backup.models.BackupManga
 import eu.kanade.tachiyomi.data.backup.models.BackupNovel
 import eu.kanade.tachiyomi.data.backup.models.BackupPreference
 import eu.kanade.tachiyomi.data.backup.models.BackupSourcePreferences
-import eu.kanade.tachiyomi.data.backup.restore.restorers.AchievementRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.AnimeCategoriesRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.AnimeExtensionRepoRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.AnimeExtensionStoreRestorer
@@ -36,8 +35,6 @@ import eu.kanade.tachiyomi.data.backup.restore.restorers.NovelExtensionStoreRest
 import eu.kanade.tachiyomi.data.backup.restore.restorers.NovelRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.NovelSeriesRestorer
 import eu.kanade.tachiyomi.data.backup.restore.restorers.PreferenceRestorer
-import eu.kanade.tachiyomi.data.backup.restore.restorers.ReelsFavoritesRestorer
-import eu.kanade.tachiyomi.data.backup.restore.restorers.ReelsFollowsRestorer
 import eu.kanade.tachiyomi.util.system.createFileInCacheDir
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
@@ -83,11 +80,8 @@ class BackupRestorer(
     private val mangaSeriesRestorer: MangaSeriesRestorer = MangaSeriesRestorer(),
     private val novelSeriesRestorer: NovelSeriesRestorer = NovelSeriesRestorer(),
     private val feedRestorer: FeedRestorer = FeedRestorer(),
-    private val reelsFavoritesRestorer: ReelsFavoritesRestorer = ReelsFavoritesRestorer(),
-    private val reelsFollowsRestorer: ReelsFollowsRestorer = ReelsFollowsRestorer(),
     private val discoveryRestorer: DiscoveryRestorer = DiscoveryRestorer(),
     private val extensionsRestorer: ExtensionsRestorer = ExtensionsRestorer(context),
-    private val achievementRestorer: AchievementRestorer = AchievementRestorer(),
 ) {
 
     private var restoreAmount = 0
@@ -337,14 +331,6 @@ class BackupRestorer(
                 feedRestorer.restoreFeeds(backup.backupFeeds)
             }
 
-            // Restore reels favorites + creator follows when the user kept the options enabled
-            if (options.reelsFavorites && backup.backupReelsFavorites.isNotEmpty()) {
-                reelsFavoritesRestorer.restoreReelsFavorites(backup.backupReelsFavorites)
-            }
-            if (options.reelsFollows && backup.backupReelsFollows.isNotEmpty()) {
-                reelsFollowsRestorer.restoreReelsFollows(backup.backupReelsFollows)
-            }
-
             // Restore discovery «Для тебя» (hidden titles + tag blacklist + taste signals), idempotent merge
             if (
                 options.discoveryData &&
@@ -361,15 +347,6 @@ class BackupRestorer(
                 )
             }
 
-            // Restore achievements if option enabled
-            if (options.achievements || options.stats) {
-                restoreAchievements(
-                    achievements = if (options.achievements) backup.backupAchievements else emptyList(),
-                    userProfile = backup.backupUserProfile.takeIf { options.achievements },
-                    activityLog = if (options.achievements) backup.backupActivityLog else emptyList(),
-                    stats = backup.backupStats.takeIf { options.stats },
-                )
-            }
 
             // TODO: optionally trigger online library + tracker update
         }
@@ -714,15 +691,6 @@ class BackupRestorer(
         )
     }
 
-    private fun CoroutineScope.restoreAchievements(
-        achievements: List<eu.kanade.tachiyomi.data.backup.models.BackupAchievement>,
-        userProfile: eu.kanade.tachiyomi.data.backup.models.BackupUserProfile?,
-        activityLog: List<eu.kanade.tachiyomi.data.backup.models.BackupDayActivity>,
-        stats: eu.kanade.tachiyomi.data.backup.models.BackupStats?,
-    ) = launch {
-        ensureActive()
-        achievementRestorer.restoreAchievements(achievements, userProfile, activityLog, stats)
-    }
 
     private fun writeErrorLog(): File {
         try {

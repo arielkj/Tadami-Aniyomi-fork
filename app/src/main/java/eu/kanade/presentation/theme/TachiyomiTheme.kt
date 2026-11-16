@@ -17,9 +17,6 @@ import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.ui.model.AppTheme
 import eu.kanade.domain.ui.model.EInkProfile
 import eu.kanade.domain.ui.model.EInkThemeMode
-import eu.kanade.presentation.easteregg.aurora.AuroraPrimeColors
-import eu.kanade.presentation.easteregg.aurora.getAuroraPrimeStaticColors
-import eu.kanade.presentation.easteregg.lattice.getLatticeProtocolStaticColors
 import eu.kanade.presentation.theme.colorscheme.AuroraColorScheme
 import eu.kanade.presentation.theme.colorscheme.AuroraPrimeColorScheme
 import eu.kanade.presentation.theme.colorscheme.BaseColorScheme
@@ -28,7 +25,6 @@ import eu.kanade.presentation.theme.colorscheme.CottoncandyColorScheme
 import eu.kanade.presentation.theme.colorscheme.DoomColorScheme
 import eu.kanade.presentation.theme.colorscheme.EventHorizonColorScheme
 import eu.kanade.presentation.theme.colorscheme.GreenAppleColorScheme
-import eu.kanade.presentation.theme.colorscheme.LatticeProtocolColorScheme
 import eu.kanade.presentation.theme.colorscheme.LavenderColorScheme
 import eu.kanade.presentation.theme.colorscheme.MatrixColorScheme
 import eu.kanade.presentation.theme.colorscheme.MidnightDuskColorScheme
@@ -112,19 +108,7 @@ private fun BaseTachiyomiTheme(
         eInkProfile = eInkProfile,
         isDark = isDark,
     )
-    val colorScheme = when (appTheme) {
-        AppTheme.AURORA_PRIME -> auroraPrimeOverlay(
-            base = baseColorScheme,
-            isAmoled = isAmoled,
-            isDark = isDark,
-        )
-        AppTheme.LATTICE_PROTOCOL -> latticeProtocolOverlay(
-            base = baseColorScheme,
-            isAmoled = isAmoled,
-            isDark = isDark,
-        )
-        else -> baseColorScheme
-    }
+    val colorScheme = baseColorScheme
     val appFontFamily = rememberAppFontFamily(appUiFontId)
     val coverTitleFontFamily = rememberAppFontFamily(coverTitleFontId)
     val typography = remember(appFontFamily) {
@@ -238,98 +222,4 @@ internal val colorSchemes: Map<AppTheme, BaseColorScheme> = mapOf(
     AppTheme.EVENT_HORIZON to EventHorizonColorScheme,
     AppTheme.VOID_RED to VoidRedColorScheme,
     AppTheme.AURORA_PRIME to AuroraPrimeColorScheme,
-    AppTheme.LATTICE_PROTOCOL to LatticeProtocolColorScheme,
 )
-
-@Composable
-private fun auroraPrimeOverlay(base: ColorScheme, isAmoled: Boolean, isDark: Boolean): ColorScheme {
-    val context = LocalContext.current
-    val manager = remember(context) { eu.kanade.domain.easteregg.aurora.AuroraHeartManager.get(context) }
-    val payload = remember(manager) { manager.unlockedPayload() }
-    val staticColors = remember(payload) { getAuroraPrimeStaticColors(payload) }
-    return remember(base, staticColors, isAmoled, isDark) {
-        applyAuroraPrimeOverlay(
-            base = base,
-            live = staticColors,
-            isAmoled = isAmoled,
-            isDark = isDark,
-        )
-    }
-}
-
-@Composable
-private fun latticeProtocolOverlay(base: ColorScheme, isAmoled: Boolean, isDark: Boolean): ColorScheme {
-    val staticColors = remember { getLatticeProtocolStaticColors() }
-    return remember(base, staticColors, isAmoled, isDark) {
-        base.copy(
-            primary = staticColors.primary,
-            onPrimary = base.onPrimary,
-            primaryContainer = staticColors.primary.copy(alpha = 0.22f),
-            onPrimaryContainer = base.onPrimary,
-            secondary = staticColors.secondary,
-            onSecondary = base.onSecondary,
-            secondaryContainer = staticColors.secondary.copy(alpha = 0.18f),
-            onSecondaryContainer = base.onSecondary,
-            tertiary = staticColors.tertiary,
-            onTertiary = base.onTertiary,
-            tertiaryContainer = staticColors.tertiary.copy(alpha = 0.2f),
-            onTertiaryContainer = base.onTertiary,
-            surfaceTint = staticColors.primary,
-            outline = staticColors.primary.copy(alpha = if (isDark) 0.5f else 0.35f),
-            outlineVariant = staticColors.primary.copy(alpha = if (isDark) 0.22f else 0.16f),
-            // Keep void blacks in dark/AMOLED; light scheme surfaces stay from base.
-            background = if (isDark && !isAmoled) Color(0xFF050608) else base.background,
-            surface = if (isDark && !isAmoled) Color(0xFF050608) else base.surface,
-        )
-    }
-}
-
-/**
- * AURORA_PRIME overlay: living accents always; night surfaces only in dark mode.
- *
- * Payload themeColors ship dark-only background/surface (night sky). Applying them
- * under light theme mode mixed light surfaceContainer* with forced dark bg and
- * pale on* text — the broken "dark-in-light" look. Light mode keeps base light
- * surfaces and only tints accents/outlines.
- */
-internal fun applyAuroraPrimeOverlay(
-    base: ColorScheme,
-    live: AuroraPrimeColors,
-    isAmoled: Boolean,
-    isDark: Boolean,
-): ColorScheme {
-    val withAccents = base.copy(
-        primary = live.primary,
-        onPrimary = Color.Black,
-        primaryContainer = live.primary.copy(alpha = 0.2f),
-        onPrimaryContainer = live.primary,
-        secondary = live.secondary,
-        onSecondary = Color.White,
-        secondaryContainer = live.secondary.copy(alpha = 0.2f),
-        onSecondaryContainer = live.secondary,
-        tertiary = live.accent,
-        onTertiary = Color.Black,
-        tertiaryContainer = live.accent.copy(alpha = 0.2f),
-        onTertiaryContainer = live.accent,
-        surfaceTint = live.primary,
-        outline = live.primary.copy(alpha = if (isDark) 0.5f else 0.35f),
-        outlineVariant = live.primary.copy(alpha = if (isDark) 0.2f else 0.15f),
-    )
-
-    if (!isDark) {
-        // Light: keep bright surfaces from AuroraColorScheme.lightScheme
-        return withAccents
-    }
-
-    return withAccents.copy(
-        // При AMOLED фон/поверхности оставляем чёрными (так делает BaseColorScheme).
-        // surfaceVariant también en negro sólido: con alpha 0.8 dejaba ver el
-        // contenido de detrás y rompía el negro puro.
-        background = if (isAmoled) base.background else live.background,
-        onBackground = base.onBackground,
-        surface = if (isAmoled) base.surface else live.surface,
-        onSurface = base.onSurface,
-        surfaceVariant = if (isAmoled) Color.Black else live.surface.copy(alpha = 0.8f),
-        onSurfaceVariant = base.onSurfaceVariant,
-    )
-}

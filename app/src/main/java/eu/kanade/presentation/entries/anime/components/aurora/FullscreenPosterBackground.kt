@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -16,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
@@ -291,18 +293,35 @@ fun FullscreenPosterBackground(
                 }
             }
             if (shouldApplyBlurLayer) {
-                Image(
-                    painter = activePosterPainter,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    colorFilter = posterColorFilter,
+                // PERF (V5): el blur esconde todo el detalle, así que la copia
+                // difuminada se renderiza a ~1/8 de resolución y se escala:
+                // visualmente idéntica al blur de 20 dp a pantalla completa y
+                // mucho más barata (el RenderEffect trabaja sobre ~1/64 de píxeles).
+                val blurDownscale = 8f
+                val blurWidthDp = with(density) { (containerWidthPx / blurDownscale).toInt().toDp() }
+                val blurHeightDp = with(density) { (containerHeightPx / blurDownscale).toInt().toDp() }
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
                             alpha = blurOverlayAlpha
-                        }
-                        .auroraPosterBlur(20.dp),
-                )
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        painter = activePosterPainter,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        colorFilter = posterColorFilter,
+                        modifier = Modifier
+                            .size(blurWidthDp, blurHeightDp)
+                            .graphicsLayer {
+                                scaleX = blurDownscale
+                                scaleY = blurDownscale
+                            }
+                            .auroraPosterBlur((20 / blurDownscale).dp),
+                    )
+                }
             }
         } else {
             Image(

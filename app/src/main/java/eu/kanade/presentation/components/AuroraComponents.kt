@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -482,6 +481,7 @@ private fun AuroraSpecialBackgroundCanvas(
     if (styleKey == "none" || colors.isEInk) return
 
     var timeMillis by remember { mutableStateOf(android.os.SystemClock.uptimeMillis()) }
+    // V5: timeMillis es fijo (sin LaunchedEffect que lo actualice a 30 fps).
 
     val facePath = remember { Path() }
     val lensPath = remember { Path() }
@@ -649,15 +649,9 @@ private fun AuroraSpecialBackgroundCanvas(
     }
     val packetComparator = remember { compareBy<NeonPacket> { it.z } }
 
-    if (animate) {
-        LaunchedEffect(Unit) {
-            while (true) {
-                timeMillis = android.os.SystemClock.uptimeMillis()
-                kotlinx.coroutines.delay(33) // ~30 FPS throttling
-            }
-        }
-    }
-
+    // V5: sin bucle a 30 fps — el canvas especial dibuja una sola vez con un
+    // tiempo fijo (la rama estática que ya existía para animate=false).
+    // timeMillis ya no se actualiza: orbitSpin/pulso/cometas quedan fijos.
     val elapsedSeconds = timeMillis / 1000f
     // Use a slow linear spin for orbits without modulo resets to prevent teleporting/jumping
     val orbitSpin = if (animate) elapsedSeconds * 4f else 0f

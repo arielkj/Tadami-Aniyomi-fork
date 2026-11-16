@@ -140,12 +140,6 @@ class CreateBackupScreen : Screen() {
                 }
 
                 item {
-                    BackupSection(AYMR.strings.achievements) {
-                        Options(BackupOptions.achievementsOptions, state, model)
-                    }
-                }
-
-                item {
                     BackupStepHeader(MR.strings.backup_step_compatibility)
                 }
 

@@ -45,7 +45,6 @@ class UiPreferences(
     fun showAnimeSection() = preferenceStore.getBoolean("aurora_show_anime_section", true)
     fun showMangaSection() = preferenceStore.getBoolean("aurora_show_manga_section", true)
     fun showNovelSection() = preferenceStore.getBoolean("aurora_show_novel_section", true)
-    fun showReelsVideoFeed() = preferenceStore.getBoolean("pref_show_reels_video_feed", true)
 
     fun hideFeedTab() = preferenceStore.getBoolean("hide_feed_tab", false)
     fun feedTabInFront() = preferenceStore.getBoolean("feed_tab_position", false)
@@ -136,7 +135,6 @@ class UiPreferences(
         emptySet(),
     )
 
-    fun showAchievementNotifications() = preferenceStore.getBoolean("show_achievement_notifications", true)
 
     fun showTabGlow() = preferenceStore.getBoolean("show_tab_glow", false)
 
@@ -144,7 +142,10 @@ class UiPreferences(
 
     fun showCircuitNavbar() = preferenceStore.getBoolean("show_circuit_navbar", false)
 
-    fun animatedAuroraBackground() = preferenceStore.getBoolean("animated_aurora_background", true)
+    // V5: fondo ambiental animado apagado por defecto (el usuario puede
+    // reactivarlo en Ajustes > Apariencia); el canvas especial además ya no
+    // anima en bucle (ver AuroraComponents).
+    fun animatedAuroraBackground() = preferenceStore.getBoolean("animated_aurora_background", false)
 
     fun auroraDarkRimLightEnabled() = preferenceStore.getBoolean("aurora_dark_rim_light_enabled", true)
 

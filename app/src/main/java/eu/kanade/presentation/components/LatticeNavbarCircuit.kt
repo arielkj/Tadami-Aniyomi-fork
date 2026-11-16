@@ -1,13 +1,6 @@
 package eu.kanade.presentation.components
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -20,7 +13,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import eu.kanade.domain.ui.UiPreferences
-import eu.kanade.presentation.easteregg.lattice.rememberLatticeReducedMotion
+import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import kotlin.math.PI
@@ -33,56 +26,31 @@ private val LatticeCyan = Color(0xFF0095AE)
 private val LatticeAmber = Color(0xFFFFA726)
 
 /**
- * Circuit Edge active when user equipped it **and** unlockable is available
- * (same gate pattern as Aurora Celestial navbar).
+ * Circuit Edge active when user equipped it. V5: sin гейт por unlockable —
+ * el sistema de desbloqueo quedó huérfano tras la fase 1 y su observador
+ * permanente no aportaba nada; manda solo el interruptor de preferencias.
  */
 @Composable
 fun rememberLatticeCircuitNavbarUnlocked(): Boolean {
     val uiPreferences = remember { Injekt.get<UiPreferences>() }
-    return rememberUnlockableNavbarEnabled(
-        enabled = uiPreferences.showCircuitNavbar(),
-        unlockableId = LATTICE_CIRCUIT_NAVBAR_UNLOCKABLE,
-    )
+    return uiPreferences.showCircuitNavbar().collectAsState().value
 }
 
 /**
  * Circuit Edge — **bottom rim-light only**.
  *
  * Draws a soft glow and hairline along the underside of the nav capsule
- * (bottom edge + lower corner arcs). No full contour, no top stroke.
- * Color still breathes cyan ↔ amber.
+ * (bottom edge + lower corner arcs). V5: color estático — antes respiraba
+ * cyan ↔ amber con dos bucles infinitos (7,4 s y 4,6 s); ahora se dibuja
+ * una sola vez con los valores fijos que ya usaba la rama de movimiento
+ * reducido. El parámetro [animate] se conserva por compatibilidad con los
+ * call sites y ya no tiene efecto.
  */
 @Composable
 fun Modifier.latticeCircuitBar(animate: Boolean = true): Modifier {
-    val reduced = rememberLatticeReducedMotion()
-    val phase: Float
-    val breath: Float
-    if (animate && !reduced) {
-        val transition = rememberInfiniteTransition(label = "latticeCircuitBreath")
-        val p by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 7400, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "latticeColorPhase",
-        )
-        val b by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 4600, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "latticeAlphaBreath",
-        )
-        phase = p
-        breath = b
-    } else {
-        phase = 0.18f
-        breath = 0.35f
-    }
+    // V5: valores fijos (antes eran la rama de movimiento reducido).
+    val phase = 0.18f
+    val breath = 0.35f
 
     val mix = (0.5f + 0.5f * sin(phase * 2f * PI.toFloat())).coerceIn(0f, 1f)
     val alphaPulse = (0.28f + 0.36f * (0.5f + 0.5f * sin(breath * 2f * PI.toFloat() + 0.4f)))
@@ -191,27 +159,12 @@ fun Modifier.latticeCircuitBar(animate: Boolean = true): Modifier {
     }
 }
 
-/** Vertical circuit line along the trailing edge of a navigation rail (tablet / landscape). */
+/** Vertical circuit line along the trailing edge of a navigation rail (tablet / landscape). V5: pulso estático — antes recorría el rail con un bucle infinito de 5,2 s. */
 @Composable
 fun Modifier.latticeCircuitRail(animate: Boolean = true): Modifier {
     val accent = Color(0xFF0095AE)
-    val reduced = rememberLatticeReducedMotion()
-    val progress: Float
-    if (animate && !reduced) {
-        val transition = rememberInfiniteTransition(label = "latticeCircuitRail")
-        val p by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(5200, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "latticeCircuitRailPulse",
-        )
-        progress = p
-    } else {
-        progress = 0.35f
-    }
+    // V5: posición fija del brillo (antes era la rama de movimiento reducido).
+    val progress = 0.35f
     return this.drawBehind {
         val x = size.width - 1.dp.toPx()
         val stroke = 1.5f * density

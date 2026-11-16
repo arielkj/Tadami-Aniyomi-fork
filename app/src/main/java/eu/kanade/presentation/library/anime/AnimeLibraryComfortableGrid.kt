@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import eu.kanade.presentation.library.anime.components.SeriesStackedCoverCard
 import eu.kanade.presentation.library.components.DownloadsBadge
@@ -63,16 +64,21 @@ internal fun AnimeLibraryComfortableGrid(
             } else {
                 libraryItem.libraryAnime
             }
-            EntryComfortableGridItem(
-                isSelected = isSelected,
-                title = title,
-                coverData = AnimeCover(
+            // V5: igual que la compacta — AnimeCover cacheado por anime para
+            // no reconstruirlo en cada recomposición del ítem.
+            val coverData = remember(anime) {
+                AnimeCover(
                     animeId = anime.id,
                     sourceId = anime.source,
                     isAnimeFavorite = anime.favorite,
                     url = anime.thumbnailUrl,
                     lastModified = anime.coverLastModified,
-                ),
+                )
+            }
+            EntryComfortableGridItem(
+                isSelected = isSelected,
+                title = title,
+                coverData = coverData,
                 customCover = if (isSeries && libraryItem.librarySeries.series.coverMode == SeriesCoverMode.AUTO) {
                     {
                         SeriesStackedCoverCard(

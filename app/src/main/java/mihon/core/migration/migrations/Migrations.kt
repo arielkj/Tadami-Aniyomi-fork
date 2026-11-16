@@ -56,7 +56,6 @@ val migrations: List<Migration>
         DefaultChapterSortAscendingMigration(),
         EInkProfileMigration(),
         MoveLatestToFeedMigration(),
-        RecomputeGenreAchievementsMigration(),
         ExtensionRepoToStoreMigration(),
         ExtensionStoreUrlRepairMigration(),
         ForceMissedMigrations187(),

@@ -11,7 +11,6 @@ import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.browse.anime.AnimeSourceUiModel
 import eu.kanade.tachiyomi.util.system.LAST_USED_KEY
 import eu.kanade.tachiyomi.util.system.PINNED_KEY
-import eu.kanade.tachiyomi.util.system.REELS_KEY
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
@@ -39,7 +38,6 @@ import java.util.TreeMap
 class AnimeSourcesScreenModel(
     // РЕШ-B5: the BasePreferences parameter was never read (dead DI dependency).
     private val sourcePreferences: SourcePreferences = Injekt.get(),
-    private val uiPreferences: UiPreferences = Injekt.get(),
     private val getEnabledAnimeSources: GetEnabledAnimeSources = Injekt.get(),
     private val toggleSource: ToggleAnimeSource = Injekt.get(),
     private val toggleSourcePin: ToggleAnimeSourcePin = Injekt.get(),
@@ -75,11 +73,6 @@ class AnimeSourcesScreenModel(
                 updateState()
             }
             .launchIn(screenModelScope)
-        uiPreferences.showReelsVideoFeed().changes()
-            .onEach {
-                updateState()
-            }
-            .launchIn(screenModelScope)
     }
 
     private fun updateState() {
@@ -90,7 +83,6 @@ class AnimeSourcesScreenModel(
             val query = current.searchQuery
             val collapsed = current.collapsedLanguages
             val verticalLayout = current.verticalPinnedLayout
-            val showReels = uiPreferences.showReelsVideoFeed().get()
 
             // 1. Separate Pinned (only if no search query AND not vertical layout)
             val (pinned, others) = when {
@@ -104,7 +96,7 @@ class AnimeSourcesScreenModel(
 
             // 2. Filter by query and reels preference
             val filtered = others.filter { source ->
-                if (source.isFeedSource && !showReels) return@filter false
+                if (source.isFeedSource) return@filter false
                 query.isBlank() || source.name.contains(query, ignoreCase = true) ||
                     source.lang.contains(query, ignoreCase = true)
             }
@@ -116,8 +108,6 @@ class AnimeSourcesScreenModel(
                     d2 == PINNED_KEY && d1 != PINNED_KEY -> 1
                     d1 == LAST_USED_KEY && d2 != LAST_USED_KEY -> -1
                     d2 == LAST_USED_KEY && d1 != LAST_USED_KEY -> 1
-                    d1 == REELS_KEY && d2 != REELS_KEY -> -1
-                    d2 == REELS_KEY && d1 != REELS_KEY -> 1
                     d1 == "" && d2 != "" -> 1
                     d2 == "" && d1 != "" -> -1
                     else -> d1.compareTo(d2)
@@ -125,7 +115,6 @@ class AnimeSourcesScreenModel(
             }
             val byLang = filtered.groupByTo(map) {
                 when {
-                    it.isFeedSource -> REELS_KEY
                     verticalLayout && query.isBlank() && Pin.Actual in it.pin -> PINNED_KEY
                     it.isUsedLast -> LAST_USED_KEY
                     else -> it.lang
@@ -172,9 +161,6 @@ class AnimeSourcesScreenModel(
     }
 
     fun togglePin(source: AnimeSource) {
-        // Feed (Reels) sources are always grouped under the fixed REELS key; pinning one is
-        // a no-op (and would drop it from the pinned grid in vertical layout), so ignore it.
-        if (source.isFeedSource) return
         toggleSourcePin.await(source)
     }
 

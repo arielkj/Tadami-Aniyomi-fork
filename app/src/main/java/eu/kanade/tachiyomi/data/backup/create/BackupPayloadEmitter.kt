@@ -1,13 +1,11 @@
 package eu.kanade.tachiyomi.data.backup.create
 
 import eu.kanade.tachiyomi.data.backup.models.Backup
-import eu.kanade.tachiyomi.data.backup.models.BackupAchievement
 import eu.kanade.tachiyomi.data.backup.models.BackupAnime
 import eu.kanade.tachiyomi.data.backup.models.BackupAnimeSeries
 import eu.kanade.tachiyomi.data.backup.models.BackupAnimeSource
 import eu.kanade.tachiyomi.data.backup.models.BackupCategory
 import eu.kanade.tachiyomi.data.backup.models.BackupCustomButtons
-import eu.kanade.tachiyomi.data.backup.models.BackupDayActivity
 import eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryHidden
 import eu.kanade.tachiyomi.data.backup.models.BackupDiscoverySignal
 import eu.kanade.tachiyomi.data.backup.models.BackupDiscoveryTag
@@ -20,12 +18,8 @@ import eu.kanade.tachiyomi.data.backup.models.BackupMangaSeries
 import eu.kanade.tachiyomi.data.backup.models.BackupNovel
 import eu.kanade.tachiyomi.data.backup.models.BackupNovelSeries
 import eu.kanade.tachiyomi.data.backup.models.BackupPreference
-import eu.kanade.tachiyomi.data.backup.models.BackupReelsFavorite
-import eu.kanade.tachiyomi.data.backup.models.BackupReelsFollow
 import eu.kanade.tachiyomi.data.backup.models.BackupSource
 import eu.kanade.tachiyomi.data.backup.models.BackupSourcePreferences
-import eu.kanade.tachiyomi.data.backup.models.BackupStats
-import eu.kanade.tachiyomi.data.backup.models.BackupUserProfile
 import eu.kanade.tachiyomi.data.backup.models.MihonBackupManga
 import eu.kanade.tachiyomi.data.backup.models.TadamiMediaType
 import eu.kanade.tachiyomi.data.backup.models.TadamiMediaTypeHint
@@ -73,19 +67,9 @@ internal object BackupPayloadEmitter {
             messageList(508, backup.backupNovel, BackupNovel.serializer(), proto)
             messageList(509, backup.backupNovelCategories, BackupCategory.serializer(), proto)
             messageList(510, backup.backupNovelSources, BackupSource.serializer(), proto)
-            messageList(600, backup.backupAchievements, BackupAchievement.serializer(), proto)
-            backup.backupUserProfile?.let {
-                messageField(601, proto.encodeToByteArray(BackupUserProfile.serializer(), it))
-            }
-            messageList(602, backup.backupActivityLog, BackupDayActivity.serializer(), proto)
-            backup.backupStats?.let {
-                messageField(603, proto.encodeToByteArray(BackupStats.serializer(), it))
-            }
             messageList(620, backup.backupMangaSeries, BackupMangaSeries.serializer(), proto)
             messageList(621, backup.backupNovelSeries, BackupNovelSeries.serializer(), proto)
             messageList(622, backup.backupFeeds, BackupFeed.serializer(), proto)
-            messageList(623, backup.backupReelsFavorites, BackupReelsFavorite.serializer(), proto)
-            messageList(626, backup.backupReelsFollows, BackupReelsFollow.serializer(), proto)
             messageList(624, backup.backupDiscoveryHidden, BackupDiscoveryHidden.serializer(), proto)
             messageList(625, backup.backupDiscoveryBlacklistTags, BackupDiscoveryTag.serializer(), proto)
             messageList(627, backup.backupDiscoverySignals, BackupDiscoverySignal.serializer(), proto)

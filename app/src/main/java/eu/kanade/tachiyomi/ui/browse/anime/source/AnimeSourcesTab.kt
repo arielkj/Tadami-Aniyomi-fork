@@ -18,7 +18,6 @@ import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.components.TabContent
 import eu.kanade.tachiyomi.ui.browse.anime.source.browse.BrowseAnimeSourcePagerScreen
 import eu.kanade.tachiyomi.ui.browse.anime.source.globalsearch.GlobalAnimeSearchScreen
-import eu.kanade.tachiyomi.ui.reels.ReelsFeedScreen
 import eu.kanade.tachiyomi.util.system.LAST_USED_KEY
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.collectLatest
@@ -52,39 +51,35 @@ fun Screen.animeSourcesTab(): TabContent {
                 state = state,
                 contentPadding = contentPadding,
                 onClickItem = { source, listing ->
-                    if (source.isFeedSource) {
-                        navigator.push(ReelsFeedScreen(source.id))
+                    val sourceIds = if (state.pinnedItems.any { it.id == source.id } &&
+                        !state.verticalPinnedLayout
+                    ) {
+                        state.pinnedItems.map { it.id }
                     } else {
-                        val sourceIds = if (state.pinnedItems.any { it.id == source.id } &&
-                            !state.verticalPinnedLayout
-                        ) {
-                            state.pinnedItems.map { it.id }
-                        } else {
-                            var currentHeaderLang: String? = null
-                            val groups = mutableMapOf<String, MutableList<Long>>()
-                            state.items.forEach { uiModel ->
-                                when (uiModel) {
-                                    is AnimeSourceUiModel.Header -> {
-                                        currentHeaderLang = uiModel.language
-                                    }
-                                    is AnimeSourceUiModel.Item -> {
-                                        val lang = currentHeaderLang ?: ""
-                                        groups.getOrPut(lang) { mutableListOf() }.add(uiModel.source.id)
-                                    }
+                        var currentHeaderLang: String? = null
+                        val groups = mutableMapOf<String, MutableList<Long>>()
+                        state.items.forEach { uiModel ->
+                            when (uiModel) {
+                                is AnimeSourceUiModel.Header -> {
+                                    currentHeaderLang = uiModel.language
+                                }
+                                is AnimeSourceUiModel.Item -> {
+                                    val lang = currentHeaderLang ?: ""
+                                    groups.getOrPut(lang) { mutableListOf() }.add(uiModel.source.id)
                                 }
                             }
-                            // BRM-15: a last-used source lives in the cross-language LAST_USED
-                            // group - prefer the source's own LANGUAGE group for pager
-                            // neighbors (manga etalon).
-                            val foundEntry = groups.entries.firstOrNull { it.value.contains(source.id) }
-                            when {
-                                foundEntry == null -> listOf(source.id)
-                                foundEntry.key == LAST_USED_KEY -> groups[source.lang] ?: listOf(source.id)
-                                else -> foundEntry.value
-                            }
                         }
-                        navigator.push(BrowseAnimeSourcePagerScreen(source.id, sourceIds, listing.query))
+                        // BRM-15: a last-used source lives in the cross-language LAST_USED
+                        // group - prefer the source's own LANGUAGE group for pager
+                        // neighbors (manga etalon).
+                        val foundEntry = groups.entries.firstOrNull { it.value.contains(source.id) }
+                        when {
+                            foundEntry == null -> listOf(source.id)
+                            foundEntry.key == LAST_USED_KEY -> groups[source.lang] ?: listOf(source.id)
+                            else -> foundEntry.value
+                        }
                     }
+                    navigator.push(BrowseAnimeSourcePagerScreen(source.id, sourceIds, listing.query))
                 },
                 onClickPin = screenModel::togglePin,
                 onLongClickItem = screenModel::showSourceDialog,

@@ -72,7 +72,7 @@ class BackupCreateJob(private val context: Context, workerParams: WorkerParamete
             BackupDiagnosticLog.log(
                 context,
                 "options",
-                "library=${options.libraryEntries} stats=${options.stats} achievements=${options.achievements}",
+                "library=${options.libraryEntries}",
             )
 
             val location = BackupCreator(context, isAutoBackup).backup(uri, options)

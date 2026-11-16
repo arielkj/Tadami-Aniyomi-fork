@@ -57,5 +57,4 @@ private val themeResources: Map<AppTheme, Int> = mapOf(
     AppTheme.EVENT_HORIZON to R.style.Theme_Tachiyomi_EventHorizon,
     AppTheme.VOID_RED to R.style.Theme_Tachiyomi_VoidRed,
     AppTheme.AURORA_PRIME to R.style.Theme_Tachiyomi_AuroraPrime,
-    AppTheme.LATTICE_PROTOCOL to R.style.Theme_Tachiyomi_LatticeProtocol,
 )

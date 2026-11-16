@@ -17,14 +17,6 @@ import data.Mangas
 import dataanime.Animehistory
 import dataanime.Animes
 import dataanime.Episodes
-import dataanime.Reels_album_watched
-import dataanime.Reels_albums
-import dataanime.Reels_candidate
-import dataanime.Reels_consumption
-import dataanime.Reels_favorites
-import dataanime.Reels_follows
-import dataanime.Reels_hidden
-import dataanime.Reels_watch_history
 import datanovel.Novel_chapters
 import datanovel.Novel_history
 import datanovel.Novels
@@ -526,36 +518,9 @@ class AppModule(val app: Application) : InjektModule {
                     update_strategyAdapter = AnimeUpdateStrategyColumnAdapter,
                     fetch_typeAdapter = FetchTypeColumnAdapter,
                 ),
-                reels_favoritesAdapter = Reels_favorites.Adapter(
-                    added_atAdapter = DateColumnAdapter,
-                ),
-                reels_followsAdapter = Reels_follows.Adapter(
-                    added_atAdapter = DateColumnAdapter,
-                ),
-                reels_watch_historyAdapter = Reels_watch_history.Adapter(
-                    watched_atAdapter = DateColumnAdapter,
-                ),
-                reels_hiddenAdapter = Reels_hidden.Adapter(
-                    hidden_atAdapter = DateColumnAdapter,
-                ),
-                reels_albumsAdapter = Reels_albums.Adapter(
-                    added_atAdapter = DateColumnAdapter,
-                ),
-                reels_album_watchedAdapter = Reels_album_watched.Adapter(
-                    marked_atAdapter = DateColumnAdapter,
-                ),
-                reels_consumptionAdapter = Reels_consumption.Adapter(
-                    watched_qualified_atAdapter = DateColumnAdapter,
-                    skipped_forward_atAdapter = DateColumnAdapter,
-                    last_action_atAdapter = DateColumnAdapter,
-                ),
-                reels_candidateAdapter = Reels_candidate.Adapter(
-                    discovered_atAdapter = DateColumnAdapter,
-                    last_validated_atAdapter = DateColumnAdapter,
-                    retry_afterAdapter = DateColumnAdapter,
-                ),
             )
         }
+
 
         addSingletonFactory {
             AchievementsDatabase(
@@ -633,7 +598,6 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { eu.kanade.tachiyomi.data.coil.MetadataCoverResolver(get(), get(), get()) }
 
         addSingletonFactory { NetworkHelper(app, get()) }
-        addSingletonFactory { eu.kanade.domain.easteregg.aurora.AuroraHeartManager.get(app) }
         addSingletonFactory { TorrentServerApi(get(), get()) }
         addSingletonFactory { TorrentServerUtils(get(), get()) }
         addSingletonFactory { JavaScriptEngine(app) }
@@ -893,30 +857,18 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { TranslationQueueManager() }
         addSingletonFactory { TranslationNotificationManager(app) }
 
-        // Achievement system repositories
-        addSingletonFactory<tachiyomi.domain.achievement.repository.AchievementRepository> {
-            tachiyomi.data.achievement.repository.AchievementRepositoryImpl(get())
-        }
-        addSingletonFactory<tachiyomi.domain.achievement.repository.ActivityDataRepository> {
-            tachiyomi.data.achievement.ActivityDataRepositoryImpl(get())
-        }
-        addSingletonFactory<tachiyomi.domain.achievement.repository.UserProfileRepository> {
-            tachiyomi.data.achievement.UserProfileRepositoryImpl(get())
-        }
-
-        // Achievement system managers and handlers
-        addSingletonFactory<tachiyomi.data.achievement.localization.AchievementTextResolver> {
-            eu.kanade.tachiyomi.data.achievement.localization.AchievementTextResolverImpl(app)
-        }
-        addSingletonFactory { tachiyomi.data.achievement.loader.AchievementLoader(app, get(), get(), get()) }
-        addSingletonFactory { tachiyomi.data.achievement.handler.PointsManager(get()) }
-        addSingletonFactory { tachiyomi.data.achievement.UserProfileManager(get()) }
         addSingletonFactory {
             tachiyomi.data.achievement.UnlockableManager(
                 app.getSharedPreferences("achievement_unlockables", Context.MODE_PRIVATE),
                 get(),
             )
         }
+
+        // Kept: Home profile / greeting stats still read the user profile store.
+        addSingletonFactory<tachiyomi.domain.achievement.repository.UserProfileRepository> {
+            tachiyomi.data.achievement.UserProfileRepositoryImpl(get())
+        }
+        addSingletonFactory { tachiyomi.data.achievement.UserProfileManager(get()) }
 
         // Sync preferences and Google Drive service
         addSingletonFactory { SyncPreferences(get()) }

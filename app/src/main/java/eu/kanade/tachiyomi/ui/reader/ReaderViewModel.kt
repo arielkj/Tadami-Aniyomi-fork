@@ -88,9 +88,6 @@ import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.data.achievement.handler.AchievementEventBus
-import tachiyomi.domain.achievement.model.AchievementEvent
-import tachiyomi.domain.achievement.repository.ActivityDataRepository
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.entries.manga.interactor.GetManga
 import tachiyomi.domain.entries.manga.model.Manga
@@ -137,8 +134,6 @@ class ReaderViewModel @JvmOverloads constructor(
     private val updateManga: UpdateManga = Injekt.get(),
     private val getIncognitoState: GetMangaIncognitoState = Injekt.get(),
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
-    private val eventBus: AchievementEventBus = Injekt.get(),
-    private val activityDataRepository: ActivityDataRepository = Injekt.get(),
     private val discoveryRepository: tachiyomi.domain.discovery.repository.DiscoveryRepository = Injekt.get(),
 ) : ViewModel() {
 
@@ -984,48 +979,10 @@ class ReaderViewModel @JvmOverloads constructor(
         deleteChapterIfNeeded(readerChapter, completionChapters)
         maybeShowSeriesInterstitial(readerChapter)
 
-        // Emit ChapterRead event for achievement tracking. Gated on the unread->read transition:
-        // re-reaching the last page of an already-read chapter re-emitted the event on every visit
-        // (achievement rules recompute from the DB, so the event is only a trigger - but the
-        // activity log below accumulates blindly).
-        val mangaId = currentManga?.id ?: return
-        if (chapterWasUnread) {
-            eventBus.tryEmit(
-                AchievementEvent.ChapterRead(
-                    mangaId = mangaId,
-                    chapterNumber = readerChapter.chapter.chapter_number.toInt(),
-                ),
-            )
-        }
-
-        runCatching {
-            if (eu.kanade.domain.easteregg.aurora.AuroraNight.isVeilThin()) {
-                val manager = Injekt.get<eu.kanade.domain.easteregg.aurora.AuroraHeartManager>()
-                manager.registerNightAction()
-            }
-        }
-
-        // Record reading activity for stats
-        val chapterId = readerChapter.chapter.id ?: 0L
-        if (chapterId > 0) {
-            activityDataRepository.recordReading(
-                id = chapterId,
-                // Re-visits of an already-read chapter must not inflate the daily chapter count;
-                // the re-read session duration still counts (incrementChapters keeps the level
-                // via MAX and adds 0 to chapters_read).
-                chaptersCount = if (chapterWasUnread) 1 else 0,
-                durationMs = chapterReadStartTime?.let { System.currentTimeMillis() - it } ?: 0L,
-            )
-        }
+        currentManga ?: return
 
         // Check for manga completion against the full snapshot.
         if (completionChapters.isNotEmpty() && completionChapters.all { it.read }) {
-            // Event-driven rules (complete_1_manga, crybaby) unlock purely from this event, so it
-            // is gated on the entry's own (possibly custom) COMPLETED status: an exhausted ONGOING
-            // series must not count as a completed manga.
-            if (currentManga.displayStatus == SManga.COMPLETED.toLong()) {
-                eventBus.tryEmit(AchievementEvent.MangaCompleted(mangaId))
-            }
             recordCompletionIfNeeded(readerChapter, completionChapters)
             maybeShowFinale(readerChapter, completionChapters, chapterWasUnread)
         }
@@ -1154,7 +1111,12 @@ class ReaderViewModel @JvmOverloads constructor(
                 chapterCount = allChapters.size,
                 daysOnShelf = daysOnShelf(currentManga.dateAdded),
                 finishedOn = DateFormat.getDateInstance(DateFormat.SHORT).format(Date()),
-                nightVeil = eu.kanade.domain.easteregg.aurora.AuroraNight.isVeilThin(),
+                nightVeil = run {
+                    val calendar = java.util.Calendar.getInstance()
+                    val minutes = calendar.get(java.util.Calendar.HOUR_OF_DAY) * 60 +
+                        calendar.get(java.util.Calendar.MINUTE)
+                    minutes in (2 * 60 + 45)..(4 * 60 + 15)
+                },
             )
         }
     }

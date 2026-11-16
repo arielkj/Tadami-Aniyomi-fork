@@ -22,7 +22,7 @@ import tachiyomi.presentation.core.util.collectAsState as preferenceCollectAsSta
  * Order and visibility of the entries on the Aurora «More» screen.
  *
  * [availableIds] is captured by the caller because only `MoreTab` knows which conditional entries
- * (Reels, lattice grid, debug rows) exist right now. [movedTabTitle] is passed as a resolved string:
+ * (debug rows) exist right now. [movedTabTitle] is passed as a resolved string:
  * `navStyle.moreTab.options` may only be read inside the bottom-nav tab navigator.
  */
 data class MoreMenuCustomizeScreen(

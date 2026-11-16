@@ -2,12 +2,8 @@ package eu.kanade.presentation.more.settings.screen.about
 
 import android.os.Build
 import android.os.SystemClock
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
@@ -156,7 +152,8 @@ internal fun GlyphRainLayer(
     phase: AboutEasterEggPhase,
     modifier: Modifier = Modifier,
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "glyphRain")
+    // V5: lluvia de glifos estática — antes cada columna caía en bucle
+    // infinito; el fondo animado se congela y el overlay queda estático.
     val layerVisibility by animateFloatAsState(
         targetValue = when (phase) {
             AboutEasterEggPhase.GlyphRain -> 1f
@@ -262,18 +259,9 @@ internal fun GlyphRainLayer(
             }
 
             streams.forEachIndexed { streamIndex, stream ->
-                val loopProgress by infiniteTransition.animateFloat(
-                    initialValue = -0.58f,
-                    targetValue = 1.18f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(
-                            durationMillis = stream.durationMs,
-                            delayMillis = stream.delayMs,
-                            easing = LinearEasing,
-                        ),
-                    ),
-                    label = "${layer.name}GlyphLoop$streamIndex",
-                )
+                // V5: altura fija determinista por columna (antes recorría
+                // -0.58 → 1.18 en bucle infinito con duración por columna).
+                val loopProgress = -0.58f + 1.76f * ((streamIndex * 0.37f + layerIndex * 0.53f) % 1f)
 
                 val x = widthPx * stream.normalizedX
                 val y = heightPx * loopProgress
@@ -365,23 +353,9 @@ private fun MaterializingPage(
             -> 0f
         }
     }
-    val glowPulse = rememberInfiniteTransition(label = "pageGlow")
-    val glowRadius by glowPulse.animateFloat(
-        initialValue = 14f,
-        targetValue = 20f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2_400, easing = LinearEasing),
-        ),
-        label = "pageGlowRadius",
-    )
-    val glowAlpha by glowPulse.animateFloat(
-        initialValue = 0.16f,
-        targetValue = 0.24f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2_400, easing = LinearEasing),
-        ),
-        label = "pageGlowAlpha",
-    )
+    // V5: brillo fijo (antes pulsaba 14→20 dp / 0.16→0.24 en bucle de 2,4 s).
+    val glowRadius = 17f
+    val glowAlpha = 0.20f
 
     val glowColors = listOf(
         MaterialTheme.colorScheme.primary.copy(alpha = 0.58f),
@@ -487,25 +461,10 @@ private fun ProloguePage(
         animationSpec = tween(durationMillis = 260),
         label = "exitButtonAlpha",
     )
-    val buttonPulse = rememberInfiniteTransition(label = "exitButtonPulse")
-    val buttonScale by buttonPulse.animateFloat(
-        initialValue = 0.97f,
-        targetValue = 1.03f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1_900),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "exitButtonScale",
-    )
-    val buttonBrushShift by buttonPulse.animateFloat(
-        initialValue = 0.18f,
-        targetValue = 0.28f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1_900),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "exitButtonGlow",
-    )
+    // V5: botón de salida fijo (antes pulsaba escala 0.97→1.03 y brillo
+    // 0.18→0.28 en bucle de 1,9 s).
+    val buttonScale = 1f
+    val buttonBrushShift = 0.23f
 
     Column(
         modifier = Modifier

@@ -1,12 +1,6 @@
 package eu.kanade.presentation.library.components
 
 import android.util.LruCache
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -735,19 +729,10 @@ private fun GlowContourLibraryCard(
     // H4: the transition used to be created unconditionally per card even with the void-red
     // aura off - one wasted frame tick, one wasted card recomposition and ~6 allocations per
     // item bind. Conditional composable calls are legal; burstState re-keys on isVoidRedAura.
-    val timeState: androidx.compose.runtime.State<Float> = if (isVoidRedAura) {
-        rememberInfiniteTransition(label = "void_red_aura").animateFloat(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(6000, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "void_red_time",
-        )
-    } else {
-        remember { mutableStateOf(0f) }
-    }
+    // V5: aura estática — antes un bucle infinito de 6 s movía los estallidos
+    // (time 0→1) e invalidaba el dibujo de cada tarjeta en cada frame. Con
+    // tiempo fijo 0f, burstState es constante (sin estallido, flicker 1f).
+    val timeState: androidx.compose.runtime.State<Float> = remember { mutableStateOf(0f) }
 
     val burstState = remember(isVoidRedAura) {
         derivedStateOf {

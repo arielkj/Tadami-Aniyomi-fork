@@ -10,15 +10,10 @@ package eu.kanade.tachiyomi.ui.more
 enum class MoreEntryId {
     /** Bottom-nav tab moved into «More» by [eu.kanade.domain.ui.model.NavStyle]; the only path to it. */
     MOVED_TAB,
-    REELS,
     SETTINGS,
     PLAYER_SETTINGS,
     READER_MANGA,
     READER_NOVEL,
-    QUOTES,
-    STATS,
-    ACHIEVEMENTS,
-    TREASURY,
     DATA_STORAGE,
     UPDATE_ERRORS,
     DOWNLOADS,
@@ -26,12 +21,8 @@ enum class MoreEntryId {
     DOWNLOADED_ONLY,
     INCOGNITO,
     ABOUT,
-    LATTICE_GRID,
     DEBUG_APP_UPDATE,
     DEBUG_CHANGELOG,
-    DEBUG_RESET_HEART,
-    DEBUG_RESET_LATTICE,
-    DEBUG_FORCE_BREACH,
     HELP,
     ;
 
@@ -51,21 +42,14 @@ private val MORE_ENTRY_BY_NAME: Map<String, MoreEntryId> = MoreEntryId.entries.a
 private val DEBUG_ENTRIES = setOf(
     MoreEntryId.DEBUG_APP_UPDATE,
     MoreEntryId.DEBUG_CHANGELOG,
-    MoreEntryId.DEBUG_RESET_HEART,
-    MoreEntryId.DEBUG_RESET_LATTICE,
-    MoreEntryId.DEBUG_FORCE_BREACH,
 )
 
 /** Entries that can appear on the screen right now; conditional ones follow their runtime flags. */
 fun availableMoreEntryIds(
-    showReelsEntry: Boolean,
-    latticeGridAvailable: Boolean,
     isDebugBuild: Boolean,
 ): Set<MoreEntryId> {
     return MoreEntryId.entries.filterTo(mutableSetOf()) { id ->
         when (id) {
-            MoreEntryId.REELS -> showReelsEntry
-            MoreEntryId.LATTICE_GRID -> latticeGridAvailable
             in DEBUG_ENTRIES -> isDebugBuild
             else -> true
         }

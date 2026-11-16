@@ -42,8 +42,6 @@ import kotlinx.coroutines.withContext
 import tachiyomi.core.common.preference.CheckboxState
 import tachiyomi.core.common.preference.mapAsCheckboxState
 import tachiyomi.core.common.util.lang.launchIO
-import tachiyomi.data.achievement.handler.AchievementHandler
-import tachiyomi.domain.achievement.model.AchievementEvent
 import tachiyomi.domain.category.anime.interactor.GetAnimeCategories
 import tachiyomi.domain.category.anime.interactor.SetAnimeCategories
 import tachiyomi.domain.category.model.Category
@@ -87,7 +85,6 @@ class BrowseAnimeSourceScreenModel(
     private val updateAnime: UpdateAnime = Injekt.get(),
     private val addTracks: AddAnimeTracks = Injekt.get(),
     private val getIncognitoState: GetAnimeIncognitoState = Injekt.get(),
-    private val achievementHandler: AchievementHandler = Injekt.get(),
     private val getSavedSearchById: GetSavedSearchById = Injekt.get(),
     private val getSavedSearchBySourceId: GetSavedSearchBySourceId = Injekt.get(),
     private val insertSavedSearch: InsertSavedSearch = Injekt.get(),
@@ -98,7 +95,6 @@ class BrowseAnimeSourceScreenModel(
     var displayMode by sourcePreferences.sourceDisplayMode().asState(screenModelScope)
 
     val source = sourceManager.getOrStub(sourceId)
-    private var defaultFiltersSerialized: String? = null
 
     init {
         if (source is AnimeCatalogueSource) {
@@ -195,12 +191,7 @@ class BrowseAnimeSourceScreenModel(
                 (source as AnimeCatalogueSource).getFilterList()
             }
         }.getOrElse { AnimeFilterList() }
-        defaultFiltersSerialized = serializeFilters(filters)
         return filters
-    }
-
-    private fun serializeFilters(filters: AnimeFilterList): String? {
-        return runCatching { SavedSearchFilterSerializer.serialize(filters) }.getOrNull()
     }
 
     fun loadSavedSearches() {
@@ -353,24 +344,13 @@ class BrowseAnimeSourceScreenModel(
         mutableState.update { it.copy(listing = listing, toolbarQuery = null) }
     }
 
-    // РЕШ-9 (anime mirror): the filter sheet mutates the same FilterList instance the state
-    // holds, so the self-comparison was always equal and browse never tracked FILTER.
-    private var appliedFiltersSnapshot: String? = null
-
     fun setFilters(filters: AnimeFilterList) {
         if (source !is AnimeCatalogueSource) return
-
-        val newSnapshot = runCatching { SavedSearchFilterSerializer.serialize(filters) }.getOrNull()
-        val changed = newSnapshot != appliedFiltersSnapshot
-        appliedFiltersSnapshot = newSnapshot
 
         mutableState.update {
             it.copy(
                 filters = filters,
             )
-        }
-        if (changed) {
-            achievementHandler.trackFeatureUsed(AchievementEvent.Feature.FILTER)
         }
     }
 
@@ -380,17 +360,6 @@ class BrowseAnimeSourceScreenModel(
         val currentState = state.value
         val input = currentState.listing as? Listing.Search
             ?: Listing.Search(query = null, filters = currentState.filters)
-
-        val q = query ?: input.query
-        if (!q.isNullOrBlank()) {
-            val f = filters ?: input.filters
-            val hasActiveFilters = serializeFilters(f)?.let { it != defaultFiltersSerialized } ?: f.isNotEmpty()
-            if (hasActiveFilters) {
-                achievementHandler.trackFeatureUsed(AchievementEvent.Feature.ADVANCED_SEARCH)
-            } else {
-                achievementHandler.trackFeatureUsed(AchievementEvent.Feature.SEARCH)
-            }
-        }
 
         mutableState.update {
             it.copy(

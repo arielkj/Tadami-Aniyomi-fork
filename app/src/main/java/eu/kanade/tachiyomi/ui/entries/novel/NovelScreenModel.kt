@@ -122,9 +122,6 @@ import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.data.achievement.handler.AchievementEventBus
-import tachiyomi.domain.achievement.model.AchievementEvent
-import tachiyomi.domain.achievement.repository.ActivityDataRepository
 import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.category.novel.interactor.GetNovelCategories
 import tachiyomi.domain.category.novel.interactor.SetNovelCategories
@@ -258,8 +255,6 @@ class NovelScreenModel(
         Injekt.get(),
     private val novelReaderPreferences: NovelReaderPreferences = Injekt.get(),
     private val translationQueueManager: TranslationQueueManager = Injekt.get(),
-    private val eventBus: AchievementEventBus? = runCatching { Injekt.get<AchievementEventBus>() }.getOrNull(),
-    private val activityDataRepository: ActivityDataRepository = Injekt.get(),
     private val suggestionCoordinator: SuggestionCoordinator = Injekt.get(),
     private val sourcePreferences: SourcePreferences = Injekt.get(),
     val snackbarHostState: SnackbarHostState = SnackbarHostState(),
@@ -2316,9 +2311,6 @@ class NovelScreenModel(
         screenModelScope.launchIO {
             val chapter = resolveActionableChapter(chapterId) ?: return@launchIO
             val newRead = !chapter.read
-            val shouldEmitReadEvent = !chapter.read && newRead
-            val shouldEmitCompletion = shouldEmitReadEvent &&
-                (successState?.chapters?.all { it.read || it.id == chapterId } == true)
             novelChapterRepository.updateChapter(
                 NovelChapterUpdate(
                     id = chapterId,
@@ -2328,28 +2320,6 @@ class NovelScreenModel(
             )
             if (newRead) {
                 updateNewChapterIds(clearedIds = listOf(chapterId))
-            }
-            if (shouldEmitReadEvent) {
-                runCatching {
-                    if (eu.kanade.domain.easteregg.aurora.AuroraNight.isVeilThin()) {
-                        val manager = Injekt.get<eu.kanade.domain.easteregg.aurora.AuroraHeartManager>()
-                        manager.registerNightAction()
-                    }
-                }
-                eventBus?.tryEmit(
-                    AchievementEvent.NovelChapterRead(
-                        novelId = chapter.novelId,
-                        chapterNumber = chapter.chapterNumber.toInt(),
-                    ),
-                )
-                if (shouldEmitCompletion) {
-                    eventBus?.tryEmit(AchievementEvent.NovelCompleted(chapter.novelId))
-                }
-                activityDataRepository.recordReading(
-                    id = chapter.id,
-                    chaptersCount = 1,
-                    durationMs = 0L,
-                )
             }
             if (newRead) {
                 maybeDeleteReadDownloads(listOf(chapter))
@@ -2400,22 +2370,6 @@ class NovelScreenModel(
             )
             if (markRead) {
                 updateNewChapterIds(clearedIds = chapters.map { it.id })
-            }
-            if (chaptersBecomingRead.isNotEmpty()) {
-                chaptersBecomingRead.forEach { chapter ->
-                    eventBus?.tryEmit(
-                        AchievementEvent.NovelChapterRead(
-                            novelId = chapter.novelId,
-                            chapterNumber = chapter.chapterNumber.toInt(),
-                        ),
-                    )
-                    activityDataRepository.recordReading(
-                        id = chapter.id,
-                        chaptersCount = 1,
-                        durationMs = 0L,
-                    )
-                }
-                eventBus?.tryEmit(AchievementEvent.NovelCompleted(chaptersBecomingRead.first().novelId))
             }
             if (markRead && chaptersBecomingRead.isNotEmpty()) {
                 val maxChapter = chaptersBecomingRead.maxOf { it.chapterNumber }
@@ -2535,24 +2489,6 @@ class NovelScreenModel(
                 updateNewChapterIds(clearedIds = selected.toList())
             }
             if (chaptersToMarkRead.isNotEmpty()) {
-                chaptersToMarkRead.forEach { chapter ->
-                    eventBus?.tryEmit(
-                        AchievementEvent.NovelChapterRead(
-                            novelId = chapter.novelId,
-                            chapterNumber = chapter.chapterNumber.toInt(),
-                        ),
-                    )
-                    activityDataRepository.recordReading(
-                        id = chapter.id,
-                        chaptersCount = 1,
-                        durationMs = 0L,
-                    )
-                }
-                val markedIds = chaptersToMarkRead.mapTo(hashSetOf()) { it.id }
-                val willComplete = state.chapters.all { it.read || it.id in markedIds }
-                if (willComplete) {
-                    eventBus?.tryEmit(AchievementEvent.NovelCompleted(chaptersToMarkRead.first().novelId))
-                }
                 maybeDeleteReadDownloads(chaptersToMarkRead)
                 maybeOfferDownloadsCleanup()
             }
@@ -2587,24 +2523,6 @@ class NovelScreenModel(
             novelChapterRepository.updateAllChapters(updates)
             updateNewChapterIds(clearedIds = chaptersToMark.map { it.id })
             if (chaptersToAchieve.isNotEmpty()) {
-                chaptersToAchieve.forEach { chapter ->
-                    eventBus?.tryEmit(
-                        AchievementEvent.NovelChapterRead(
-                            novelId = chapter.novelId,
-                            chapterNumber = chapter.chapterNumber.toInt(),
-                        ),
-                    )
-                    activityDataRepository.recordReading(
-                        id = chapter.id,
-                        chaptersCount = 1,
-                        durationMs = 0L,
-                    )
-                }
-                val markedIds = chaptersToAchieve.mapTo(hashSetOf()) { it.id }
-                val willComplete = state.chapters.all { it.read || it.id in markedIds }
-                if (willComplete) {
-                    eventBus?.tryEmit(AchievementEvent.NovelCompleted(chaptersToAchieve.first().novelId))
-                }
                 val maxChapter = chaptersToAchieve.maxOf { it.chapterNumber }
                 maybeTrackMarkedRead(maxChapter)
                 maybeDeleteReadDownloads(chaptersToAchieve)

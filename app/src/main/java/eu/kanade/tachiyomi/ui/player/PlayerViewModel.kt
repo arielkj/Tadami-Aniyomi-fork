@@ -131,9 +131,6 @@ import tachiyomi.core.common.util.lang.launchNonCancellable
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.logcat
-import tachiyomi.data.achievement.handler.AchievementEventBus
-import tachiyomi.domain.achievement.model.AchievementEvent
-import tachiyomi.domain.achievement.repository.ActivityDataRepository
 import tachiyomi.domain.category.anime.interactor.GetAnimeCategories
 import tachiyomi.domain.custombuttons.interactor.GetCustomButtons
 import tachiyomi.domain.custombuttons.model.CustomButton
@@ -201,8 +198,6 @@ class PlayerViewModel @JvmOverloads constructor(
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
     private val preferenceStore: PreferenceStore = Injekt.get(),
     uiPreferences: UiPreferences = Injekt.get(),
-    private val eventBus: AchievementEventBus = Injekt.get(),
-    private val activityDataRepository: ActivityDataRepository = Injekt.get(),
     private val discoveryRepository: tachiyomi.domain.discovery.repository.DiscoveryRepository = Injekt.get(),
 ) : ViewModel() {
 
@@ -1492,7 +1487,6 @@ class PlayerViewModel @JvmOverloads constructor(
     /**
      * The time the episode was started watching
      */
-    private var episodeReadStartTime: Long? = null
 
     private fun filterEpisodeList(episodes: List<Episode>): List<Episode> {
         val anime = currentAnime.value ?: return episodes
@@ -1688,7 +1682,6 @@ class PlayerViewModel @JvmOverloads constructor(
         mediaTitle.update { _ -> episode.name }
         _isEpisodeOnline.update { _ -> isEpisodeOnline() == true }
         MPVLib.setPropertyDouble("user-data/current-anime/episode-number", episode.episode_number.toDouble())
-        episodeReadStartTime = System.currentTimeMillis()
     }
 
     private suspend fun initEpisodeList(anime: Anime): List<Episode> {
@@ -2240,38 +2233,9 @@ class PlayerViewModel @JvmOverloads constructor(
 
         currentEp.seen = true
 
-        // Emit EpisodeWatched event for achievement tracking only once, when the episode
-        // actually transitions from unseen to seen. This method is called every second after
-        // the configured completion threshold, so recording unconditionally here inflates the
-        // "episodes watched" stats on the achievements screen.
-        val animeId = currentAnime.value?.id ?: 0L
-        eventBus.tryEmit(
-            AchievementEvent.EpisodeWatched(
-                animeId = animeId,
-                episodeNumber = currentEp.episode_number.toInt(),
-            ),
-        )
-        runCatching {
-            if (eu.kanade.domain.easteregg.aurora.AuroraNight.isVeilThin()) {
-                val manager = Injekt.get<eu.kanade.domain.easteregg.aurora.AuroraHeartManager>()
-                manager.registerNightAction()
-            }
-        }
-
-        // Record watching activity for stats
-        val episodeId = currentEp.id ?: 0L
-        if (episodeId > 0) {
-            activityDataRepository.recordWatching(
-                id = episodeId,
-                episodesCount = 1,
-                durationMs = episodeReadStartTime?.let { System.currentTimeMillis() - it } ?: 0L,
-            )
-        }
-
         // Check for anime completion
         val allEpisodes = currentPlaylist.value
         if (allEpisodes.all { it.seen }) {
-            eventBus.tryEmit(AchievementEvent.AnimeCompleted(animeId))
             recordAnimeCompletionIfNeeded(currentEp, allEpisodes)
         }
 

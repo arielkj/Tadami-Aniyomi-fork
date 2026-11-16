@@ -1470,8 +1470,11 @@ class AnimeLibraryScreenModel(
         val groupType: Int = LibraryGroup.BY_DEFAULT,
         val dialog: Dialog? = null,
     ) {
-        val categories = library.keys.toList()
-        private val pages = library.values.toList()
+        // V5: perezosos — antes keys.toList()/values.toList() se recalculaban
+        // en cada copia del State aunque la biblioteca no hubiera cambiado;
+        // ahora se calculan una sola vez por instancia y solo si se leen.
+        val categories: List<Category> by lazy { library.keys.toList() }
+        private val pages: List<PersistentList<AnimeLibraryItem>> by lazy { library.values.toList() }
 
         val items: List<AnimeLibraryItem> by lazy { pages.flatten() }
 

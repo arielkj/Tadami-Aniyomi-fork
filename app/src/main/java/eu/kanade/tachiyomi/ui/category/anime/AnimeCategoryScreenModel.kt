@@ -84,12 +84,6 @@ class AnimeCategoryScreenModel(
                 )
 
                 else -> {
-                    runCatching {
-                        val manager = Injekt.get<eu.kanade.domain.easteregg.aurora.AuroraHeartManager>()
-                        if (!manager.state.value.unlocked) {
-                            manager.offer(eu.kanade.domain.easteregg.aurora.AuroraChannels.named("категория", name))
-                        }
-                    }
                 }
             }
         }
@@ -152,12 +146,6 @@ class AnimeCategoryScreenModel(
                 )
 
                 else -> {
-                    runCatching {
-                        val manager = Injekt.get<eu.kanade.domain.easteregg.aurora.AuroraHeartManager>()
-                        if (!manager.state.value.unlocked) {
-                            manager.offer(eu.kanade.domain.easteregg.aurora.AuroraChannels.named("категория", name))
-                        }
-                    }
                 }
             }
         }

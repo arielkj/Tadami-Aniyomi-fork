@@ -115,7 +115,6 @@ import eu.kanade.presentation.tutorial.coachAnchor
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import tachiyomi.data.achievement.UnlockableManager
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.LocalAppHaptics
@@ -745,10 +744,7 @@ internal fun AuroraTabRow(
 
     val uiPreferences = remember { Injekt.get<UiPreferences>() }
     val showTabGlowPref by uiPreferences.showTabGlow().collectAsState()
-    val debugBypassLocks by uiPreferences.debugBypassTreasuryLocks().collectAsState()
-    val unlockableManager = remember { Injekt.get<UnlockableManager>() }
-    val showTabGlow =
-        showTabGlowPref && (debugBypassLocks || unlockableManager.isUnlockableAvailable("special_tab_glow"))
+    val showTabGlow = showTabGlowPref
 
     Card(
         modifier = Modifier
