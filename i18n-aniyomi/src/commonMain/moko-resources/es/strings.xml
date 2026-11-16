@@ -356,6 +356,7 @@
     <string name="label_anime_extensions">Extensiones del anime</string>
     <string name="label_migration_manga">Migrar el manga</string>
     <string name="label_migration_anime">Migrar el anime</string>
+    <string name="label_migration_novel">Migrar la novela</string>
     <string name="settings">Ajustes</string>
     <string name="copied_video_link_to_clipboard">Enlace de calidad del video copiado al portapapeles</string>
     <string name="choose_video_quality">Elige la calidad del vídeo:</string>
@@ -702,6 +703,9 @@
     <string name="pref_vertical_pinned_layout">Distribución vertical de las fuentes fijadas</string>
     <string name="label_novel_extension_repos">Tiendas de extensiones de novelas</string>
     <string name="feed">Contenido</string>
+    <string name="feed_anime">Contenido de anime</string>
+    <string name="feed_manga">Contenido de manga</string>
+    <string name="feed_novel">Contenido de novelas</string>
     <string name="pref_feed_hide_tab">Ocultar la pestaña de contenido</string>
     <string name="pref_feed_tab_in_front">Mostrar primero la pestaña de contenido</string>
     <string name="pref_feed_hide_in_library_items">Ocultar del contenido los títulos que ya están en la biblioteca</string>

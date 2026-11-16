@@ -1610,6 +1610,7 @@
     <string name="repo_picker_newest">Newest</string>
     <string name="label_migration_manga">Migrate Manga</string>
     <string name="label_migration_anime">Migrate Anime</string>
+    <string name="label_migration_novel">Migrate Novel</string>
     <string name="migration_latest_episode">Latest episode: %1$s</string>
     <string name="settings">Settings</string>
     <string name="copied_video_link_to_clipboard">Copied video quality link to clipboard</string>
@@ -2890,6 +2891,9 @@
 
     <!-- Feed -->
     <string name="feed">Feed</string>
+    <string name="feed_anime">Anime Feed</string>
+    <string name="feed_manga">Manga Feed</string>
+    <string name="feed_novel">Novel Feed</string>
     <string name="feed_add">Add source to feed</string>
     <string name="feed_manage">Manage feed</string>
     <!-- BFEED-11: the old text pointed at a non-existent "+" button and claimed only Latest

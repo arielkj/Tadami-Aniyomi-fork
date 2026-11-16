@@ -50,6 +50,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsStateWithLifecycle
 import uy.kohesive.injekt.injectLazy
@@ -123,10 +124,6 @@ data object BrowseTab : Tab {
         }
     }
 
-    internal fun extensionTabIndex(hideFeedTab: Boolean): Int {
-        return if (hideFeedTab) 1 else 2
-    }
-
     fun showExtension() {
         switchToTabNumberChannel.trySend(TAB_MANGA_EXTENSIONS)
     }
@@ -163,62 +160,90 @@ data object BrowseTab : Tab {
         val hideFeedTab by uiPreferences.hideFeedTab().collectAsStateWithLifecycle()
         val feedTabInFront by uiPreferences.feedTabInFront().collectAsStateWithLifecycle()
 
-        val animeTabs = buildList {
-            val showFeed = !hideFeedTab
-            when {
-                showFeed && feedTabInFront -> {
-                    add(animeFeedTab())
-                    add(animeSourcesTab())
-                }
-                showFeed -> {
-                    add(animeSourcesTab())
-                    add(animeFeedTab())
-                }
-                else -> {
-                    add(animeSourcesTab())
-                }
-            }
-            add(animeExtensionsTab(animeExtensionsScreenModel))
-            add(migrateAnimeSourceTab())
-        }.toPersistentList()
-
-        val mangaTabs = buildList {
-            val showFeed = !hideFeedTab
-            when {
-                showFeed && feedTabInFront -> {
-                    add(mangaFeedTab())
-                    add(mangaSourcesTab())
-                }
-                showFeed -> {
-                    add(mangaSourcesTab())
-                    add(mangaFeedTab())
-                }
-                else -> {
-                    add(mangaSourcesTab())
-                }
-            }
-            add(mangaExtensionsTab(mangaExtensionsScreenModel))
-            add(migrateMangaSourceTab())
-        }.toPersistentList()
-
-        val novelTabs = buildList {
-            val showFeed = !hideFeedTab
-            when {
-                showFeed && feedTabInFront -> {
-                    add(novelFeedTab())
-                    add(novelSourcesTab())
-                }
-                showFeed -> {
-                    add(novelSourcesTab())
-                    add(novelFeedTab())
-                }
-                else -> {
-                    add(novelSourcesTab())
-                }
-            }
-            add(novelExtensionsTab(novelExtensionsScreenModel))
-            add(migrateNovelSourceTab())
-        }.toPersistentList()
+        // v4 — Explorar junto: UN SOLO apartado con las pestañas de anime,
+        // manga y novelas (las activas) en la misma fila de cápsulas, agrupadas
+        // por función: primero las fuentes de cada medio, luego el contenido,
+        // las extensiones y la migración. Cada cápsula lleva título propio:
+        // las de Contenido y Migrar se distinguen por medio (cadenas nuevas
+        // feed_anime/feed_manga/feed_novel y label_migration_novel), porque
+        // antes las tres decían lo mismo ("Contenido" / "Migrar").
+        // El orden respeta hideFeedTab y feedTabInFront como antes.
+        val showFeed = !hideFeedTab
+        val sourceEntries = listOfNotNull(
+            if (showAnimeSection) Triple(BrowseSection.Anime, "sources", animeSourcesTab()) else null,
+            if (showMangaSection) Triple(BrowseSection.Manga, "sources", mangaSourcesTab()) else null,
+            if (showNovelSection) Triple(BrowseSection.Novel, "sources", novelSourcesTab()) else null,
+        )
+        val feedEntries = listOfNotNull(
+            if (showAnimeSection && showFeed) {
+                Triple(BrowseSection.Anime, "feed", animeFeedTab().copy(titleRes = AYMR.strings.feed_anime))
+            } else {
+                null
+            },
+            if (showMangaSection && showFeed) {
+                Triple(BrowseSection.Manga, "feed", mangaFeedTab().copy(titleRes = AYMR.strings.feed_manga))
+            } else {
+                null
+            },
+            if (showNovelSection && showFeed) {
+                Triple(BrowseSection.Novel, "feed", novelFeedTab().copy(titleRes = AYMR.strings.feed_novel))
+            } else {
+                null
+            },
+        )
+        val extensionEntries = listOfNotNull(
+            if (showAnimeSection) {
+                Triple(BrowseSection.Anime, "extensions", animeExtensionsTab(animeExtensionsScreenModel))
+            } else {
+                null
+            },
+            if (showMangaSection) {
+                Triple(BrowseSection.Manga, "extensions", mangaExtensionsTab(mangaExtensionsScreenModel))
+            } else {
+                null
+            },
+            if (showNovelSection) {
+                Triple(BrowseSection.Novel, "extensions", novelExtensionsTab(novelExtensionsScreenModel))
+            } else {
+                null
+            },
+        )
+        val migrateEntries = listOfNotNull(
+            if (showAnimeSection) Triple(BrowseSection.Anime, "migrate", migrateAnimeSourceTab()) else null,
+            if (showMangaSection) {
+                Triple(
+                    BrowseSection.Manga,
+                    "migrate",
+                    migrateMangaSourceTab().copy(titleRes = AYMR.strings.label_migration_manga),
+                )
+            } else {
+                null
+            },
+            if (showNovelSection) {
+                Triple(
+                    BrowseSection.Novel,
+                    "migrate",
+                    migrateNovelSourceTab().copy(titleRes = AYMR.strings.label_migration_novel),
+                )
+            } else {
+                null
+            },
+        )
+        val combinedEntries = buildList {
+            if (feedTabInFront) addAll(feedEntries)
+            addAll(sourceEntries)
+            if (!feedTabInFront) addAll(feedEntries)
+            addAll(extensionEntries)
+            addAll(migrateEntries)
+        }
+        val combinedTabs = combinedEntries.map { it.third }.toPersistentList()
+        val tabMedia = combinedEntries.map { it.first }
+        fun combinedIndex(media: BrowseSection, kind: String): Int {
+            return combinedEntries.indexOfFirst { it.first == media && it.second == kind }
+        }
+        val animeExtensionsIndex = combinedIndex(BrowseSection.Anime, "extensions")
+        val mangaExtensionsIndex = combinedIndex(BrowseSection.Manga, "extensions")
+        val novelExtensionsIndex = combinedIndex(BrowseSection.Novel, "extensions")
 
         val sections = remember(showAnimeSection, showMangaSection, showNovelSection) {
             buildBrowseSections(
@@ -227,47 +252,33 @@ data object BrowseTab : Tab {
                 showNovelSection = showNovelSection,
             )
         }
-        // La sección de Explorar ya no tiene selector superior (las cápsulas
-        // grises Anime/Manga/Novela se eliminaron): el cambio Anime/Manga
-        // vive solo en la píldora de la barra inferior Aurora, que escribe
-        // browseLastSection. Por eso la sección se deriva de esa preferencia
-        // y no de un estado local: así el cambio se refleja aquí aunque la
-        // pantalla no estuviera compuesta cuando se tocó la píldora.
+        // La sección guardada (browseLastSection, escrita por los iconos
+        // Anime/Manga de la barra y por los deep links) solo decide en qué
+        // cápsula de fuentes arranca Explorar; todas las cápsulas de ambos
+        // medios están siempre en la misma lista.
         val storedBrowseSection by userProfilePreferences.browseLastSection()
             .collectAsStateWithLifecycle()
-        val effectiveSection = sections.firstOrNull {
+        val initialSection = sections.firstOrNull {
             it.name.equals(storedBrowseSection, ignoreCase = true)
         } ?: sections.firstOrNull() ?: BrowseSection.Anime
-        val currentTabs = when (effectiveSection) {
-            BrowseSection.Anime -> animeTabs
-            BrowseSection.Manga -> mangaTabs
-            BrowseSection.Novel -> novelTabs
-        }
-        val state = rememberPagerState { currentTabs.size }
-        val isMangaSection = effectiveSection == BrowseSection.Manga
+        val initialPage = combinedIndex(initialSection, "sources").takeIf { it >= 0 } ?: 0
+        val state = rememberPagerState(initialPage = initialPage) { combinedTabs.size }
         val auroraAdaptiveSpec = rememberAuroraAdaptiveSpec()
         val useWideBrowseTabs = auroraAdaptiveSpec.deviceClass != AuroraDeviceClass.Phone
 
         Column(modifier = Modifier.fillMaxSize()) {
             TabbedScreenAurora(
                 titleRes = MR.strings.browse,
-                tabs = currentTabs,
+                tabs = combinedTabs,
                 state = state,
-                mangaSearchQuery = if (isMangaSection) mangaExtensionsState.searchQuery else null,
+                mangaSearchQuery = mangaExtensionsState.searchQuery,
                 onChangeMangaSearchQuery = mangaExtensionsScreenModel::search,
-                animeSearchQuery = when (effectiveSection) {
-                    BrowseSection.Anime -> animeExtensionsState.searchQuery
-                    BrowseSection.Novel -> novelExtensionsState.searchQuery
-                    BrowseSection.Manga -> null
-                },
-                onChangeAnimeSearchQuery = { query ->
-                    when (effectiveSection) {
-                        BrowseSection.Anime -> animeExtensionsScreenModel.search(query)
-                        BrowseSection.Novel -> novelExtensionsScreenModel.search(query)
-                        BrowseSection.Manga -> Unit
-                    }
-                },
-                isMangaTab = { isMangaSection },
+                animeSearchQuery = animeExtensionsState.searchQuery,
+                onChangeAnimeSearchQuery = animeExtensionsScreenModel::search,
+                novelSearchQuery = novelExtensionsState.searchQuery,
+                onChangeNovelSearchQuery = novelExtensionsScreenModel::search,
+                isMangaTab = { page -> tabMedia.getOrNull(page) == BrowseSection.Manga },
+                isNovelTab = { page -> tabMedia.getOrNull(page) == BrowseSection.Novel },
                 // Keep browse sub-tabs content-sized to avoid the full-width stretched segmented bar.
                 scrollable = true,
                 showTabRowBorder = false,
@@ -278,8 +289,8 @@ data object BrowseTab : Tab {
             )
         }
 
-        LaunchedEffect(currentTabs.size) {
-            val lastIndex = currentTabs.lastIndex
+        LaunchedEffect(combinedTabs.size) {
+            val lastIndex = combinedTabs.lastIndex
             if (lastIndex >= 0 && state.currentPage > lastIndex) {
                 state.scrollToPage(lastIndex)
             }
@@ -288,21 +299,21 @@ data object BrowseTab : Tab {
         LaunchedEffect(Unit) {
             switchToTabNumberChannel.receiveAsFlow()
                 .collectLatest { targetIndex ->
-                    // La sección se deriva de browseLastSection (la píldora
-                    // inferior escribe ahí), así que los deep links cambian
-                    // la preferencia en vez de un estado local.
-                    if (targetIndex == TAB_MANGA_EXTENSIONS && showMangaSection) {
-                        userProfilePreferences.browseLastSection().set(BrowseSection.Manga.name)
-                        state.scrollToPage(extensionTabIndex(hideFeedTab))
-                    } else if (targetIndex == TAB_ANIME_EXTENSIONS && showAnimeSection) {
-                        // BFEED-23: the anime branch had no showAnimeSection guard (manga/novel
-                        // do) - with the anime section disabled it switched the section to
-                        // Anime and scrolled to a page index that no longer matched the tabs.
-                        userProfilePreferences.browseLastSection().set(BrowseSection.Anime.name)
-                        state.scrollToPage(extensionTabIndex(hideFeedTab))
-                    } else if (targetIndex == TAB_NOVEL_EXTENSIONS && showNovelSection) {
-                        userProfilePreferences.browseLastSection().set(BrowseSection.Novel.name)
-                        state.scrollToPage(extensionTabIndex(hideFeedTab))
+                    // v4: Explorar ya no cambia de sección; el deep link solo
+                    // salta a la cápsula de extensiones de su medio.
+                    // BFEED-23: cada rama comprueba que su medio esté activo;
+                    // con el medio desactivado su cápsula no existe (-1).
+                    val page = when (targetIndex) {
+                        TAB_MANGA_EXTENSIONS ->
+                            mangaExtensionsIndex.takeIf { it >= 0 && showMangaSection }
+                        TAB_ANIME_EXTENSIONS ->
+                            animeExtensionsIndex.takeIf { it >= 0 && showAnimeSection }
+                        TAB_NOVEL_EXTENSIONS ->
+                            novelExtensionsIndex.takeIf { it >= 0 && showNovelSection }
+                        else -> null
+                    }
+                    if (page != null) {
+                        state.scrollToPage(page)
                     }
                 }
         }

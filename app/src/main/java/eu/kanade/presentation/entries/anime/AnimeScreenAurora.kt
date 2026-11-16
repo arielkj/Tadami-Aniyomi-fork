@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -106,19 +107,18 @@ import eu.kanade.presentation.entries.anime.components.EpisodeDownloadAction
 import eu.kanade.presentation.entries.anime.components.NextEpisodeAiringListItem
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeActionCard
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeDetailHero
+import eu.kanade.presentation.entries.anime.components.aurora.AnimeCarouselMissingCard
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeDetailLibraryPills
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeDetailScrolledTitle
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeDetailSynopsisCard
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeDetailsSnapshot
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeEpisodeCardCompact
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeEpisodeGridCard
-import eu.kanade.presentation.entries.anime.components.aurora.AnimeEpisodeGridRow
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeGlassHeroCard
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeInfoCard
 import eu.kanade.presentation.entries.anime.components.aurora.AnimeStatsCard
 import eu.kanade.presentation.entries.anime.components.aurora.EpisodesHeader
 import eu.kanade.presentation.entries.anime.components.aurora.FullscreenPosterBackground
-import eu.kanade.presentation.entries.anime.components.aurora.chunkAnimeEpisodesForGrid
 import eu.kanade.presentation.entries.anime.components.aurora.filterAnimeDescription
 import eu.kanade.presentation.entries.anime.components.aurora.resolveAnimeDetailsSnapshot
 import eu.kanade.presentation.entries.anime.components.resolveAnimeSeasonSwitcherItems
@@ -456,10 +456,9 @@ fun AnimeScreenAuroraImpl(
             result
         }
     }
-    // Definitive detail design: on the mobile immersive screen the episodes
-    // render as a 2-column gradient grid instead of compact list rows.
-    val useEpisodeGrid = !useTwoPaneLayout && titleScreenStyle == TitleScreenStyle.POSTER_IMMERSIVE
-    val episodeGridRows = remember(episodesToShow) { chunkAnimeEpisodesForGrid(episodesToShow) }
+    // Definitive detail design (v4): on the mobile immersive screen the
+    // episodes render as a horizontal carousel instead of compact list rows.
+    val useEpisodeCarousel = !useTwoPaneLayout && titleScreenStyle == TitleScreenStyle.POSTER_IMMERSIVE
     val firstEpisodeNumberText = remember(episodes) {
         episodes.filterIsInstance<EpisodeList.Item>()
             .minOfOrNull { it.episode.episodeNumber }
@@ -502,11 +501,12 @@ fun AnimeScreenAuroraImpl(
                 val fastScrollBlockStartIndex = resolveAnimeAuroraFastScrollBlockStartIndex(
                     useTwoPaneLayout = useTwoPaneLayout,
                 )
-                // Grid rows pack two episodes per LazyColumn item, so the target
-                // episode sits around row targetIndex / 2 on the mobile
-                // immersive screen; list layouts keep the 1:1 index.
-                val jumpIndex = if (useEpisodeGrid) {
-                    targetIndex / 2 + fastScrollBlockStartIndex
+                // The carousel is a single LazyColumn item, so the target
+                // episode sits at the carousel's own index; list layouts
+                // keep the 1:1 index. The row itself scrolls sideways to
+                // the target card (see AnimeAuroraMobileEpisodeItems).
+                val jumpIndex = if (useEpisodeCarousel) {
+                    fastScrollBlockStartIndex
                 } else {
                     targetIndex + fastScrollBlockStartIndex
                 }
@@ -810,8 +810,8 @@ fun AnimeScreenAuroraImpl(
                     onFilterButtonClicked = onFilterButtonClicked,
                     episodes = episodes,
                     episodesToShow = episodesToShow,
-                    episodeGridRows = episodeGridRows,
-                    useEpisodeGrid = useEpisodeGrid,
+                    useEpisodeCarousel = useEpisodeCarousel,
+                    targetEpisodeIndex = state.targetEpisodeIndex,
                     episodesExpandedState = episodesExpandedState,
                     episodeListDensity = episodeListDensity,
                     isAnyEpisodeSelected = isAnyEpisodeSelected,
@@ -1836,8 +1836,8 @@ private fun AnimeAuroraMobileContent(
     onFilterButtonClicked: () -> Unit,
     episodes: List<EpisodeList>,
     episodesToShow: List<EpisodeList>,
-    episodeGridRows: List<AnimeEpisodeGridRow>,
-    useEpisodeGrid: Boolean,
+    useEpisodeCarousel: Boolean,
+    targetEpisodeIndex: Int?,
     episodesExpandedState: MutableState<Boolean>,
     episodeListDensity: EpisodeListDensity,
     isAnyEpisodeSelected: Boolean,
@@ -1956,8 +1956,8 @@ private fun AnimeAuroraMobileContent(
                 episodes = episodes,
                 episodesToShow = episodesToShow,
                 seasons = seasons,
-                episodeGridRows = episodeGridRows,
-                useEpisodeGrid = useEpisodeGrid,
+                useEpisodeCarousel = useEpisodeCarousel,
+                targetEpisodeIndex = targetEpisodeIndex,
                 episodesExpandedState = episodesExpandedState,
                 episodeListDensity = episodeListDensity,
                 isAnyEpisodeSelected = isAnyEpisodeSelected,
@@ -2286,8 +2286,8 @@ private fun LazyListScope.AnimeAuroraMobileEpisodeItems(
     episodes: List<EpisodeList>,
     episodesToShow: List<EpisodeList>,
     seasons: List<AnimeSeasonItem>,
-    episodeGridRows: List<AnimeEpisodeGridRow>,
-    useEpisodeGrid: Boolean,
+    useEpisodeCarousel: Boolean,
+    targetEpisodeIndex: Int?,
     episodesExpandedState: MutableState<Boolean>,
     episodeListDensity: EpisodeListDensity,
     isAnyEpisodeSelected: Boolean,
@@ -2359,41 +2359,68 @@ private fun LazyListScope.AnimeAuroraMobileEpisodeItems(
             }
         }
 
-        // Episodes: 2-column gradient grid on the mobile immersive
-        // screen (definitive design); everywhere else keeps the
-        // compact list rows.
-        if (useEpisodeGrid) {
-            items(
-                items = episodeGridRows,
-                key = { row ->
-                    when (row) {
-                        is AnimeEpisodeGridRow.Episodes ->
-                            "grid-${row.items.first().episode.id}"
-                        is AnimeEpisodeGridRow.Missing ->
-                            "grid-missing-${row.item.id}"
+        // Episodes: horizontal carousel on the mobile immersive screen
+        // (v4 definitive design); everywhere else keeps the compact list
+        // rows. One LazyColumn item holds the whole LazyRow: stable keys +
+        // contentType per card, no per-item recomposition beyond the card
+        // itself, and the row only scrolls sideways (swipe actions on the
+        // tiles are off so they never fight the carousel scroll).
+        if (useEpisodeCarousel) {
+            item(key = "episodes-carousel") {
+                val carouselState = rememberLazyListState()
+                // Flat index of the auto-jump target episode inside the
+                // carousel (targetEpisodeIndex counts EpisodeList.Item
+                // entries only, MissingCount separators excluded).
+                val targetCarouselIndex = remember(episodesToShow, targetEpisodeIndex) {
+                    targetEpisodeIndex?.let { target ->
+                        var seenItems = -1
+                        episodesToShow.indexOfFirst { entry ->
+                            if (entry is EpisodeList.Item) {
+                                seenItems++
+                                seenItems == target
+                            } else {
+                                false
+                            }
+                        }.takeIf { it >= 0 }
                     }
-                },
-                contentType = { row ->
-                    when (row) {
-                        is AnimeEpisodeGridRow.Episodes -> "episode-grid-row"
-                        is AnimeEpisodeGridRow.Missing -> "missing-count"
+                }
+                var carouselJumpDone by remember { mutableStateOf(false) }
+                LaunchedEffect(targetCarouselIndex, episodesExpanded) {
+                    if (!carouselJumpDone && targetCarouselIndex != null && episodesExpanded) {
+                        carouselJumpDone = true
+                        carouselState.scrollToItem(targetCarouselIndex)
                     }
-                },
-            ) { row ->
-                when (row) {
-                    is AnimeEpisodeGridRow.Episodes -> {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .auroraCenteredMaxWidth(contentMaxWidthDp)
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            row.items.forEach { gridItem ->
+                }
+                LazyRow(
+                    state = carouselState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .auroraCenteredMaxWidth(contentMaxWidthDp),
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    items(
+                        items = episodesToShow,
+                        key = { entry ->
+                            when (entry) {
+                                is EpisodeList.Item -> "episode-${entry.episode.id}"
+                                is EpisodeList.MissingCount -> "missing-${entry.id}"
+                            }
+                        },
+                        contentType = { entry ->
+                            when (entry) {
+                                is EpisodeList.Item -> "episode"
+                                is EpisodeList.MissingCount -> "missing-count"
+                            }
+                        },
+                    ) { entry ->
+                        when (entry) {
+                            is EpisodeList.Item -> {
                                 AnimeEpisodeGridCard(
-                                    item = gridItem,
-                                    selected = gridItem.selected,
-                                    isNew = gridItem.episode.id in state.newEpisodeIds,
+                                    item = entry,
+                                    selected = entry.selected,
+                                    isNew = entry.episode.id in state.newEpisodeIds,
                                     isAnyEpisodeSelected = isAnyEpisodeSelected,
                                     showPreview = state.showPreviews,
                                     episodeSwipeStartAction = episodeSwipeStartAction,
@@ -2401,15 +2428,15 @@ private fun LazyListScope.AnimeAuroraMobileEpisodeItems(
                                     onClick = {
                                         when (
                                             resolveAuroraEpisodeClickAction(
-                                                isEpisodeSelected = gridItem.selected,
+                                                isEpisodeSelected = entry.selected,
                                                 isAnyEpisodeSelected = isAnyEpisodeSelected,
                                             )
                                         ) {
                                             AuroraEpisodeClickAction.OpenEpisode -> {
-                                                onEpisodeClicked(gridItem.episode, false)
+                                                onEpisodeClicked(entry.episode, false)
                                             }
                                             AuroraEpisodeClickAction.SelectEpisode -> {
-                                                onEpisodeSelected(gridItem, true, true, false)
+                                                onEpisodeSelected(entry, true, true, false)
                                                 if (shouldAutoExpandAuroraEpisodesList(
                                                         episodesExpanded,
                                                         episodes.size,
@@ -2419,13 +2446,13 @@ private fun LazyListScope.AnimeAuroraMobileEpisodeItems(
                                                 }
                                             }
                                             AuroraEpisodeClickAction.UnselectEpisode -> {
-                                                onEpisodeSelected(gridItem, false, true, false)
+                                                onEpisodeSelected(entry, false, true, false)
                                             }
                                         }
                                     },
                                     onLongClick = {
-                                        onEpisodeSelected(gridItem, !gridItem.selected, true, true)
-                                        if (!gridItem.selected &&
+                                        onEpisodeSelected(entry, !entry.selected, true, true)
+                                        if (!entry.selected &&
                                             shouldAutoExpandAuroraEpisodesList(
                                                 episodesExpanded,
                                                 episodes.size,
@@ -2436,19 +2463,17 @@ private fun LazyListScope.AnimeAuroraMobileEpisodeItems(
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                     },
                                     onEpisodeSwipe = { action ->
-                                        onEpisodeSwipe(gridItem, action)
+                                        onEpisodeSwipe(entry, action)
                                     },
                                     onDownloadEpisode = onDownloadEpisode,
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.width(280.dp),
+                                    enableSwipe = false,
                                 )
                             }
-                            if (row.items.size == 1) {
-                                Spacer(modifier = Modifier.weight(1f))
+                            is EpisodeList.MissingCount -> {
+                                AnimeCarouselMissingCard(count = entry.count)
                             }
                         }
-                    }
-                    is AnimeEpisodeGridRow.Missing -> {
-                        MissingItemCountListItem(count = row.item.count)
                     }
                 }
             }

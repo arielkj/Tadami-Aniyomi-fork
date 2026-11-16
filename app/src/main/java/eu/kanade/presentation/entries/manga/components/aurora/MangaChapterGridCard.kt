@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,6 +31,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,74 +45,19 @@ import eu.kanade.tachiyomi.ui.entries.manga.ChapterList
 import me.saket.swipe.SwipeableActionsBox
 import tachiyomi.domain.items.chapter.model.Chapter
 import tachiyomi.domain.library.service.LibraryPreferences
+import tachiyomi.i18n.aniyomi.AYMR
+import tachiyomi.presentation.core.i18n.pluralStringResource
 
 /**
- * Two-column chapter grid from the approved design. Chapters have no cover of
- * their own, so each card is a fixed aurora gradient (deterministic per
- * chapter id, so neighbours differ) with the chapter name, upload date and a
- * read check in the corner. Click, long-press selection, swipe actions,
- * download and in-progress bar behave exactly like [MangaChapterCardCompact].
+ * Chapter card for the horizontal carousel. Chapters have no cover of their
+ * own, so each card is a fixed aurora gradient (deterministic per chapter id,
+ * so neighbours differ) with the chapter name, upload date and a read check
+ * in the corner. Click, long-press selection, download and in-progress bar
+ * behave exactly like [MangaChapterCardCompact]. Swipe actions are off inside
+ * the carousel ([enableSwipe] = false): a horizontal swipe on a card would
+ * fight the carousel's own horizontal scroll; marking read stays available
+ * from the selection actions.
  */
-
-/** One LazyColumn row of the chapter grid: up to two chapters, or a gap. */
-internal sealed interface MangaChapterGridRow {
-    data class ChapterRow(val first: ChapterList.Item, val second: ChapterList.Item?) : MangaChapterGridRow
-    data class MissingRow(val missing: ChapterList.MissingCount) : MangaChapterGridRow
-}
-
-/** Groups consecutive chapters into rows of two, keeping missing-count gaps in place. */
-internal fun buildMangaChapterGridRows(chapters: List<ChapterList>): List<MangaChapterGridRow> {
-    val rows = mutableListOf<MangaChapterGridRow>()
-    var pending: ChapterList.Item? = null
-    fun flushPending() {
-        val first = pending
-        if (first != null) {
-            rows += MangaChapterGridRow.ChapterRow(first = first, second = null)
-            pending = null
-        }
-    }
-    for (entry in chapters) {
-        when (entry) {
-            is ChapterList.Item -> {
-                val first = pending
-                if (first == null) {
-                    pending = entry
-                } else {
-                    rows += MangaChapterGridRow.ChapterRow(first = first, second = entry)
-                    pending = null
-                }
-            }
-            is ChapterList.MissingCount -> {
-                flushPending()
-                rows += MangaChapterGridRow.MissingRow(missing = entry)
-            }
-        }
-    }
-    flushPending()
-    return rows
-}
-
-/**
- * Maps an auto-jump target chapter index (index among the flat chapter items)
- * to the LazyColumn item index of the grid row that contains it.
- */
-internal fun resolveMangaAuroraGridTargetItemIndex(
-    targetChapterIndex: Int,
-    rows: List<MangaChapterGridRow>,
-    preChapterItemCount: Int,
-): Int {
-    var seenChapters = 0
-    rows.forEachIndexed { rowIndex, row ->
-        if (row is MangaChapterGridRow.ChapterRow) {
-            val rowSize = if (row.second != null) 2 else 1
-            if (targetChapterIndex in seenChapters until seenChapters + rowSize) {
-                return preChapterItemCount + rowIndex
-            }
-            seenChapters += rowSize
-        }
-    }
-    return preChapterItemCount + (targetChapterIndex / 2).coerceAtLeast(0)
-}
 
 /** Aurora gradients for the grid cards; the design's default is pink → teal. */
 private val mangaChapterGridGradients = listOf(
@@ -140,6 +87,7 @@ fun MangaChapterGridCard(
     onChapterSwipe: (LibraryPreferences.ChapterSwipeAction) -> Unit,
     onDownloadChapter: ((List<ChapterList.Item>, ChapterDownloadAction) -> Unit)?,
     modifier: Modifier = Modifier,
+    enableSwipe: Boolean = true,
 ) {
     val colors = AuroraTheme.colors
     val chapter = item.chapter
@@ -310,7 +258,7 @@ fun MangaChapterGridCard(
         }
     }
 
-    if (isAnyChapterSelected) {
+    if (isAnyChapterSelected || !enableSwipe) {
         Box(modifier = modifier) { chapterCard() }
     } else {
         SwipeableActionsBox(
@@ -322,5 +270,41 @@ fun MangaChapterGridCard(
         ) {
             chapterCard()
         }
+    }
+}
+
+/**
+ * Gap placeholder inside the chapter carousel: a narrow card marking the
+ * missing chapters between two neighbours (same "N faltantes" text as the
+ * full-width [MissingItemCountListItem], just sized for the row).
+ */
+@Composable
+fun MangaCarouselMissingCard(
+    count: Int,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .width(120.dp)
+            .height(118.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(16.dp),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = pluralStringResource(AYMR.plurals.missing_items, count = count, count),
+            color = Color.White.copy(alpha = 0.7f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        )
     }
 }

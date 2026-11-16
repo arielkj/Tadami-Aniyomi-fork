@@ -26,9 +26,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -111,8 +113,8 @@ import eu.kanade.presentation.entries.manga.components.ScanlatorBranchSelector
 import eu.kanade.presentation.entries.manga.components.aurora.ChaptersHeader
 import eu.kanade.presentation.entries.manga.components.aurora.FullscreenPosterBackground
 import eu.kanade.presentation.entries.manga.components.aurora.MangaActionCard
+import eu.kanade.presentation.entries.manga.components.aurora.MangaCarouselMissingCard
 import eu.kanade.presentation.entries.manga.components.aurora.MangaChapterGridCard
-import eu.kanade.presentation.entries.manga.components.aurora.MangaChapterGridRow
 import eu.kanade.presentation.entries.manga.components.aurora.MangaDetailHero
 import eu.kanade.presentation.entries.manga.components.aurora.MangaDetailLibraryPills
 import eu.kanade.presentation.entries.manga.components.aurora.MangaDetailsSnapshot
@@ -120,8 +122,6 @@ import eu.kanade.presentation.entries.manga.components.aurora.MangaGlassHeroCard
 import eu.kanade.presentation.entries.manga.components.aurora.MangaInfoCard
 import eu.kanade.presentation.entries.manga.components.aurora.MangaStatsCard
 import eu.kanade.presentation.entries.manga.components.aurora.MangaSynopsisCard
-import eu.kanade.presentation.entries.manga.components.aurora.buildMangaChapterGridRows
-import eu.kanade.presentation.entries.manga.components.aurora.resolveMangaAuroraGridTargetItemIndex
 import eu.kanade.presentation.entries.manga.components.aurora.resolveMangaDetailsSnapshot
 import eu.kanade.presentation.entries.reduceTitleFastScrollOverlayAccumulator
 import eu.kanade.presentation.entries.resolveEntryAutoJumpTargetIndex
@@ -456,8 +456,8 @@ fun MangaScreenAuroraImpl(
         }
     }
 
-    // Two-column grid rows for the chapter list (approved design).
-    val chapterGridRows = remember(chaptersToShow) { buildMangaChapterGridRows(chaptersToShow) }
+    // v4: the chapter list is a single horizontal carousel item, so the
+    // auto-jump target is the carousel's own LazyColumn index.
     // LazyColumn items before the first chapter row: the mobile list renders
     // the fullscreen spacer, the pills/synopsis block and the chapters header;
     // the two-pane list starts at its header. Suggestions render after the
@@ -499,15 +499,7 @@ fun MangaScreenAuroraImpl(
                 restoredScrollIndex = state.scrollIndex,
             )
             if (targetIndex != null) {
-                // Grid rows hold two chapters each, so map the chapter index
-                // to the LazyColumn item index of its row.
-                lazyListState.animateScrollToItem(
-                    resolveMangaAuroraGridTargetItemIndex(
-                        targetChapterIndex = targetIndex,
-                        rows = chapterGridRows,
-                        preChapterItemCount = mangaAuroraPreChapterItemCount,
-                    ),
-                )
+                lazyListState.animateScrollToItem(mangaAuroraPreChapterItemCount)
             }
         }
     }
@@ -635,7 +627,8 @@ fun MangaScreenAuroraImpl(
                             manga = manga,
                             state = state,
                             chapters = chapters,
-                            chapterGridRows = chapterGridRows,
+                            chaptersToShow = chaptersToShow,
+                            targetChapterIndex = state.targetChapterIndex,
                             chaptersExpandedState = chaptersExpandedState,
                             isThumbFastScrollingState = isThumbFastScrollingState,
                             realChapterCount = realChapterCount,
@@ -698,7 +691,8 @@ fun MangaScreenAuroraImpl(
                     onShareClicked = onShareClicked,
                     onSourceClick = onSourceClick,
                     chapters = chapters,
-                    chapterGridRows = chapterGridRows,
+                    chaptersToShow = chaptersToShow,
+                    targetChapterIndex = state.targetChapterIndex,
                     missingChaptersCount = missingChaptersCount,
                     alwaysShowFullChapterList = alwaysShowFullChapterList,
                     showScanlatorSelector = showScanlatorSelector,
@@ -1178,7 +1172,8 @@ private fun MangaAuroraTwoPaneEndContent(
     manga: Manga,
     state: MangaScreenModel.State.Success,
     chapters: List<ChapterList>,
-    chapterGridRows: List<MangaChapterGridRow>,
+    chaptersToShow: List<ChapterList>,
+    targetChapterIndex: Int?,
     chaptersExpandedState: MutableState<Boolean>,
     isThumbFastScrollingState: MutableState<Boolean>,
     realChapterCount: Int,
@@ -1300,88 +1295,23 @@ private fun MangaAuroraTwoPaneEndContent(
                 }
             }
 
-            // Chapters in a 2-column grid (approved design).
-            items(
-                items = chapterGridRows,
-                key = { row ->
-                    when (row) {
-                        is MangaChapterGridRow.ChapterRow ->
-                            "chapter-row-${row.first.chapter.id}-${row.second?.chapter?.id}"
-                        is MangaChapterGridRow.MissingRow ->
-                            "missing-${row.missing.hashCode()}"
-                    }
-                },
-                contentType = { row ->
-                    when (row) {
-                        is MangaChapterGridRow.ChapterRow -> "chapter-row"
-                        is MangaChapterGridRow.MissingRow -> "missing-count"
-                    }
-                },
-            ) { row ->
-                when (row) {
-                    is MangaChapterGridRow.ChapterRow -> {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            MangaAuroraChapterGridCard(
-                                item = row.first,
-                                isNew = row.first.chapter.id in state.newChapterIds,
-                                isAnyChapterSelected = isAnyChapterSelected,
-                                chapterSwipeStartAction = chapterSwipeStartAction,
-                                chapterSwipeEndAction = chapterSwipeEndAction,
-                                onChapterClicked = onChapterClicked,
-                                onChapterSelected = onChapterSelected,
-                                onChapterSwipe = onChapterSwipe,
-                                onDownloadChapter = onDownloadChapter,
-                                onRequestExpandChapters = {
-                                    if (
-                                        shouldAutoExpandAuroraChaptersList(
-                                            chaptersExpanded,
-                                            chapters.size,
-                                        )
-                                    ) {
-                                        chaptersExpanded = true
-                                    }
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                            val second = row.second
-                            if (second != null) {
-                                MangaAuroraChapterGridCard(
-                                    item = second,
-                                    isNew = second.chapter.id in state.newChapterIds,
-                                    isAnyChapterSelected = isAnyChapterSelected,
-                                    chapterSwipeStartAction = chapterSwipeStartAction,
-                                    chapterSwipeEndAction = chapterSwipeEndAction,
-                                    onChapterClicked = onChapterClicked,
-                                    onChapterSelected = onChapterSelected,
-                                    onChapterSwipe = onChapterSwipe,
-                                    onDownloadChapter = onDownloadChapter,
-                                    onRequestExpandChapters = {
-                                        if (
-                                            shouldAutoExpandAuroraChaptersList(
-                                                chaptersExpanded,
-                                                chapters.size,
-                                            )
-                                        ) {
-                                            chaptersExpanded = true
-                                        }
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            } else {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-                    is MangaChapterGridRow.MissingRow -> {
-                        MissingItemCountListItem(count = row.missing.count)
-                    }
-                }
-            }
+            // Chapters in a horizontal carousel (v4): one LazyColumn item
+            // holds the whole LazyRow (see MangaAuroraChapterCarousel).
+            MangaAuroraChapterCarousel(
+                state = state,
+                chapters = chapters,
+                chaptersToShow = chaptersToShow,
+                targetChapterIndex = targetChapterIndex,
+                chaptersExpandedState = chaptersExpandedState,
+                isAnyChapterSelected = isAnyChapterSelected,
+                chapterSwipeStartAction = chapterSwipeStartAction,
+                chapterSwipeEndAction = chapterSwipeEndAction,
+                onChapterClicked = onChapterClicked,
+                onChapterSelected = onChapterSelected,
+                onChapterSwipe = onChapterSwipe,
+                onDownloadChapter = onDownloadChapter,
+                contentMaxWidthDp = null,
+            )
 
             if (realChapterCount > 5 && !alwaysShowFullChapterList) {
                 item {
@@ -1447,7 +1377,8 @@ private fun MangaAuroraMobileContent(
     onShareClicked: (() -> Unit)?,
     onSourceClick: (() -> Unit)?,
     chapters: List<ChapterList>,
-    chapterGridRows: List<MangaChapterGridRow>,
+    chaptersToShow: List<ChapterList>,
+    targetChapterIndex: Int?,
     missingChaptersCount: Int,
     alwaysShowFullChapterList: Boolean,
     showScanlatorSelector: Boolean,
@@ -1556,7 +1487,8 @@ private fun MangaAuroraMobileContent(
                 manga = manga,
                 state = state,
                 chapters = chapters,
-                chapterGridRows = chapterGridRows,
+                chaptersToShow = chaptersToShow,
+                targetChapterIndex = targetChapterIndex,
                 realChapterCount = realChapterCount,
                 missingChaptersCount = missingChaptersCount,
                 alwaysShowFullChapterList = alwaysShowFullChapterList,
@@ -1785,7 +1717,8 @@ private fun LazyListScope.MangaAuroraMobileChapterItems(
     manga: Manga,
     state: MangaScreenModel.State.Success,
     chapters: List<ChapterList>,
-    chapterGridRows: List<MangaChapterGridRow>,
+    chaptersToShow: List<ChapterList>,
+    targetChapterIndex: Int?,
     realChapterCount: Int,
     missingChaptersCount: Int,
     alwaysShowFullChapterList: Boolean,
@@ -1877,89 +1810,23 @@ private fun LazyListScope.MangaAuroraMobileChapterItems(
         }
     }
 
-    // Chapters in a 2-column grid (approved design).
-    items(
-        items = chapterGridRows,
-        key = { row ->
-            when (row) {
-                is MangaChapterGridRow.ChapterRow ->
-                    "chapter-row-${row.first.chapter.id}-${row.second?.chapter?.id}"
-                is MangaChapterGridRow.MissingRow ->
-                    "missing-${row.missing.hashCode()}"
-            }
-        },
-        contentType = { row ->
-            when (row) {
-                is MangaChapterGridRow.ChapterRow -> "chapter-row"
-                is MangaChapterGridRow.MissingRow -> "missing-count"
-            }
-        },
-    ) { row ->
-        when (row) {
-            is MangaChapterGridRow.ChapterRow -> {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .auroraCenteredMaxWidth(contentMaxWidthDp)
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    MangaAuroraChapterGridCard(
-                        item = row.first,
-                        isNew = row.first.chapter.id in state.newChapterIds,
-                        isAnyChapterSelected = isAnyChapterSelected,
-                        chapterSwipeStartAction = chapterSwipeStartAction,
-                        chapterSwipeEndAction = chapterSwipeEndAction,
-                        onChapterClicked = onChapterClicked,
-                        onChapterSelected = onChapterSelected,
-                        onChapterSwipe = onChapterSwipe,
-                        onDownloadChapter = onDownloadChapter,
-                        onRequestExpandChapters = {
-                            if (
-                                shouldAutoExpandAuroraChaptersList(
-                                    chaptersExpanded,
-                                    chapters.size,
-                                )
-                            ) {
-                                chaptersExpanded = true
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                    )
-                    val second = row.second
-                    if (second != null) {
-                        MangaAuroraChapterGridCard(
-                            item = second,
-                            isNew = second.chapter.id in state.newChapterIds,
-                            isAnyChapterSelected = isAnyChapterSelected,
-                            chapterSwipeStartAction = chapterSwipeStartAction,
-                            chapterSwipeEndAction = chapterSwipeEndAction,
-                            onChapterClicked = onChapterClicked,
-                            onChapterSelected = onChapterSelected,
-                            onChapterSwipe = onChapterSwipe,
-                            onDownloadChapter = onDownloadChapter,
-                            onRequestExpandChapters = {
-                                if (
-                                    shouldAutoExpandAuroraChaptersList(
-                                        chaptersExpanded,
-                                        chapters.size,
-                                    )
-                                ) {
-                                    chaptersExpanded = true
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                        )
-                    } else {
-                        Spacer(modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-            is MangaChapterGridRow.MissingRow -> {
-                MissingItemCountListItem(count = row.missing.count)
-            }
-        }
-    }
+    // Chapters in a horizontal carousel (v4): one LazyColumn item holds
+    // the whole LazyRow (see MangaAuroraChapterCarousel).
+    MangaAuroraChapterCarousel(
+        state = state,
+        chapters = chapters,
+        chaptersToShow = chaptersToShow,
+        targetChapterIndex = targetChapterIndex,
+        chaptersExpandedState = chaptersExpandedState,
+        isAnyChapterSelected = isAnyChapterSelected,
+        chapterSwipeStartAction = chapterSwipeStartAction,
+        chapterSwipeEndAction = chapterSwipeEndAction,
+        onChapterClicked = onChapterClicked,
+        onChapterSelected = onChapterSelected,
+        onChapterSwipe = onChapterSwipe,
+        onDownloadChapter = onDownloadChapter,
+        contentMaxWidthDp = contentMaxWidthDp,
+    )
 
     // Show More button if there are more than 5 chapters
     if (realChapterCount > 5 && !alwaysShowFullChapterList) {
@@ -2632,7 +2499,116 @@ private fun AuroraChapterListToggleButton(
 }
 
 /**
- * Grid chapter card with the screen's standard click/selection wiring
+ * Horizontal chapter carousel (v4), shared by the mobile and two-pane
+ * lists: one LazyColumn item holds a LazyRow with one card per chapter
+ * (280 dp wide, same tile as before). Stable keys + contentType per card,
+ * no per-item recomposition beyond the card itself, and the row only
+ * scrolls sideways (swipe actions on the cards are off so they never fight
+ * the carousel scroll). The auto-jump target chapter is scrolled into view
+ * sideways once, when the list is expanded.
+ */
+private fun LazyListScope.MangaAuroraChapterCarousel(
+    state: MangaScreenModel.State.Success,
+    chapters: List<ChapterList>,
+    chaptersToShow: List<ChapterList>,
+    targetChapterIndex: Int?,
+    chaptersExpandedState: MutableState<Boolean>,
+    isAnyChapterSelected: Boolean,
+    chapterSwipeStartAction: LibraryPreferences.ChapterSwipeAction,
+    chapterSwipeEndAction: LibraryPreferences.ChapterSwipeAction,
+    onChapterClicked: (Chapter) -> Unit,
+    onChapterSelected: (ChapterList.Item, Boolean, Boolean, Boolean) -> Unit,
+    onChapterSwipe: (ChapterList.Item, LibraryPreferences.ChapterSwipeAction) -> Unit,
+    onDownloadChapter: ((List<ChapterList.Item>, ChapterDownloadAction) -> Unit)?,
+    contentMaxWidthDp: Int?,
+) {
+    var chaptersExpanded by chaptersExpandedState
+    item(key = "chapters-carousel") {
+        val carouselState = rememberLazyListState()
+        // Flat index of the auto-jump target chapter inside the carousel
+        // (targetChapterIndex counts ChapterList.Item entries only,
+        // MissingCount separators excluded).
+        val targetCarouselIndex = remember(chaptersToShow, targetChapterIndex) {
+            targetChapterIndex?.let { target ->
+                var seenItems = -1
+                chaptersToShow.indexOfFirst { entry ->
+                    if (entry is ChapterList.Item) {
+                        seenItems++
+                        seenItems == target
+                    } else {
+                        false
+                    }
+                }.takeIf { it >= 0 }
+            }
+        }
+        var carouselJumpDone by remember { mutableStateOf(false) }
+        LaunchedEffect(targetCarouselIndex, chaptersExpanded) {
+            if (!carouselJumpDone && targetCarouselIndex != null && chaptersExpanded) {
+                carouselJumpDone = true
+                carouselState.scrollToItem(targetCarouselIndex)
+            }
+        }
+        LazyRow(
+            state = carouselState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .auroraCenteredMaxWidth(contentMaxWidthDp),
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            items(
+                items = chaptersToShow,
+                key = { entry ->
+                    when (entry) {
+                        is ChapterList.Item -> "chapter-${entry.chapter.id}"
+                        is ChapterList.MissingCount -> "missing-${entry.id}"
+                    }
+                },
+                contentType = { entry ->
+                    when (entry) {
+                        is ChapterList.Item -> "chapter"
+                        is ChapterList.MissingCount -> "missing-count"
+                    }
+                },
+            ) { entry ->
+                when (entry) {
+                    is ChapterList.Item -> {
+                        MangaAuroraChapterGridCard(
+                            item = entry,
+                            isNew = entry.chapter.id in state.newChapterIds,
+                            isAnyChapterSelected = isAnyChapterSelected,
+                            chapterSwipeStartAction = chapterSwipeStartAction,
+                            chapterSwipeEndAction = chapterSwipeEndAction,
+                            onChapterClicked = onChapterClicked,
+                            onChapterSelected = onChapterSelected,
+                            onChapterSwipe = onChapterSwipe,
+                            onDownloadChapter = onDownloadChapter,
+                            onRequestExpandChapters = {
+                                if (
+                                    shouldAutoExpandAuroraChaptersList(
+                                        chaptersExpanded,
+                                        chapters.size,
+                                    )
+                                ) {
+                                    chaptersExpanded = true
+                                }
+                            },
+                            modifier = Modifier.width(280.dp),
+                            enableSwipe = false,
+                        )
+                    }
+                    is ChapterList.MissingCount -> {
+                        MangaCarouselMissingCard(count = entry.count)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Carousel chapter card with the screen's standard click/selection wiring
  * (open, select/unselect, long-press, swipe, download), shared by the
  * mobile and two-pane lists.
  */
@@ -2649,6 +2625,7 @@ private fun MangaAuroraChapterGridCard(
     onDownloadChapter: ((List<ChapterList.Item>, ChapterDownloadAction) -> Unit)?,
     onRequestExpandChapters: () -> Unit,
     modifier: Modifier = Modifier,
+    enableSwipe: Boolean = true,
 ) {
     val haptic = LocalHapticFeedback.current
     MangaChapterGridCard(
@@ -2687,5 +2664,6 @@ private fun MangaAuroraChapterGridCard(
         onChapterSwipe = { action -> onChapterSwipe(item, action) },
         onDownloadChapter = onDownloadChapter,
         modifier = modifier,
+        enableSwipe = enableSwipe,
     )
 }

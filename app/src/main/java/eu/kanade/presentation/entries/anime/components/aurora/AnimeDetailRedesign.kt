@@ -94,6 +94,7 @@ import tachiyomi.domain.entries.anime.model.Anime
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
+import tachiyomi.presentation.core.i18n.pluralStringResource
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.LocalAppHaptics
 import tachiyomi.presentation.core.util.collectAsState
@@ -107,9 +108,9 @@ import kotlin.math.abs
 // Top on entry: full-bleed backdrop with the hero content laid directly over
 // it (genre chips, big title, studio, rating line, big white "Continuar" /
 // "Reproducir E1" button) — no glass card. Scrolling down reveals the title
-// again with the episode count, the "En biblioteca" / "Seguimiento" pills,
+// again with the episode count, the "Biblioteca" / "Seguimiento" pills,
 // the synopsis card (3 lines + expand arrow), the "Episodios" header with
-// the Descendente / All filter chips, a 2-column episode grid, the wide
+// the Descendente / All filter chips, a horizontal episode carousel, the wide
 // "Mostrar los N episodios" button and the "Títulos similares" carousel.
 //
 // Fluency: the hero is a fixed overlay whose alpha is driven through a
@@ -435,7 +436,8 @@ fun AnimeDetailContinueButton(
 }
 
 /**
- * "En biblioteca" (white when in library) + "Seguimiento" (grey) pills.
+ * "Biblioteca" (corazón; blanca cuando está en la biblioteca) +
+ * "Seguimiento" (gris) pills, del mismo tamaño y centradas.
  * Library long-press opens the category editor, same as the old action card.
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -483,11 +485,10 @@ fun AnimeDetailLibraryPills(
                     modifier = Modifier.size(20.dp),
                 )
                 Text(
-                    text = if (inLibrary) {
-                        stringResource(MR.strings.in_library)
-                    } else {
-                        stringResource(MR.strings.add_to_library)
-                    },
+                    // v4: solo "Biblioteca" con el corazón, igual que la
+                    // píldora de "Seguimiento": el texto largo ("Añadir a
+                    // la biblioteca") se cortaba y quedaba descentrado.
+                    text = stringResource(MR.strings.label_library),
                     color = if (inLibrary) inLibraryContent else greyPillTextColor,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -625,45 +626,9 @@ fun AnimeDetailSynopsisCard(
 }
 
 // ---------------------------------------------------------------------------
-// 2-column episode grid.
+// Horizontal episode carousel (v4): the episodes slide sideways in one
+// LazyRow instead of a 2-column vertical grid. The tile is unchanged.
 // ---------------------------------------------------------------------------
-
-/** One row of the episode grid: up to two episodes, or a missing-count row. */
-sealed interface AnimeEpisodeGridRow {
-    data class Episodes(val items: List<EpisodeList.Item>) : AnimeEpisodeGridRow
-    data class Missing(val item: EpisodeList.MissingCount) : AnimeEpisodeGridRow
-}
-
-/**
- * Chunks the (already limited/expanded) episode list into grid rows of two.
- * MissingCount separators flush the current pair and get a full-width row.
- */
-fun chunkAnimeEpisodesForGrid(episodes: List<EpisodeList>): List<AnimeEpisodeGridRow> {
-    val rows = mutableListOf<AnimeEpisodeGridRow>()
-    var pending = mutableListOf<EpisodeList.Item>()
-    for (entry in episodes) {
-        when (entry) {
-            is EpisodeList.Item -> {
-                pending += entry
-                if (pending.size == 2) {
-                    rows += AnimeEpisodeGridRow.Episodes(pending)
-                    pending = mutableListOf()
-                }
-            }
-            is EpisodeList.MissingCount -> {
-                if (pending.isNotEmpty()) {
-                    rows += AnimeEpisodeGridRow.Episodes(pending)
-                    pending = mutableListOf()
-                }
-                rows += AnimeEpisodeGridRow.Missing(entry)
-            }
-        }
-    }
-    if (pending.isNotEmpty()) {
-        rows += AnimeEpisodeGridRow.Episodes(pending)
-    }
-    return rows
-}
 
 /** Fixed aurora gradients for episode tiles (no per-item palette work). */
 private val animeDetailEpisodeGradients = listOf(
@@ -683,11 +648,14 @@ private fun animeDetailEpisodeGradientColors(episodeId: Long): List<Color> {
 }
 
 /**
- * Episode tile for the 2-column grid: gradient (or the episode preview image
- * the list already loads, from the Coil cache), episode name + date over a
- * bottom scrim, seen check at the top end, download indicator and watch
- * progress at the bottom. Click / long-press / swipe keep the exact
- * callbacks of the compact list card.
+ * Episode tile for the horizontal carousel: gradient (or the episode preview
+ * image the list already loads, from the Coil cache), episode name + date over
+ * a bottom scrim, seen check at the top end, download indicator and watch
+ * progress at the bottom. Click / long-press keep the exact callbacks of the
+ * compact list card. Swipe actions are off inside the carousel
+ * ([enableSwipe] = false): a horizontal swipe on a tile would fight the
+ * carousel's own horizontal scroll; marking seen/read stays available from
+ * the selection actions.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -704,6 +672,7 @@ fun AnimeEpisodeGridCard(
     onEpisodeSwipe: (LibraryPreferences.EpisodeSwipeAction) -> Unit,
     onDownloadEpisode: ((List<EpisodeList.Item>, EpisodeDownloadAction) -> Unit)?,
     modifier: Modifier = Modifier,
+    enableSwipe: Boolean = true,
 ) {
     val colors = AuroraTheme.colors
     val episode = item.episode
@@ -940,7 +909,7 @@ fun AnimeEpisodeGridCard(
     }
 
     Box(modifier = modifier.aspectRatio(16f / 9f)) {
-        if (isAnyEpisodeSelected) {
+        if (isAnyEpisodeSelected || !enableSwipe) {
             tileContent()
         } else {
             SwipeableActionsBox(
@@ -955,6 +924,42 @@ fun AnimeEpisodeGridCard(
                 tileContent()
             }
         }
+    }
+}
+
+/**
+ * Gap placeholder inside the episode carousel: a narrow card marking the
+ * missing episodes between two neighbours (same "N faltantes" text as the
+ * full-width [MissingItemCountListItem], just sized for the row).
+ */
+@Composable
+fun AnimeCarouselMissingCard(
+    count: Int,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .width(120.dp)
+            .aspectRatio(16f / 9f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.08f))
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(16.dp),
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = pluralStringResource(AYMR.plurals.missing_items, count = count, count),
+            color = Color.White.copy(alpha = 0.7f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        )
     }
 }
 

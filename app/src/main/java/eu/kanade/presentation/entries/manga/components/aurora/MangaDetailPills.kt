@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,9 +34,10 @@ import tachiyomi.presentation.core.i18n.stringResource
 
 /**
  * Library / tracking pills from the approved design, shown right below the hero
- * once the user scrolls: "En biblioteca" (white when the manga is in the
- * library, grey otherwise; long-press edits categories) and "Seguimiento"
- * (white when at least one tracker is linked, grey otherwise).
+ * once the user scrolls. Both pills share the row half-and-half, centered:
+ * "Biblioteca" (heart; white when the manga is in the library, grey otherwise;
+ * long-press edits categories) and "Seguimiento" (white when at least one
+ * tracker is linked, grey otherwise).
  *
  * This replaces [MangaActionCard] on the immersive detail screen; favorite,
  * tracking, webview and share keep working through these pills and the
@@ -50,21 +52,21 @@ fun MangaDetailLibraryPills(
     onTrackingClicked: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    // v4: las dos píldoras reparten la fila a partes iguales y centran su
+    // contenido, como en el detalle de anime. La de biblioteca solo dice
+    // "Biblioteca": el texto largo ("Añadir a la biblioteca") se cortaba.
     Row(
-        modifier = modifier,
+        modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         MangaDetailPill(
             active = manga.favorite,
             icon = if (manga.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-            label = if (manga.favorite) {
-                stringResource(MR.strings.in_library)
-            } else {
-                stringResource(MR.strings.add_to_library)
-            },
+            label = stringResource(MR.strings.label_library),
             onClick = onAddToLibraryClicked,
             onLongClick = onAddToLibraryLongClicked,
+            modifier = Modifier.weight(1f),
         )
         if (onTrackingClicked != null) {
             MangaDetailPill(
@@ -76,6 +78,7 @@ fun MangaDetailLibraryPills(
                     stringResource(MR.strings.manga_tracking_tab)
                 },
                 onClick = onTrackingClicked,
+                modifier = Modifier.weight(1f),
             )
         }
     }
