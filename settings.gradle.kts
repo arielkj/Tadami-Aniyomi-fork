@@ -37,6 +37,18 @@ dependencyResolutionManagement {
     repositories {
         mavenCentral()
         google()
+        // FlexibleAdapter compilado desde la fuente (mismo commit c8013533):
+        // JitPack ya no lo publica (su API lo marca "private", status "none",
+        // y el artefacto da 404). Repo Maven local con las mismas coordenadas.
+        // En CI este repo viaja dentro del arbol (ci-maven-local). Para
+        // reproducirlo en local: ver flexible-adapter-build/README.md
+        maven {
+            name = "FlexibleAdapterLocal"
+            url = uri("ci-maven-local")
+            content {
+                includeModule("com.github.arkon.FlexibleAdapter", "flexible-adapter")
+            }
+        }
         // Tadami mpv library: tag-pinned AAR from GitHub Releases (no JitPack, no binary in git)
         ivy {
             name = "TadamiMpvLib"

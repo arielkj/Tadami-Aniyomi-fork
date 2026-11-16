@@ -9,6 +9,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -22,13 +23,17 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -42,6 +47,11 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -77,17 +87,24 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import cafe.adriel.voyager.navigator.LocalNavigator
@@ -102,6 +119,7 @@ import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.ui.UiPreferences
+import eu.kanade.domain.ui.UserProfilePreferences
 import eu.kanade.domain.ui.model.BottomNavAppearance
 import eu.kanade.domain.ui.model.StartScreen
 import eu.kanade.presentation.components.LocalHostScaffoldContentPadding
@@ -146,13 +164,16 @@ import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.NavigationBar
 import tachiyomi.presentation.core.components.material.NavigationRail
+import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.i18n.pluralStringResource
+import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.LocalAppHaptics
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
+import java.util.Locale
 
 /**
  * Shared [HazeState] for the home scaffold content source.
@@ -226,6 +247,45 @@ object HomeScreen : Screen() {
         val bottomNavVisibilityController = remember { BottomNavVisibilityController() }
         val hazeState = remember { HazeState() }
         val homeOverlayContent = remember { mutableStateOf<(@Composable () -> Unit)?>(null) }
+
+        // Animación de expansión de la barra Aurora (fotos de referencia):
+        // al bajar, la barra se compacta y solo quedan los iconos; al subir,
+        // se expande y vuelven los nombres. Mismo patrón que el chrome
+        // inmersivo de la biblioteca (LibraryImmersiveChromeState): el
+        // estado solo cambia cuando el scroll acumulado cruza el umbral
+        // (56 dp), nunca por cada evento de scroll. El estado se lee SOLO
+        // en la barra inferior, así que un cambio solo recompone la barra,
+        // nunca el contenido ni el Scaffold.
+        var auroraBarCollapseState by remember { mutableStateOf(AuroraBarCollapseState()) }
+        val auroraBarHideThresholdPx = with(LocalDensity.current) { 56.dp.toPx() }
+        val auroraBarScrollConnection = remember(auroraBarHideThresholdPx) {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    // Solo entrada directa del usuario; los scrolls
+                    // programáticos (p. ej. saltar a una posición) no
+                    // colapsan la barra. No se consume nada: el scroll
+                    // sigue su curso normal.
+                    if (source != NestedScrollSource.UserInput) return Offset.Zero
+                    val nextState = resolveAuroraBarCollapseState(
+                        currentState = auroraBarCollapseState,
+                        scrollDeltaPx = -available.y,
+                        hideThresholdPx = auroraBarHideThresholdPx,
+                    )
+                    if (nextState != auroraBarCollapseState) {
+                        auroraBarCollapseState = nextState
+                    }
+                    return Offset.Zero
+                }
+            }
+        }
+        // derivedStateOf: los valores derivados solo se recalculan cuando el
+        // booleano cambia (al cruzar el umbral), no por cada evento de scroll.
+        val auroraBarCollapsed by remember {
+            derivedStateOf { !auroraBarCollapseState.isVisible }
+        }
+        val auroraBarHeight by remember {
+            derivedStateOf { if (auroraBarCollapsed) 48.dp else 64.dp }
+        }
         eu.kanade.presentation.tutorial.TutorialHost {
             TabNavigator(
                 tab = defaultTab,
@@ -236,6 +296,10 @@ object HomeScreen : Screen() {
                     if (useNavigationRail) {
                         coachMarkState.isBottomBarVisible = false
                     }
+                }
+                // Al cambiar de pestaña, la barra Aurora vuelve expandida.
+                LaunchedEffect(tabNavigator.current) {
+                    auroraBarCollapseState = AuroraBarCollapseState()
                 }
                 LaunchedEffect(coachMarkState.activeTip) {
                     val activeTip = coachMarkState.activeTip ?: return@LaunchedEffect
@@ -293,9 +357,15 @@ object HomeScreen : Screen() {
                                             Modifier
                                         }
                                         NavigationRail(modifier = railModifier) {
-                                            navStyle.tabs.fastForEach {
+                                            // En el rail vale lo mismo que en la barra
+                                            // inferior: sin "Más" (vive en los menús ⋮ de
+                                            // arriba) y Títulos es la píldora Anime/Manga.
+                                            navStyle.tabs.filter {
+                                                it::class != AnimeLibraryTab::class && it::class != MoreTab::class
+                                            }.fastForEach {
                                                 NavigationRailItem(it)
                                             }
+                                            RailMediaPill(auroraColors = null)
                                         }
                                     }
                                 }
@@ -331,10 +401,42 @@ object HomeScreen : Screen() {
                                     }
                                     val navShadowElevation = 0.dp
                                     val navTonalElevation = 0.dp
+                                    // La cápsula Aurora colapsada se achica en ANCHO y en ALTO:
+                                    // más padding exterior (la barra se estrecha hacia el
+                                    // centro), menos padding vertical e interior. Los iconos
+                                    // NO cambian de tamaño (21 dp fijos); solo la cápsula
+                                    // se achica. Misma duración/easing que la altura.
+                                    val animatedAuroraBarHPadding by animateDpAsState(
+                                        targetValue = if (auroraBarCollapsed) 56.dp else 12.dp,
+                                        animationSpec = tween(
+                                            durationMillis = 250,
+                                            easing = AURORA_EASING,
+                                        ),
+                                        label = "auroraBarHPadding",
+                                    )
+                                    val animatedAuroraBarVPadding by animateDpAsState(
+                                        targetValue = if (auroraBarCollapsed) 3.dp else 6.dp,
+                                        animationSpec = tween(
+                                            durationMillis = 250,
+                                            easing = AURORA_EASING,
+                                        ),
+                                        label = "auroraBarVPadding",
+                                    )
+                                    val animatedAuroraBarContentPadding by animateDpAsState(
+                                        targetValue = if (auroraBarCollapsed) 4.dp else 8.dp,
+                                        animationSpec = tween(
+                                            durationMillis = 250,
+                                            easing = AURORA_EASING,
+                                        ),
+                                        label = "auroraBarContentPadding",
+                                    )
                                     val navModifier = if (useAuroraBottomNav) {
                                         Modifier
                                             .windowInsetsPadding(NavigationBarDefaults.windowInsets)
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            .padding(
+                                                horizontal = animatedAuroraBarHPadding,
+                                                vertical = animatedAuroraBarVPadding,
+                                            )
                                             .auroraGlassNav(auroraColors!!, navBarShape, hazeState)
                                     } else {
                                         Modifier
@@ -349,10 +451,44 @@ object HomeScreen : Screen() {
                                         it::class ==
                                             tabNavigator.current::class
                                     }
-                                    val slidingPillIndex = remember { Animatable(auroraSelectedIndex.toFloat()) }
-                                    LaunchedEffect(auroraSelectedIndex) {
+                                    // En AMBAS barras (Aurora y Clásica), Títulos no es un
+                                    // ítem normal: lo sustituye la píldora Anime/Manga al
+                                    // final. "Más" tampoco está en ninguna barra: se unió al
+                                    // botón ⋮ de arriba de cada pantalla principal, que abre
+                                    // la pantalla de Más. Cada barra queda con 4 huecos:
+                                    // Inicio, Actualiz., Explorar y la píldora. La píldora
+                                    // deslizante sigue los índices de la barra visible.
+                                    val bottomBarTabs = navStyle.tabs.filter {
+                                        it::class != AnimeLibraryTab::class && it::class != MoreTab::class
+                                    }
+                                    val auroraBarSelectedIndex = bottomBarTabs.indexOfFirst {
+                                        it::class == tabNavigator.current::class
+                                    }
+                                    // Altura animada de la barra Aurora: 64 dp expandida,
+                                    // 48 dp compacta (solo iconos). Solo se anima el
+                                    // subárbol de la barra; la clásica queda en 80 dp.
+                                    val animatedAuroraBarHeight by animateDpAsState(
+                                        targetValue = auroraBarHeight,
+                                        animationSpec = tween(
+                                            durationMillis = 250,
+                                            easing = AURORA_EASING,
+                                        ),
+                                        label = "auroraBarHeight",
+                                    )
+                                    val bottomBarHeight = if (useAuroraBottomNav) {
+                                        animatedAuroraBarHeight
+                                    } else {
+                                        80.dp
+                                    }
+                                    val slidingPillTarget = if (useAuroraBottomNav) {
+                                        auroraBarSelectedIndex
+                                    } else {
+                                        auroraSelectedIndex
+                                    }
+                                    val slidingPillIndex = remember { Animatable(slidingPillTarget.toFloat()) }
+                                    LaunchedEffect(slidingPillTarget) {
                                         slidingPillIndex.animateTo(
-                                            targetValue = auroraSelectedIndex.toFloat(),
+                                            targetValue = slidingPillTarget.toFloat(),
                                             animationSpec = spring(
                                                 dampingRatio = Spring.DampingRatioNoBouncy,
                                                 stiffness = Spring.StiffnessMediumLow,
@@ -398,21 +534,41 @@ object HomeScreen : Screen() {
                                                 modifier = decoratedNavModifier,
                                                 shape = navBarShape,
                                                 contentPadding = if (useAuroraBottomNav) {
-                                                    PaddingValues(horizontal = 8.dp)
+                                                    PaddingValues(horizontal = animatedAuroraBarContentPadding)
                                                 } else {
                                                     PaddingValues(0.dp)
                                                 },
-                                                height = if (useAuroraBottomNav) 64.dp else 80.dp,
+                                                height = bottomBarHeight,
                                             ) {
-                                                navStyle.tabs.forEachIndexed { index, tab ->
-                                                    NavigationBarItem(
-                                                        tab,
-                                                        useAuroraBottomNav,
-                                                        index,
-                                                        slidingPillIndex,
-                                                        celestialUnlocked,
-                                                        auroraColors,
+                                                if (useAuroraBottomNav) {
+                                                    bottomBarTabs.forEachIndexed { index, tab ->
+                                                        NavigationBarItem(
+                                                            tab,
+                                                            useAuroraBottomNav,
+                                                            index,
+                                                            slidingPillIndex,
+                                                            celestialUnlocked,
+                                                            auroraColors,
+                                                            showLabels = !auroraBarCollapsed,
+                                                            compact = auroraBarCollapsed,
+                                                        )
+                                                    }
+                                                    LibraryMediaPill(
+                                                        auroraColors = auroraColors!!,
+                                                        compact = auroraBarCollapsed,
                                                     )
+                                                } else {
+                                                    bottomBarTabs.forEachIndexed { index, tab ->
+                                                        NavigationBarItem(
+                                                            tab,
+                                                            useAuroraBottomNav,
+                                                            index,
+                                                            slidingPillIndex,
+                                                            celestialUnlocked,
+                                                            auroraColors,
+                                                        )
+                                                    }
+                                                    ClassicLibraryMediaPill()
                                                 }
                                             }
                                         }
@@ -441,21 +597,41 @@ object HomeScreen : Screen() {
                                                 modifier = decoratedNavModifier,
                                                 shape = navBarShape,
                                                 contentPadding = if (useAuroraBottomNav) {
-                                                    PaddingValues(horizontal = 8.dp)
+                                                    PaddingValues(horizontal = animatedAuroraBarContentPadding)
                                                 } else {
                                                     PaddingValues(0.dp)
                                                 },
-                                                height = if (useAuroraBottomNav) 64.dp else 80.dp,
+                                                height = bottomBarHeight,
                                             ) {
-                                                navStyle.tabs.forEachIndexed { index, tab ->
-                                                    NavigationBarItem(
-                                                        tab,
-                                                        useAuroraBottomNav,
-                                                        index,
-                                                        slidingPillIndex,
-                                                        celestialUnlocked,
-                                                        auroraColors,
+                                                if (useAuroraBottomNav) {
+                                                    bottomBarTabs.forEachIndexed { index, tab ->
+                                                        NavigationBarItem(
+                                                            tab,
+                                                            useAuroraBottomNav,
+                                                            index,
+                                                            slidingPillIndex,
+                                                            celestialUnlocked,
+                                                            auroraColors,
+                                                            showLabels = !auroraBarCollapsed,
+                                                            compact = auroraBarCollapsed,
+                                                        )
+                                                    }
+                                                    LibraryMediaPill(
+                                                        auroraColors = auroraColors!!,
+                                                        compact = auroraBarCollapsed,
                                                     )
+                                                } else {
+                                                    bottomBarTabs.forEachIndexed { index, tab ->
+                                                        NavigationBarItem(
+                                                            tab,
+                                                            useAuroraBottomNav,
+                                                            index,
+                                                            slidingPillIndex,
+                                                            celestialUnlocked,
+                                                            auroraColors,
+                                                        )
+                                                    }
+                                                    ClassicLibraryMediaPill()
                                                 }
                                             }
                                         }
@@ -467,6 +643,10 @@ object HomeScreen : Screen() {
                             val layoutDirection = LocalLayoutDirection.current
                             Box(
                                 modifier = Modifier
+                                    // La conexión de colapso de la barra Aurora
+                                    // escucha el scroll del contenido (no consume
+                                    // nada, no interfiere con el scroll).
+                                    .nestedScroll(auroraBarScrollConnection)
                                     .padding(
                                         top = contentPadding.calculateTopPadding(),
                                         start = contentPadding.calculateStartPadding(layoutDirection),
@@ -660,9 +840,11 @@ object HomeScreen : Screen() {
         slidingPillIndex: Animatable<Float, AnimationVector1D>,
         celestialHalo: Boolean,
         auroraColors: AuroraColors?,
+        showLabels: Boolean = true,
+        compact: Boolean = false,
     ) {
         if (useAuroraBottomNav) {
-            AuroraNavigationBarItem(tab, index, slidingPillIndex, celestialHalo, auroraColors!!)
+            AuroraNavigationBarItem(tab, index, slidingPillIndex, celestialHalo, auroraColors!!, showLabels, compact)
             return
         }
 
@@ -672,7 +854,22 @@ object HomeScreen : Screen() {
         val selected = tabNavigator.current::class == tab::class
         val appHaptics = LocalAppHaptics.current
 
-        val colors = NavigationBarItemDefaults.colors()
+        // AMOLED: sin píldora gris detrás del icono seleccionado (el
+        // indicatorColor por defecto es secondaryContainer, gris en
+        // Monocromo). La selección se distingue por el icono relleno del
+        // vector animado + el color de acento, no por un fondo gris.
+        val amoled by uiPreferences.themeDarkAmoled().collectAsState()
+        val colors = if (amoled && isSystemInDarkTheme()) {
+            NavigationBarItemDefaults.colors(
+                selectedIconColor = MaterialTheme.colorScheme.primary,
+                selectedTextColor = MaterialTheme.colorScheme.primary,
+                indicatorColor = Color.Transparent,
+                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+            )
+        } else {
+            NavigationBarItemDefaults.colors()
+        }
 
         NavigationBarItem(
             modifier = Modifier.coachAnchorForTab(tab),
@@ -707,6 +904,8 @@ object HomeScreen : Screen() {
         slidingPillIndex: Animatable<Float, AnimationVector1D>,
         celestialHalo: Boolean,
         auroraColors: AuroraColors,
+        showLabels: Boolean = true,
+        compact: Boolean = false,
     ) {
         val tabNavigator = LocalTabNavigator.current
         val navigator = LocalNavigator.currentOrThrow
@@ -736,6 +935,14 @@ object HomeScreen : Screen() {
             label = "auroraNavItemPressScale",
         )
         val itemWidthPx = remember { mutableStateOf(0f) }
+        // Al colapsar, el hueco del icono se estrecha (12→6 dp) para que
+        // quepan los 4 huecos en la cápsula más angosta; el icono sigue
+        // en 21 dp, solo se recorta el aire a su alrededor.
+        val iconBoxHPadding by animateDpAsState(
+            targetValue = if (compact) 6.dp else 12.dp,
+            animationSpec = tween(durationMillis = 250, easing = AURORA_EASING),
+            label = "auroraNavItemIconPadding",
+        )
 
         Box(
             modifier = Modifier
@@ -791,8 +998,9 @@ object HomeScreen : Screen() {
                             accent = auroraColors.accent,
                             accentVariant = auroraColors.accentVariant,
                             isDark = auroraColors.isDark,
+                            isAmoled = auroraColors.isAmoled,
                         )
-                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                        .padding(horizontal = iconBoxHPadding, vertical = 5.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     CompositionLocalProvider(LocalContentColor provides iconColor) {
@@ -804,17 +1012,349 @@ object HomeScreen : Screen() {
                     }
                 }
 
-                Text(
-                    text = tab.options.title,
-                    color = labelColor,
-                    style = MaterialTheme.typography.labelLarge.copy(
-                        fontSize = MaterialTheme.typography.labelLarge.fontSize * 0.82f,
-                    ),
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                // El nombre se oculta con fundido + encogido vertical cuando
+                // la barra se compacta al bajar; el icono queda centrado
+                // porque la columna está centrada en el hueco completo.
+                AnimatedVisibility(
+                    visible = showLabels,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 200)) +
+                        expandVertically(
+                            animationSpec = tween(durationMillis = 250, easing = AURORA_EASING),
+                        ),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 150)) +
+                        shrinkVertically(
+                            animationSpec = tween(durationMillis = 250, easing = AURORA_EASING),
+                        ),
+                ) {
+                    Text(
+                        text = tab.options.title,
+                        color = labelColor,
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontSize = MaterialTheme.typography.labelLarge.fontSize * 0.82f,
+                        ),
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
+        }
+    }
+
+    /**
+     * Píldora Anime/Manga de la barra inferior Aurora (fotos de referencia).
+     *
+     * Sustituye al ítem de Títulos en la barra Aurora: a la izquierda el
+     * icono de película (Anime) y a la derecha el de libro (Manga). Es el
+     * ÚNICO control para cambiar Anime/Manga — los selectores superiores de
+     * Explorar y Títulos se eliminaron — y su estado se refleja en toda la
+     * app porque escribe las preferencias compartidas browseLastSection y
+     * libraryLastSection y encamina la sección a la biblioteca.
+     *
+     * Al tocar un lado cambia el modo y abre la biblioteca en esa sección;
+     * si ya se está en la biblioteca, solo cambia la sección. El lado
+     * seleccionado lleva el icono relleno sobre turquesa; el otro, el icono
+     * en contorno. La etiqueta bajo la píldora muestra el modo actual.
+     */
+    private val mediaPillTurquoise = Color(0xFF2DD4BF)
+
+    /**
+     * Estado compartido de la píldora Anime/Manga: la misma lógica y el
+     * mismo comportamiento en la barra Aurora, la barra Clásica y el rail
+     * de tablets. Solo cambian los colores y si se compacta.
+     */
+    private data class MediaPillState(
+        val currentSection: AnimeLibraryTab.Section?,
+        val pillLabel: String,
+        val isLibraryTab: Boolean,
+        val showAnimeSection: Boolean,
+        val showMangaSection: Boolean,
+        val selectMedia: (AnimeLibraryTab.Section) -> Unit,
+    )
+
+    @Composable
+    private fun rememberMediaPillState(): MediaPillState {
+        val tabNavigator = LocalTabNavigator.current
+        val appHaptics = LocalAppHaptics.current
+        val userProfilePreferences = Injekt.get<UserProfilePreferences>()
+        val librarySection by userProfilePreferences.libraryLastSection().collectAsState()
+        val showAnimeSection by uiPreferences.showAnimeSection().collectAsState()
+        val showMangaSection by uiPreferences.showMangaSection().collectAsState()
+
+        val currentSection: AnimeLibraryTab.Section? = when {
+            librarySection.equals("manga", ignoreCase = true) && showMangaSection ->
+                AnimeLibraryTab.Section.Manga
+            librarySection.equals("anime", ignoreCase = true) && showAnimeSection ->
+                AnimeLibraryTab.Section.Anime
+            librarySection.equals("novel", ignoreCase = true) ->
+                AnimeLibraryTab.Section.Novel
+            showAnimeSection -> AnimeLibraryTab.Section.Anime
+            showMangaSection -> AnimeLibraryTab.Section.Manga
+            else -> null
+        }
+        val pillLabel = when (currentSection) {
+            AnimeLibraryTab.Section.Anime -> stringResource(AYMR.strings.label_anime)
+            AnimeLibraryTab.Section.Manga -> stringResource(AYMR.strings.label_manga)
+            AnimeLibraryTab.Section.Novel -> stringResource(AYMR.strings.label_novel)
+            null -> stringResource(AYMR.strings.label_anime)
+        }
+        val isLibraryTab = tabNavigator.current::class == AnimeLibraryTab::class
+
+        // Lambda recordada: su identidad solo cambia si cambia la sección
+        // o la pestaña, así que el layout no se recompone por otros motivos.
+        val selectMedia: (AnimeLibraryTab.Section) -> Unit = remember(currentSection, isLibraryTab) {
+            { section ->
+                if (!(isLibraryTab && currentSection == section)) {
+                    appHaptics.tap()
+                    // TODO SINCRÓNICO ANTES DE NAVEGAR (fix del "jug" al tocar
+                    // Anime/Manga desde Inicio/Actualizaciones): antes las
+                    // escrituras y el requestSection iban dentro de un
+                    // scope.launch y la navegación ocurría en el mismo turno,
+                    // así que la biblioteca se componía leyendo la sección
+                    // VIEJA (el pager arrancaba en lo último seleccionado) y
+                    // luego saltaba a la nueva. Ahora la preferencia y la
+                    // intención de ruta quedan fijadas antes de cambiar de
+                    // pestaña, y la biblioteca arranca directamente en la
+                    // sección tocada, sin rebote.
+                    userProfilePreferences.libraryLastSection()
+                        .set(section.name.lowercase(Locale.ROOT))
+                    userProfilePreferences.browseLastSection().set(section.name)
+                    AnimeLibraryTab.requestSectionNow(section)
+                    if (!isLibraryTab) {
+                        tabNavigator.current = AnimeLibraryTab
+                    }
+                }
+            }
+        }
+
+        return MediaPillState(
+            currentSection = currentSection,
+            pillLabel = pillLabel,
+            isLibraryTab = isLibraryTab,
+            showAnimeSection = showAnimeSection,
+            showMangaSection = showMangaSection,
+            selectMedia = selectMedia,
+        )
+    }
+
+    private data class MediaPillColors(
+        val background: Color,
+        val border: Color,
+        val unselectedIcon: Color,
+        val selectedLabel: Color,
+        val unselectedLabel: Color,
+    )
+
+    @Composable
+    private fun rememberMediaPillColors(auroraColors: AuroraColors?): MediaPillColors {
+        return if (auroraColors != null) {
+            MediaPillColors(
+                background = if (auroraColors.isAmoled) {
+                    Color.Black
+                } else {
+                    auroraColors.accent.copy(alpha = 0.14f)
+                },
+                border = if (auroraColors.isDark) {
+                    Color.White.copy(alpha = 0.12f)
+                } else {
+                    auroraColors.accent.copy(alpha = 0.16f)
+                },
+                // En Aurora el icono sin seleccionar es el color de texto
+                // principal (igual que antes: LocalContentColor de la barra).
+                unselectedIcon = auroraColors.textPrimary,
+                selectedLabel = mediaPillTurquoise,
+                unselectedLabel = auroraColors.textSecondary,
+            )
+        } else {
+            val amoledPref by uiPreferences.themeDarkAmoled().collectAsState()
+            val amoled = amoledPref && isSystemInDarkTheme()
+            MediaPillColors(
+                background = if (amoled) {
+                    Color.Black
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+                border = if (amoled) {
+                    Color.White.copy(alpha = 0.12f)
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                },
+                unselectedIcon = MaterialTheme.colorScheme.onSurfaceVariant,
+                selectedLabel = mediaPillTurquoise,
+                unselectedLabel = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    /**
+     * Dibujo común de la píldora: dos lados (película = Anime, libro =
+     * Manga) y la etiqueta del modo debajo. `compact` es la versión
+     * pequeña de la barra Aurora al bajar: menos alto (26 dp en vez de
+     * 32 dp), menos padding y sin etiqueta. Los iconos NO se achican:
+     * quedan en 21 dp siempre; solo la cápsula se achica.
+     */
+    @Composable
+    private fun MediaPillLayout(
+        modifier: Modifier,
+        state: MediaPillState,
+        colors: MediaPillColors,
+        compact: Boolean,
+    ) {
+        // Alturas/padding animados: solo se re-mide el subárbol de la
+        // píldora durante los 250 ms de la animación.
+        val pillHeight by animateDpAsState(
+            targetValue = if (compact) 26.dp else 32.dp,
+            animationSpec = tween(durationMillis = 250, easing = AURORA_EASING),
+            label = "mediaPillHeight",
+        )
+        val pillPadding by animateDpAsState(
+            targetValue = if (compact) 2.dp else 3.dp,
+            animationSpec = tween(durationMillis = 250, easing = AURORA_EASING),
+            label = "mediaPillPadding",
+        )
+        // Tamaño fijo: al colapsar la cápsula los iconos mantienen su
+        // tamaño; solo se achica la píldora que los contiene.
+        val pillIconSize = 21.dp
+
+        Box(
+            modifier = Modifier
+                .coachAnchorForTab(AnimeLibraryTab)
+                .then(modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .height(pillHeight)
+                        .background(colors.background, RoundedCornerShape(999.dp))
+                        .border(1.dp, colors.border, RoundedCornerShape(999.dp))
+                        .padding(pillPadding),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CompositionLocalProvider(LocalContentColor provides colors.unselectedIcon) {
+                        MediaPillSide(
+                            selected = state.currentSection == AnimeLibraryTab.Section.Anime,
+                            enabled = state.showAnimeSection,
+                            iconSelected = Icons.Filled.Movie,
+                            iconUnselected = Icons.Outlined.Movie,
+                            contentDescription = stringResource(AYMR.strings.label_anime),
+                            iconSize = pillIconSize,
+                            onClick = { state.selectMedia(AnimeLibraryTab.Section.Anime) },
+                        )
+                        MediaPillSide(
+                            selected = state.currentSection == AnimeLibraryTab.Section.Manga,
+                            enabled = state.showMangaSection,
+                            iconSelected = Icons.Filled.MenuBook,
+                            iconUnselected = Icons.Outlined.MenuBook,
+                            contentDescription = stringResource(AYMR.strings.label_manga),
+                            iconSize = pillIconSize,
+                            onClick = { state.selectMedia(AnimeLibraryTab.Section.Manga) },
+                        )
+                    }
+                }
+                AnimatedVisibility(
+                    visible = !compact,
+                    enter = fadeIn(animationSpec = tween(durationMillis = 200)) +
+                        expandVertically(
+                            animationSpec = tween(durationMillis = 250, easing = AURORA_EASING),
+                        ),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 150)) +
+                        shrinkVertically(
+                            animationSpec = tween(durationMillis = 250, easing = AURORA_EASING),
+                        ),
+                ) {
+                    Text(
+                        text = state.pillLabel,
+                        color = if (state.currentSection == AnimeLibraryTab.Section.Novel ||
+                            state.currentSection == null
+                        ) {
+                            colors.unselectedLabel
+                        } else {
+                            colors.selectedLabel
+                        },
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontSize = MaterialTheme.typography.labelLarge.fontSize * 0.82f,
+                        ),
+                        fontWeight = if (state.isLibraryTab) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun RowScope.LibraryMediaPill(auroraColors: AuroraColors, compact: Boolean) {
+        MediaPillLayout(
+            modifier = Modifier
+                .weight(1.8f)
+                .fillMaxHeight()
+                .padding(horizontal = 1.dp),
+            state = rememberMediaPillState(),
+            colors = rememberMediaPillColors(auroraColors),
+            compact = compact,
+        )
+    }
+
+    @Composable
+    private fun RowScope.ClassicLibraryMediaPill() {
+        MediaPillLayout(
+            modifier = Modifier
+                .weight(1.8f)
+                .fillMaxHeight()
+                .padding(horizontal = 1.dp),
+            state = rememberMediaPillState(),
+            colors = rememberMediaPillColors(null),
+            compact = false,
+        )
+    }
+
+    @Composable
+    private fun RailMediaPill(auroraColors: AuroraColors?) {
+        MediaPillLayout(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            state = rememberMediaPillState(),
+            colors = rememberMediaPillColors(auroraColors),
+            compact = false,
+        )
+    }
+
+    @Composable
+    private fun RowScope.MediaPillSide(
+        selected: Boolean,
+        enabled: Boolean,
+        iconSelected: ImageVector,
+        iconUnselected: ImageVector,
+        contentDescription: String,
+        iconSize: Dp = 21.dp,
+        onClick: () -> Unit,
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(999.dp))
+                .background(if (selected) mediaPillTurquoise else Color.Transparent)
+                .clickable(enabled = enabled, onClick = onClick)
+                .semantics(mergeDescendants = true) { this.contentDescription = contentDescription },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (selected) iconSelected else iconUnselected,
+                contentDescription = null,
+                tint = if (selected) {
+                    Color.Black
+                } else {
+                    LocalContentColor.current.copy(alpha = 0.8f)
+                },
+                modifier = Modifier.size(iconSize),
+            )
         }
     }
 
@@ -833,14 +1373,21 @@ object HomeScreen : Screen() {
         accent: Color,
         accentVariant: Color,
         isDark: Boolean,
+        isAmoled: Boolean = false,
     ): Modifier {
-        val pillBrush = remember(accent, accentVariant, isDark) {
-            Brush.verticalGradient(
-                listOf(
-                    if (isDark) accent.copy(alpha = 0.28f) else accent.copy(alpha = 0.18f),
-                    if (isDark) accentVariant.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.78f),
-                ),
-            )
+        val pillBrush = remember(accent, accentVariant, isDark, isAmoled) {
+            if (isAmoled) {
+                // AMOLED: la píldora deslizante es negra sólida con su borde
+                // fino; el tinte del acento la volvía gris.
+                SolidColor(Color.Black)
+            } else {
+                Brush.verticalGradient(
+                    listOf(
+                        if (isDark) accent.copy(alpha = 0.28f) else accent.copy(alpha = 0.18f),
+                        if (isDark) accentVariant.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.78f),
+                    ),
+                )
+            }
         }
         val borderColor = if (isDark) {
             Color.White.copy(alpha = 0.12f)
@@ -888,14 +1435,16 @@ object HomeScreen : Screen() {
                 .shadow(
                     elevation = 10.dp,
                     shape = shape,
-                    ambientColor = Color.White.copy(alpha = 0.12f),
-                    spotColor = Color.White.copy(alpha = 0.08f),
+                    // AMOLED: sin brillo blanco alrededor de la barra; el
+                    // resplandor era otro gris visible sobre negro puro.
+                    ambientColor = if (colors.isAmoled) Color.Transparent else Color.White.copy(alpha = 0.12f),
+                    spotColor = if (colors.isAmoled) Color.Transparent else Color.White.copy(alpha = 0.08f),
                 )
                 .shadow(
                     elevation = 3.dp,
                     shape = shape,
-                    ambientColor = Color.White.copy(alpha = 0.18f),
-                    spotColor = Color.White.copy(alpha = 0.12f),
+                    ambientColor = if (colors.isAmoled) Color.Transparent else Color.White.copy(alpha = 0.18f),
+                    spotColor = if (colors.isAmoled) Color.Transparent else Color.White.copy(alpha = 0.12f),
                 )
                 .clip(shape)
                 // Opaque base under the frost: on first frames after navigation
@@ -939,7 +1488,16 @@ object HomeScreen : Screen() {
         val railShape = RoundedCornerShape(28.dp)
         val tabNavigator = LocalTabNavigator.current
         val celestialRail = rememberAuroraCelestialNavbarUnlocked()
-        val selectedIndex = tabs.indexOfFirst { it::class == tabNavigator.current::class }
+        // En el rail vale lo mismo que en la barra inferior: sin "Más" y
+        // Títulos es la píldora Anime/Manga. El índice seleccionado se
+        // calcula sobre los huecos visibles (la píldora es el último).
+        val railTabs = tabs.filter {
+            it::class != AnimeLibraryTab::class && it::class != MoreTab::class
+        }
+        val selectedIndex = when {
+            tabNavigator.current::class == AnimeLibraryTab::class -> railTabs.size
+            else -> railTabs.indexOfFirst { it::class == tabNavigator.current::class }
+        }
         val baseModifier = Modifier
             .windowInsetsPadding(NavigationRailDefaults.windowInsets)
             .padding(start = 12.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)
@@ -950,7 +1508,7 @@ object HomeScreen : Screen() {
                 accentVariant = auroraColors.accentVariant,
                 isDark = auroraColors.isDark,
                 selectedIndex = selectedIndex,
-                tabCount = tabs.size,
+                tabCount = railTabs.size + 1,
             )
         } else {
             glassModifier
@@ -967,7 +1525,8 @@ object HomeScreen : Screen() {
             contentColor = auroraColors.textPrimary,
             windowInsets = WindowInsets(0),
         ) {
-            tabs.forEachIndexed { _, tab -> AuroraNavigationRailItem(tab, celestialRail, auroraColors) }
+            railTabs.forEachIndexed { _, tab -> AuroraNavigationRailItem(tab, celestialRail, auroraColors) }
+            RailMediaPill(auroraColors)
         }
     }
 
@@ -994,13 +1553,16 @@ object HomeScreen : Screen() {
             auroraColors.textSecondary.copy(alpha = if (auroraColors.isDark) 0.82f else 0.88f)
         }
         val iconBackgroundBrush = if (selected) {
-            Brush.verticalGradient(
-                listOf(
-                    if (auroraColors.isDark) {
-                        auroraColors.accent.copy(alpha = 0.28f)
-                    } else {
-                        auroraColors.accent.copy(alpha = 0.18f)
-                    },
+            if (auroraColors.isAmoled) {
+                SolidColor(Color.Black)
+            } else {
+                Brush.verticalGradient(
+                    listOf(
+                        if (auroraColors.isDark) {
+                            auroraColors.accent.copy(alpha = 0.28f)
+                        } else {
+                            auroraColors.accent.copy(alpha = 0.18f)
+                        },
                     if (auroraColors.isDark) {
                         auroraColors.accentVariant.copy(alpha = 0.18f)
                     } else {
@@ -1008,6 +1570,7 @@ object HomeScreen : Screen() {
                     },
                 ),
             )
+            }
         } else {
             null
         }
@@ -1309,5 +1872,59 @@ private fun tabOrderIndex(
         visibleIndex >= 0 -> visibleIndex
         tab::class == currentMoreTab::class -> navStyle.tabs.size
         else -> navStyle.tabs.size + 1
+    }
+}
+
+/**
+ * Estado de colapso de la barra Aurora. Espejo del patrón de la
+ * biblioteca ([eu.kanade.tachiyomi.ui.library.LibraryImmersiveChromeState]):
+ * `isVisible = true` es la barra expandida (con nombres) y `false` la
+ * compacta (solo iconos). El scroll se acumula hasta el umbral para que
+ * un toque corto no haga parpadear la barra.
+ */
+private data class AuroraBarCollapseState(
+    val isVisible: Boolean = true,
+    val accumulatedScrollPx: Float = 0f,
+)
+
+private fun resolveAuroraBarCollapseState(
+    currentState: AuroraBarCollapseState,
+    scrollDeltaPx: Float,
+    hideThresholdPx: Float,
+): AuroraBarCollapseState {
+    if (scrollDeltaPx == 0f) {
+        return currentState
+    }
+
+    return if (currentState.isVisible) {
+        if (scrollDeltaPx <= 0f) {
+            currentState.copy(accumulatedScrollPx = 0f)
+        } else {
+            val accumulated = (currentState.accumulatedScrollPx + scrollDeltaPx)
+                .coerceAtMost(hideThresholdPx)
+            if (accumulated >= hideThresholdPx) {
+                AuroraBarCollapseState(
+                    isVisible = false,
+                    accumulatedScrollPx = 0f,
+                )
+            } else {
+                currentState.copy(accumulatedScrollPx = accumulated)
+            }
+        }
+    } else {
+        if (scrollDeltaPx >= 0f) {
+            currentState.copy(accumulatedScrollPx = 0f)
+        } else {
+            val accumulated = (currentState.accumulatedScrollPx + scrollDeltaPx)
+                .coerceAtLeast(-hideThresholdPx)
+            if (accumulated <= -hideThresholdPx) {
+                AuroraBarCollapseState(
+                    isVisible = true,
+                    accumulatedScrollPx = 0f,
+                )
+            } else {
+                currentState.copy(accumulatedScrollPx = accumulated)
+            }
+        }
     }
 }

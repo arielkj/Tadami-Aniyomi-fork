@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Card
@@ -97,6 +98,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import cafe.adriel.voyager.navigator.tab.LocalTabNavigator
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenu
@@ -104,6 +106,7 @@ import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenuItem
 import eu.kanade.presentation.more.settings.AuroraTopBarIconButton
 import eu.kanade.presentation.more.settings.AuroraTopBarTitleText
 import eu.kanade.presentation.more.settings.auroraCardStyle
+import eu.kanade.tachiyomi.ui.more.MoreTab
 import eu.kanade.presentation.theme.AuroraColors
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
@@ -224,14 +227,20 @@ fun TabbedScreenAurora(
         label = "auroraEdgeBounce",
     )
 
-    val onTabSelected: (Int) -> Unit = { index ->
-        if (tabs.isNotEmpty()) {
-            val targetIndex = index.coerceIn(0, tabs.lastIndex)
-            if (instantTabSwitching) {
-                instantSelectedPage = targetIndex
-            } else {
-                scope.launch {
-                    state.animateScrollToPage(targetIndex)
+    // PERF: la lambda recordada mantiene su identidad entre
+    // recomposiciones (p. ej. al teclear en la búsqueda). Sin esto, cada
+    // recomposición de esta pantalla recreaba el callback y obligaba a
+    // recomponer AuroraTabRow y el contenido del pager.
+    val onTabSelected: (Int) -> Unit = remember(tabs, instantTabSwitching, state) {
+        { index ->
+            if (tabs.isNotEmpty()) {
+                val targetIndex = index.coerceIn(0, tabs.lastIndex)
+                if (instantTabSwitching) {
+                    instantSelectedPage = targetIndex
+                } else {
+                    scope.launch {
+                        state.animateScrollToPage(targetIndex)
+                    }
                 }
             }
         }
@@ -449,6 +458,9 @@ private fun AuroraTabHeader(
     val actions = currentTab?.actions.orEmpty()
     val iconActions = actions.filterIsInstance<AppBar.Action>()
     val overflowActions = actions.filterIsInstance<AppBar.OverflowAction>()
+    // "Más" ya no está en la barra inferior Aurora: vive unido al botón ⋮
+    // de arriba. Cambiar de pestaña es lo mismo que tocaba el botón "Más".
+    val tabNavigator = LocalTabNavigator.current
     var showOverflowMenu by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -591,29 +603,37 @@ private fun AuroraTabHeader(
                     )
                 }
 
-                if (overflowActions.isNotEmpty()) {
-                    Box {
-                        AuroraTopBarIconButton(
-                            onClick = { showOverflowMenu = true },
-                            icon = Icons.Outlined.MoreVert,
-                            contentDescription = stringResource(MR.strings.action_menu_overflow_description),
-                        )
+                // El ⋮ siempre está visible: aunque la pestaña actual no tenga
+                // acciones de desbordamiento propias, el menú contiene "Más".
+                Box {
+                    AuroraTopBarIconButton(
+                        onClick = { showOverflowMenu = true },
+                        icon = Icons.Outlined.MoreVert,
+                        contentDescription = stringResource(MR.strings.action_menu_overflow_description),
+                    )
 
-                        AuroraEntryDropdownMenu(
-                            expanded = showOverflowMenu,
-                            onDismissRequest = { showOverflowMenu = false },
-                        ) {
-                            overflowActions.forEach { action ->
-                                AuroraEntryDropdownMenuItem(
-                                    text = action.title,
-                                    leadingIcon = action.icon,
-                                    onClick = {
-                                        action.onClick()
-                                        showOverflowMenu = false
-                                    },
-                                )
-                            }
+                    AuroraEntryDropdownMenu(
+                        expanded = showOverflowMenu,
+                        onDismissRequest = { showOverflowMenu = false },
+                    ) {
+                        overflowActions.forEach { action ->
+                            AuroraEntryDropdownMenuItem(
+                                text = action.title,
+                                leadingIcon = action.icon,
+                                onClick = {
+                                    action.onClick()
+                                    showOverflowMenu = false
+                                },
+                            )
                         }
+                        AuroraEntryDropdownMenuItem(
+                            text = stringResource(MR.strings.label_more),
+                            leadingIcon = Icons.Filled.MoreHoriz,
+                            onClick = {
+                                showOverflowMenu = false
+                                tabNavigator.current = MoreTab
+                            },
+                        )
                     }
                 }
             }

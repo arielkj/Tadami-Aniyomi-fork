@@ -37,8 +37,12 @@ fun Modifier.auroraHeaderIconSurface(
     val density = scrollProgress.coerceIn(0f, 1f)
     val useDarkLens = colors.isDark
 
-    // Glass fill color with scroll densification
-    val glassColor = if (useDarkLens) {
+    // Glass fill color with scroll densification.
+    // AMOLED: negro puro opaco. El gris azulado 0xFF161922 era uno de los
+    // grises visibles en los botones circulares de buscar/filtrar/menú.
+    val glassColor = if (colors.isAmoled) {
+        Color.Black
+    } else if (useDarkLens) {
         if (isPosterMode) {
             Color(0xFF161922).copy(alpha = 0.85f)
         } else {

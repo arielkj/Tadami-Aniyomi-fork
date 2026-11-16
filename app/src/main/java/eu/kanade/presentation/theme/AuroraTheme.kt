@@ -25,8 +25,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.ui.model.EInkProfile
 import eu.kanade.presentation.theme.colorscheme.AuroraColorScheme
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 @Immutable
 data class AuroraColors(
@@ -102,16 +105,17 @@ data class AuroraColors(
                     }
 
                     val effectiveSurface = if (isDark && isAmoled) {
-                        Color(0xFF0C0C0C)
+                        Color.Black
                     } else {
                         effectiveBackground // Используем тот же цвет, что и background для блендинга
                     }
 
-                    // Generate gradient colors based on theme's primary color
+                    // Generate gradient colors based on theme's primary color.
+                    // AMOLED: sin tinte — el degradado es negro puro de principio a fin,
+                    // de lo contrario el fondo deja de ser negro puro.
                     val gradientStart = if (isDark) {
                         if (isAmoled) {
-                            // AMOLED: subtle tint on near-black
-                            colorScheme.primary.copy(alpha = 0.08f).compositeOver(Color(0xFF050508))
+                            Color.Black
                         } else {
                             // Regular dark: blend primary with background
                             colorScheme.primary.copy(alpha = 0.15f).compositeOver(effectiveBackground)
@@ -130,7 +134,11 @@ data class AuroraColors(
                         surface = effectiveSurface,
                         gradientStart = gradientStart,
                         gradientEnd = gradientEnd,
-                        glass = if (isDark) {
+                        glass = if (isDark && isAmoled) {
+                            // AMOLED: negro puro; el "cristal" grisáceo es lo que
+                            // ensuciaba las tarjetas y la barra en modo negro puro.
+                            Color.Black
+                        } else if (isDark) {
                             Color.White.copy(alpha = 0.22f)
                         } else {
                             Color(0xE6FFFFFF)
@@ -138,7 +146,9 @@ data class AuroraColors(
                         textPrimary = colorScheme.onBackground,
                         textSecondary = colorScheme.onSurfaceVariant,
                         textOnAccent = colorScheme.onPrimary,
-                        cardBackground = if (isDark) {
+                        cardBackground = if (isDark && isAmoled) {
+                            Color.Black
+                        } else if (isDark) {
                             Color.White.copy(alpha = 0.12f)
                         } else {
                             colorScheme.surfaceContainerHigh
@@ -344,9 +354,15 @@ object AuroraTheme {
     @Composable
     fun colorsForCurrentTheme(): AuroraColors {
         if (LocalIsEInkMode.current) return LocalAuroraColors.current
+        // Antes no se pasaba isAmoled (quedaba en false por defecto) y los
+        // colores Aurora ignoraban el modo negro puro aunque el interruptor
+        // estuviera activado. Se lee la preferencia directamente, igual que
+        // hace TachiyomiTheme.
+        val isAmoled = Injekt.get<UiPreferences>().themeDarkAmoled().get()
         return AuroraColors.fromColorScheme(
             colorScheme = MaterialTheme.colorScheme,
             isDark = isSystemInDarkTheme(),
+            isAmoled = isAmoled,
         )
     }
 }

@@ -46,6 +46,8 @@ import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -118,7 +120,6 @@ import eu.kanade.domain.ui.model.EInkProfile
 import eu.kanade.presentation.category.components.ChangeCategoryDialog
 import eu.kanade.presentation.category.visualName
 import eu.kanade.presentation.components.AURORA_TAB_LEADING_STIFFNESS
-import eu.kanade.presentation.components.AuroraTabRow
 import eu.kanade.presentation.components.TabContent
 import eu.kanade.presentation.components.TabbedScreenAurora
 import eu.kanade.presentation.components.auroraMenuRimLightBrush
@@ -172,6 +173,7 @@ import eu.kanade.tachiyomi.ui.library.manga.MangaLibrarySettingsScreenModel
 import eu.kanade.tachiyomi.ui.library.novel.NovelLibraryScreenModel
 import eu.kanade.tachiyomi.ui.library.resolveLibraryImmersiveChromeState
 import eu.kanade.tachiyomi.ui.main.MainActivity
+import eu.kanade.tachiyomi.ui.more.MoreTab
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
 import eu.kanade.tachiyomi.ui.reader.novel.NovelReaderScreen
@@ -353,14 +355,20 @@ data object AnimeLibraryTab : Tab {
         // C9: resolve the restored section WITHOUT writing the tab-level globals during
         // composition - a discarded speculative composition used to consume the one-shot
         // restore flag; the globals are updated in the effect below instead.
+        // Fix del "jug" de la píldora: una sección pedida explícitamente
+        // (routeIntent pendiente, fijado síncronamente por la píldora antes
+        // de navegar) gana a la última sección guardada; si no, manda la
+        // preferencia recién escrita, que en estado estable coincide con el
+        // global pero es la verdad fresca durante el cambio de pestaña. Sin
+        // esto el pager arrancaba en la última sección y luego saltaba a la
+        // tocada cuando el colector aplicaba la intención.
         val restoredSection = remember {
-            if (!lastAuroraSectionRestored) {
-                val stored = userProfilePreferences.libraryLastSection().get()
-                Section.entries.firstOrNull { it.name.equals(stored, ignoreCase = true) }
-                    ?: lastAuroraSection
-            } else {
-                lastAuroraSection
-            }
+            routeIntent.value?.section
+                ?: userProfilePreferences.libraryLastSection().get()
+                    .let { stored ->
+                        Section.entries.firstOrNull { it.name.equals(stored, ignoreCase = true) }
+                    }
+                ?: lastAuroraSection
         }
         val initialSection = restoredSection.takeIf { it in availableSections }
             ?: availableSections.firstOrNull()
@@ -1507,7 +1515,7 @@ data object AnimeLibraryTab : Tab {
                             extraHeaderContent = {
                                 AuroraLibraryPinnedHeader(
                                     title = stringResource(AYMR.strings.label_titles),
-                                    tabs = auroraTabs,
+                                    novelSectionIndex = availableSections.indexOf(Section.Novel),
                                     // H18-refined: currentPage keeps the pill highlight in sync
                                     // with the sliding posters (settledPage lagged them).
                                     selectedSectionIndex = auroraPagerState.currentPage.coerceIn(
@@ -1985,6 +1993,19 @@ data object AnimeLibraryTab : Tab {
         routeIntent.value = LibraryRouteIntent(section = section)
     }
 
+    /**
+     * Variante síncrona de [requestSection] para la píldora Anime/Manga:
+     * la intención de ruta debe quedar fijada ANTES de cambiar de pestaña
+     * (en el mismo turno del clic), porque la biblioteca se compone
+     * inmediatamente y su restauración lee [routeIntent] para arrancar en
+     * la sección pedida. La versión suspendida iba dentro de un launch y
+     * podía aterrizar después de la composición: el pager arrancaba en la
+     * última sección y luego saltaba (el "jug" de la píldora).
+     */
+    fun requestSectionNow(section: Section) {
+        routeIntent.value = LibraryRouteIntent(section = section)
+    }
+
     suspend fun showNovelSection() = requestSection(Section.Novel)
     suspend fun showMangaSection() = requestSection(Section.Manga)
 
@@ -2177,7 +2198,11 @@ private fun NovelPickerDialogs(
 @Composable
 private fun AuroraLibraryPinnedHeader(
     title: String,
-    tabs: List<TabContent>,
+    // Índice de la sección Novela en el pager (-1 si no está habilitada).
+    // El selector superior Anime/Manga/Novela se eliminó: el cambio
+    // Anime/Manga vive solo en la píldora de la barra inferior Aurora y
+    // Novela queda accesible desde el menú ⋮ de esta cabecera.
+    novelSectionIndex: Int,
     selectedSectionIndex: Int,
     onSectionSelected: (Int) -> Unit,
     searchQuery: String?,
@@ -2199,6 +2224,8 @@ private fun AuroraLibraryPinnedHeader(
 ) {
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
+    // "Más" ya no está en la barra inferior Aurora: vive en este menú ⋮.
+    val tabNavigator = LocalTabNavigator.current
     var isSearchExpanded by remember(selectedSectionIndex) { mutableStateOf(searchQuery != null) }
     var previousSearchQuery by remember(selectedSectionIndex) { mutableStateOf(searchQuery) }
     val isSearchActive = shouldShowAuroraSearchField(
@@ -2317,6 +2344,7 @@ private fun AuroraLibraryPinnedHeader(
                                     auroraLibraryPinnedHeaderMenuItems(
                                         includeImportEpub = onImportEpub != null,
                                         includeImportFolder = onImportFolder != null,
+                                        includeNovelSection = novelSectionIndex >= 0,
                                     ).forEach { item ->
                                         AuroraEntryDropdownMenuItem(
                                             text = when (item) {
@@ -2330,6 +2358,10 @@ private fun AuroraLibraryPinnedHeader(
                                                     stringResource(AYMR.strings.novel_library_import_epub)
                                                 AuroraLibraryPinnedHeaderMenuItem.ImportFolder ->
                                                     stringResource(AYMR.strings.novel_library_import_folder)
+                                                AuroraLibraryPinnedHeaderMenuItem.OpenNovelSection ->
+                                                    stringResource(AYMR.strings.label_novel)
+                                                AuroraLibraryPinnedHeaderMenuItem.OpenMore ->
+                                                    stringResource(MR.strings.label_more)
                                             },
                                             leadingIcon = when (item) {
                                                 AuroraLibraryPinnedHeaderMenuItem.RefreshCurrent,
@@ -2343,6 +2375,12 @@ private fun AuroraLibraryPinnedHeader(
                                                 }
                                                 AuroraLibraryPinnedHeaderMenuItem.ImportFolder -> {
                                                     Icons.Filled.Add
+                                                }
+                                                AuroraLibraryPinnedHeaderMenuItem.OpenNovelSection -> {
+                                                    Icons.Filled.MenuBook
+                                                }
+                                                AuroraLibraryPinnedHeaderMenuItem.OpenMore -> {
+                                                    Icons.Filled.MoreHoriz
                                                 }
                                             },
                                             onClick = {
@@ -2362,6 +2400,14 @@ private fun AuroraLibraryPinnedHeader(
                                                     AuroraLibraryPinnedHeaderMenuItem.ImportFolder -> {
                                                         onImportFolder?.invoke()
                                                     }
+                                                    AuroraLibraryPinnedHeaderMenuItem.OpenNovelSection -> {
+                                                        if (novelSectionIndex >= 0) {
+                                                            onSectionSelected(novelSectionIndex)
+                                                        }
+                                                    }
+                                                    AuroraLibraryPinnedHeaderMenuItem.OpenMore -> {
+                                                        tabNavigator.current = MoreTab
+                                                    }
                                                 }
                                                 showMenu = false
                                             },
@@ -2373,15 +2419,10 @@ private fun AuroraLibraryPinnedHeader(
                     }
                 }
 
-                if (tabs.size > 1) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    AuroraTabRow(
-                        tabs = tabs.toImmutableList(),
-                        selectedIndex = selectedSectionIndex,
-                        onTabSelected = onSectionSelected,
-                        scrollable = false,
-                    )
-                }
+                // El selector superior de secciones (cápsulas Anime/Manga/Novela)
+                // se eliminó a propósito: el cambio Anime/Manga vive solo en la
+                // píldora de la barra inferior Aurora. Novela sigue accesible
+                // desde el menú ⋮ de esta cabecera (OpenNovelSection).
             }
         }
 
@@ -2405,22 +2446,31 @@ internal enum class AuroraLibraryPinnedHeaderMenuItem {
     OpenRandomEntry,
     ImportEpub,
     ImportFolder,
+    // Sin selector superior, esta es la vía para llegar a Novelas.
+    OpenNovelSection,
+    // "Más" ya no está en la barra inferior Aurora: vive en este menú ⋮.
+    OpenMore,
 }
 
 internal fun auroraLibraryPinnedHeaderMenuItems(
     includeImportEpub: Boolean,
     includeImportFolder: Boolean,
+    includeNovelSection: Boolean,
 ): List<AuroraLibraryPinnedHeaderMenuItem> {
     return buildList {
         add(AuroraLibraryPinnedHeaderMenuItem.RefreshCurrent)
         add(AuroraLibraryPinnedHeaderMenuItem.RefreshGlobal)
         add(AuroraLibraryPinnedHeaderMenuItem.OpenRandomEntry)
+        if (includeNovelSection) {
+            add(AuroraLibraryPinnedHeaderMenuItem.OpenNovelSection)
+        }
         if (includeImportEpub) {
             add(AuroraLibraryPinnedHeaderMenuItem.ImportEpub)
         }
         if (includeImportFolder) {
             add(AuroraLibraryPinnedHeaderMenuItem.ImportFolder)
         }
+        add(AuroraLibraryPinnedHeaderMenuItem.OpenMore)
     }
 }
 

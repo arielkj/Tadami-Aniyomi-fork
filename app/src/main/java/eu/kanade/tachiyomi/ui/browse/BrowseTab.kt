@@ -4,22 +4,14 @@ import androidx.compose.animation.graphics.res.animatedVectorResource
 import androidx.compose.animation.graphics.res.rememberAnimatedVectorPainter
 import androidx.compose.animation.graphics.vector.AnimatedImageVector
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.navigator.Navigator
@@ -28,8 +20,6 @@ import cafe.adriel.voyager.navigator.tab.TabOptions
 import com.tadami.aurora.R
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.ui.UserProfilePreferences
-import eu.kanade.presentation.components.AuroraTabRow
-import eu.kanade.presentation.components.TabContent
 import eu.kanade.presentation.components.TabbedScreenAurora
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.aurora.adaptive.AuroraDeviceClass
@@ -60,7 +50,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import tachiyomi.i18n.MR
-import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsStateWithLifecycle
 import uy.kohesive.injekt.injectLazy
@@ -238,16 +227,17 @@ data object BrowseTab : Tab {
                 showNovelSection = showNovelSection,
             )
         }
-        var currentSection by rememberSaveable { mutableStateOf(resolveInitialSection()) }
-        LaunchedEffect(sections) {
-            if (currentSection !in sections) {
-                currentSection = sections.firstOrNull() ?: BrowseSection.Anime
-            }
-        }
-        LaunchedEffect(currentSection) {
-            userProfilePreferences.browseLastSection().set(currentSection.name)
-        }
-        val effectiveSection = currentSection
+        // La sección de Explorar ya no tiene selector superior (las cápsulas
+        // grises Anime/Manga/Novela se eliminaron): el cambio Anime/Manga
+        // vive solo en la píldora de la barra inferior Aurora, que escribe
+        // browseLastSection. Por eso la sección se deriva de esa preferencia
+        // y no de un estado local: así el cambio se refleja aquí aunque la
+        // pantalla no estuviera compuesta cuando se tocó la píldora.
+        val storedBrowseSection by userProfilePreferences.browseLastSection()
+            .collectAsStateWithLifecycle()
+        val effectiveSection = sections.firstOrNull {
+            it.name.equals(storedBrowseSection, ignoreCase = true)
+        } ?: sections.firstOrNull() ?: BrowseSection.Anime
         val currentTabs = when (effectiveSection) {
             BrowseSection.Anime -> animeTabs
             BrowseSection.Manga -> mangaTabs
@@ -285,44 +275,6 @@ data object BrowseTab : Tab {
                 highlightSearchAction = false,
                 highlightedActionTitle = null,
                 extraActionGapAfterTitle = null,
-                extraHeaderContent = {
-                    if (sections.size > 1) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                        ) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            AuroraTabRow(
-                                tabs = sections.map { section ->
-                                    when (section) {
-                                        BrowseSection.Anime -> {
-                                            TabContent(AYMR.strings.label_anime, content = { _, _ -> })
-                                        }
-                                        BrowseSection.Manga -> {
-                                            TabContent(AYMR.strings.label_manga, content = { _, _ -> })
-                                        }
-                                        BrowseSection.Novel -> {
-                                            TabContent(AYMR.strings.label_novel, content = { _, _ -> })
-                                        }
-                                    }
-                                }.toPersistentList(),
-                                selectedIndex = when (effectiveSection) {
-                                    BrowseSection.Anime -> sections.indexOf(BrowseSection.Anime)
-                                    BrowseSection.Manga -> sections.indexOf(BrowseSection.Manga)
-                                    BrowseSection.Novel -> sections.indexOf(BrowseSection.Novel)
-                                },
-                                onTabSelected = { index ->
-                                    currentSection = sections.getOrNull(index) ?: BrowseSection.Anime
-                                },
-                                scrollable = false,
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                        }
-                    } else {
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-                },
             )
         }
 
@@ -336,17 +288,20 @@ data object BrowseTab : Tab {
         LaunchedEffect(Unit) {
             switchToTabNumberChannel.receiveAsFlow()
                 .collectLatest { targetIndex ->
+                    // La sección se deriva de browseLastSection (la píldora
+                    // inferior escribe ahí), así que los deep links cambian
+                    // la preferencia en vez de un estado local.
                     if (targetIndex == TAB_MANGA_EXTENSIONS && showMangaSection) {
-                        currentSection = BrowseSection.Manga
+                        userProfilePreferences.browseLastSection().set(BrowseSection.Manga.name)
                         state.scrollToPage(extensionTabIndex(hideFeedTab))
                     } else if (targetIndex == TAB_ANIME_EXTENSIONS && showAnimeSection) {
                         // BFEED-23: the anime branch had no showAnimeSection guard (manga/novel
-                        // do) - with the anime section disabled it switched currentSection to
+                        // do) - with the anime section disabled it switched the section to
                         // Anime and scrolled to a page index that no longer matched the tabs.
-                        currentSection = BrowseSection.Anime
+                        userProfilePreferences.browseLastSection().set(BrowseSection.Anime.name)
                         state.scrollToPage(extensionTabIndex(hideFeedTab))
                     } else if (targetIndex == TAB_NOVEL_EXTENSIONS && showNovelSection) {
-                        currentSection = BrowseSection.Novel
+                        userProfilePreferences.browseLastSection().set(BrowseSection.Novel.name)
                         state.scrollToPage(extensionTabIndex(hideFeedTab))
                     }
                 }

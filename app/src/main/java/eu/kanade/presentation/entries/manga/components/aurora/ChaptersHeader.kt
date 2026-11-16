@@ -22,6 +22,7 @@ import tachiyomi.presentation.core.i18n.stringResource
 fun ChaptersHeader(
     chapterCount: Int,
     modifier: Modifier = Modifier,
+    title: String? = null,
     isDescending: Boolean = true,
     unreadFilter: TriState = TriState.DISABLED,
     filterActive: Boolean = false,
@@ -34,7 +35,7 @@ fun ChaptersHeader(
     val context = androidx.compose.ui.platform.LocalContext.current
     val isRussian = context.resources.configuration.locales[0].language == "ru"
 
-    val title = pluralStringResource(MR.plurals.manga_num_chapters, count = chapterCount, chapterCount)
+    val title = title ?: pluralStringResource(MR.plurals.manga_num_chapters, count = chapterCount, chapterCount)
     val sortText = if (isDescending) stringResource(MR.strings.action_desc) else stringResource(MR.strings.action_asc)
     val displayFilterText = filterText ?: when (unreadFilter) {
         TriState.ENABLED_IS -> if (isRussian) "Непрочитанные" else stringResource(MR.strings.action_filter_unread)

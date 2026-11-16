@@ -322,12 +322,14 @@ internal fun applyAuroraPrimeOverlay(
     }
 
     return withAccents.copy(
-        // При AMOLED фон/поверхности оставляем чёрными (так делает BaseColorScheme)
+        // При AMOLED фон/поверхности оставляем чёрными (так делает BaseColorScheme).
+        // surfaceVariant también en negro sólido: con alpha 0.8 dejaba ver el
+        // contenido de detrás y rompía el negro puro.
         background = if (isAmoled) base.background else live.background,
         onBackground = base.onBackground,
         surface = if (isAmoled) base.surface else live.surface,
         onSurface = base.onSurface,
-        surfaceVariant = (if (isAmoled) base.surface else live.surface).copy(alpha = 0.8f),
+        surfaceVariant = if (isAmoled) Color.Black else live.surface.copy(alpha = 0.8f),
         onSurfaceVariant = base.onSurfaceVariant,
     )
 }

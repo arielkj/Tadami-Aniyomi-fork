@@ -25,6 +25,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
@@ -78,6 +79,7 @@ import eu.kanade.tachiyomi.data.library.novel.NovelLibraryUpdateJob
 import eu.kanade.tachiyomi.ui.download.DownloadsTab
 import eu.kanade.tachiyomi.ui.entries.novel.NovelScreen
 import eu.kanade.tachiyomi.ui.main.MainActivity
+import eu.kanade.tachiyomi.ui.more.MoreTab
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
 import eu.kanade.tachiyomi.ui.reader.novel.NovelReaderScreen
@@ -446,6 +448,26 @@ private const val TAB_ANIME = 0
 private const val TAB_MANGA = 1
 private const val TAB_NOVEL = 2
 
+/**
+ * Rotación de los iconos de actualizar: solo anima mientras se está
+ * actualizando; en reposo devuelve 0f y no hay ninguna transición
+ * infinita corriendo (sin recomposiciones por frame).
+ */
+@Composable
+private fun rememberUpdateSpinRotation(isSpinning: Boolean): Float {
+    if (!isSpinning) return 0f
+    val infiniteTransition = rememberInfiniteTransition(label = "update_rotation")
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = LinearEasing),
+        ),
+        label = "icon_rotation",
+    )
+    return rotation
+}
+
 internal fun shouldShowAuroraUpdatesSubtitle(tabId: Int): Boolean = false
 
 internal fun clearUpdatesBadgeCounts(libraryPreferences: LibraryPreferences) {
@@ -495,16 +517,13 @@ private fun AuroraUpdatesPinnedHeader(
     val colors = AuroraTheme.colors
     val selected = selectedIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
     var pacingMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    // "Más" ya no está en la barra inferior Aurora: vive en este menú ⋮.
+    val tabNavigator = LocalTabNavigator.current
 
-    val infiniteTransition = rememberInfiniteTransition(label = "update_rotation")
-    val rotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = LinearEasing),
-        ),
-        label = "icon_rotation",
-    )
+    // PERF: la transición infinita mantenía el reloj de frames corriendo
+    // y recomponía esta cabecera en cada frame aunque nada estuviera
+    // actualizando. Solo existe mientras gira algún icono.
+    val rotation = rememberUpdateSpinRotation(isRefreshSpinning || isSyncSpinning)
 
     Column(
         modifier = Modifier
@@ -587,6 +606,14 @@ private fun AuroraUpdatesPinnedHeader(
                             onClick = {
                                 pacingMenuExpanded = false
                                 onOpenPacingSettings()
+                            },
+                        )
+                        AuroraEntryDropdownMenuItem(
+                            text = stringResource(MR.strings.label_more),
+                            leadingIcon = Icons.Filled.MoreHoriz,
+                            onClick = {
+                                pacingMenuExpanded = false
+                                tabNavigator.current = MoreTab
                             },
                         )
                     }

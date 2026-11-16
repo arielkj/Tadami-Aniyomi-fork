@@ -106,6 +106,7 @@ import eu.kanade.presentation.util.Tab
 import eu.kanade.tachiyomi.ui.home.components.AnimatedNicknameOverlay
 import eu.kanade.tachiyomi.ui.home.components.NicknameBadgeDecorator
 import eu.kanade.tachiyomi.ui.home.components.isTreasury
+import eu.kanade.tachiyomi.ui.more.MoreTab
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -785,6 +786,9 @@ object HomeHubTab : Tab {
     @Composable
     override fun Content() {
         var hasReportedDrawn by remember { mutableStateOf(false) }
+        // "Más" ya no está en la barra inferior Aurora: vive en el botón ⋮
+        // de arriba de cada pantalla principal.
+        val tabNavigator = LocalTabNavigator.current
 
         val showAnimeSection by uiPreferences.showAnimeSection().collectAsStateWithLifecycle()
         val showMangaSection by uiPreferences.showMangaSection().collectAsStateWithLifecycle()
@@ -1092,7 +1096,12 @@ object HomeHubTab : Tab {
         }
 
         // Do not persist collapsed header position across app relaunches.
-        var headerOffsetPx by remember { mutableStateOf(0f) }
+        // PERF: se pasa el objeto State (no el Float) a la cabecera, que
+        // lo lee solo en su measurePolicy (fase de layout). Así el scroll
+        // no recompone toda la cabecera por cada frame: solo re-mide y
+        // re-coloca, que es lo único que cambia al colapsarla.
+        val headerOffsetPxState = remember { mutableStateOf(0f) }
+        var headerOffsetPx by headerOffsetPxState
         var headerHeightPx by remember { mutableIntStateOf(0) }
         var scrollResetToken by rememberSaveable { mutableIntStateOf(0) }
 
@@ -1246,7 +1255,7 @@ object HomeHubTab : Tab {
                     instantTabSwitching = false,
                     extraHeaderContent = {
                         HomeHubPinnedHeader(
-                            headerOffsetPx = headerOffsetPx,
+                            headerOffsetPx = headerOffsetPxState,
                             onHeightMeasured = { measuredHeight ->
                                 if (measuredHeight <= 0) return@HomeHubPinnedHeader
                                 if (headerHeightPx != measuredHeight) {
@@ -1288,6 +1297,10 @@ object HomeHubTab : Tab {
                             onStreakClick = {
                                 appHaptics.tap()
                                 showStreakStyleDialog = true
+                            },
+                            onOpenMore = {
+                                appHaptics.tap()
+                                tabNavigator.current = MoreTab
                             },
                         )
                     },

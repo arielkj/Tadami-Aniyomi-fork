@@ -26,12 +26,15 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +75,9 @@ import eu.kanade.presentation.components.AuroraFrostConfirm
 import eu.kanade.presentation.components.AuroraFrostDialog
 import eu.kanade.presentation.components.AuroraTabRow
 import eu.kanade.presentation.components.TabContent
+import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenu
+import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenuItem
+import eu.kanade.presentation.more.settings.AuroraTopBarIconButton
 import eu.kanade.presentation.more.settings.SettingsUiStyle
 import eu.kanade.presentation.more.settings.rememberResolvedSettingsUiStyle
 import eu.kanade.presentation.theme.AuroraColors
@@ -80,13 +86,18 @@ import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
 import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
 import eu.kanade.tachiyomi.ui.home.components.AvatarFrameDecorations
 import eu.kanade.tachiyomi.ui.home.components.avatarGlitch
+import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
 import kotlin.math.roundToInt
 
 @Composable
 internal fun HomeHubPinnedHeader(
-    headerOffsetPx: Float,
+    // PERF: se recibe el State, no el Float. Se lee solo dentro de la
+    // measurePolicy (fase de layout): el scroll re-mide y re-coloca la
+    // cabecera sin recomponer su contenido (AuroraTabRow, lienzo del
+    // perfil, medición de textos) por cada frame.
+    headerOffsetPx: State<Float>,
     onHeightMeasured: (Int) -> Unit,
     greeting: dev.icerock.moko.resources.StringResource,
     userName: String,
@@ -111,10 +122,14 @@ internal fun HomeHubPinnedHeader(
     onNameClick: () -> Unit,
     onGreetingClick: () -> Unit,
     onStreakClick: () -> Unit,
+    // "Más" ya no está en la barra inferior Aurora: vive en este botón ⋮
+    // de arriba. Es null en las vistas previas del editor de cabecera.
+    onOpenMore: (() -> Unit)? = null,
 ) {
     val colors = AuroraTheme.colors
     val auroraAdaptiveSpec = rememberAuroraAdaptiveSpec()
     val contentMaxWidthDp = auroraAdaptiveSpec.updatesMaxWidthDp ?: auroraAdaptiveSpec.entryMaxWidthDp
+    var showMoreMenu by remember { mutableStateOf(false) }
     Layout(
         content = {
             Column(
@@ -124,6 +139,33 @@ internal fun HomeHubPinnedHeader(
             ) {
                 Spacer(Modifier.height(statusBarTopInset()))
                 Spacer(Modifier.height(3.dp))
+                if (onOpenMore != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        Box {
+                            AuroraTopBarIconButton(
+                                onClick = { showMoreMenu = true },
+                                icon = Icons.Filled.MoreVert,
+                                contentDescription = stringResource(MR.strings.action_menu_overflow_description),
+                            )
+                            AuroraEntryDropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false },
+                            ) {
+                                AuroraEntryDropdownMenuItem(
+                                    text = stringResource(MR.strings.label_more),
+                                    leadingIcon = Icons.Filled.MoreHoriz,
+                                    onClick = {
+                                        showMoreMenu = false
+                                        onOpenMore()
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
                 Spacer(Modifier.height(7.dp))
                 HomeHubProfileHeaderCanvas(
                     modifier = Modifier.fillMaxWidth(),
@@ -173,7 +215,7 @@ internal fun HomeHubPinnedHeader(
             if (fullHeight > 0) {
                 onHeightMeasured(fullHeight)
             }
-            val collapsedHeight = headerOffsetPx.roundToInt().coerceIn(0, fullHeight)
+            val collapsedHeight = headerOffsetPx.value.roundToInt().coerceIn(0, fullHeight)
             val visibleHeight = (fullHeight - collapsedHeight).coerceAtLeast(0)
             layout(placeable.width, visibleHeight) {
                 placeable.placeRelative(x = 0, y = -collapsedHeight)
@@ -186,13 +228,20 @@ internal fun HomeHubPinnedHeader(
 private fun statusBarTopInset(): androidx.compose.ui.unit.Dp {
     val view = LocalView.current
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val rootInsets = ViewCompat.getRootWindowInsets(view)
-    val statusBarHeight = rootInsets
-        ?.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars())
-        ?.top
-        ?: rootInsets?.getInsets(WindowInsetsCompat.Type.statusBars())?.top
-        ?: 0
-    return with(density) { statusBarHeight.toDp() }
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    // PERF: la altura de la barra de estado no cambia durante la sesión
+    // (solo con rotación/cambio de configuración, que es la clave del
+    // remember). Antes se recorría el árbol de vistas en cada
+    // recomposición de la cabecera, es decir, en cada frame de scroll.
+    return remember(view, configuration, density) {
+        val rootInsets = ViewCompat.getRootWindowInsets(view)
+        val statusBarHeight = rootInsets
+            ?.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars())
+            ?.top
+            ?: rootInsets?.getInsets(WindowInsetsCompat.Type.statusBars())?.top
+            ?: 0
+        with(density) { statusBarHeight.toDp() }
+    }
 }
 
 @Composable

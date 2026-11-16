@@ -81,7 +81,10 @@ fun resolveAuroraSelectionContainerColor(colors: AuroraColors): Color {
         }
         EInkProfile.COLOR -> colors.accent
         EInkProfile.OFF -> if (colors.isDark) {
-            colors.accent.copy(alpha = 0.18f)
+            // AMOLED: el contenedor seleccionado es negro puro; la selección
+            // se distingue por el borde (resolveAuroraSelectionBorderColor),
+            // el texto en acento y la negrita, no por un relleno gris.
+            if (colors.isAmoled) Color.Black else colors.accent.copy(alpha = 0.18f)
         } else {
             colors.accent.copy(alpha = 0.14f)
         }
@@ -97,7 +100,7 @@ fun resolveAuroraSelectionBorderColor(colors: AuroraColors): Color {
         }
         EInkProfile.COLOR -> colors.accentVariant
         EInkProfile.OFF -> if (colors.isDark) {
-            Color.White.copy(alpha = 0.12f)
+            if (colors.isAmoled) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.12f)
         } else {
             colors.accent.copy(alpha = 0.28f)
         }
@@ -113,7 +116,7 @@ fun resolveAuroraControlContainerColor(colors: AuroraColors): Color {
         }
         EInkProfile.COLOR -> resolveAuroraSurfaceColor(colors, AuroraSurfaceLevel.Glass)
         EInkProfile.OFF -> if (colors.isDark) {
-            Color.White.copy(alpha = 0.035f)
+            if (colors.isAmoled) Color.Black else Color.White.copy(alpha = 0.035f)
         } else {
             resolveAuroraSurfaceColor(colors, AuroraSurfaceLevel.Glass)
         }
@@ -149,7 +152,7 @@ fun resolveAuroraIconSurfaceColor(colors: AuroraColors): Color {
         }
         EInkProfile.COLOR -> colors.cardBackground
         EInkProfile.OFF -> if (colors.isDark) {
-            colors.textPrimary.copy(alpha = 0.10f)
+            if (colors.isAmoled) Color.Black else colors.textPrimary.copy(alpha = 0.10f)
         } else {
             colors.textPrimary.copy(alpha = 0.06f)
         }
@@ -157,6 +160,8 @@ fun resolveAuroraIconSurfaceColor(colors: AuroraColors): Color {
 }
 
 fun resolveAuroraTopBarIconSurfaceColor(colors: AuroraColors): Color {
+    // AMOLED: negro puro; el botón se distingue por su borde fino.
+    if (colors.isAmoled) return Color.Black
     return if (colors.background.luminance() < 0.5f) {
         Color.White.copy(alpha = 0.05f)
     } else {
@@ -173,7 +178,7 @@ fun resolveAuroraTopBarScrimColor(colors: AuroraColors): Color {
         }
         EInkProfile.COLOR -> colors.surface
         EInkProfile.OFF -> if (colors.isDark) {
-            Color.Black.copy(alpha = 0.15f)
+            if (colors.isAmoled) Color.Black else Color.Black.copy(alpha = 0.15f)
         } else {
             Color(0x14FFFFFF)
         }
@@ -184,6 +189,9 @@ private fun resolveStandardSurfaceColor(
     colors: AuroraColors,
     level: AuroraSurfaceLevel,
 ): Color {
+    // AMOLED: todas las superficies Aurora en negro puro; la separación
+    // la dan los bordes, no los rellenos translúcidos blancos.
+    if (colors.isDark && colors.isAmoled) return Color.Black
     return if (colors.isDark) {
         when (level) {
             AuroraSurfaceLevel.Subtle -> Color.White.copy(alpha = 0.05f)
