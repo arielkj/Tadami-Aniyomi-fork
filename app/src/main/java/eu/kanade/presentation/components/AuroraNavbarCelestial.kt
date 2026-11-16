@@ -93,7 +93,9 @@ private fun DrawScope.drawCelestialStars(
 @Composable
 fun rememberAuroraCelestialNavbarUnlocked(): Boolean {
     val uiPreferences = remember { Injekt.get<eu.kanade.domain.ui.UiPreferences>() }
-    return uiPreferences.showCelestialNavbar().collectAsState().value
+    // V6: el modo ultra ligero apaga la barra Celestial aunque esté activada.
+    val ultraLightMode by uiPreferences.ultraLightMode().collectAsState()
+    return uiPreferences.showCelestialNavbar().collectAsState().value && !ultraLightMode
 }
 
 /**

@@ -570,6 +570,14 @@ class NovelScreenModel(
             val chapters = chaptersDeferred.await()
             val resumeChapterId = resumeChapterIdDeferred.await()
             val initialBookState = bookStateDeferred.await()
+            // V6: las extensiones se cargan bajo demanda; antes de resolver la
+            // fuente real hay que asegurarse de que terminaron de cargar (si no,
+            // getOrStub devuelve un stub y la descarga de capítulos falla). El
+            // contenido local no espera: su fuente es interna.
+            if (!novel.isLocal()) {
+                sourceManager.ensureExtensionsLoaded()
+                withTimeoutOrNull(30_000) { sourceManager.isInitialized.first { it } }
+            }
             val source = sourceManager.getOrStub(novel.source)
             val readerSettings = novelReaderPreferences.resolveSettings(novel.source)
             readerSettingsCache = readerSettings

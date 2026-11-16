@@ -2,6 +2,7 @@ package tachiyomi.data.entries.anime
 
 import aniyomi.domain.anime.SeasonAnime
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.data.achievement.handler.AchievementEventBus
@@ -63,6 +64,21 @@ class AnimeRepositoryImpl(
 
     override fun getLibraryAnimeAsFlow(): Flow<List<LibraryAnime>> {
         return handler.subscribeToList { db -> db.animelibViewQueries.animelib(AnimeMapper::mapLibraryAnime) }
+    }
+
+    override fun getLibraryAnimeInvalidationSignal(): Flow<Unit> {
+        return combine(
+            handler.subscribeToOne { db -> db.animelibViewQueries.animelibFavoriteCount() },
+            handler.subscribeToOne { db -> db.animelibViewQueries.animelibUnseenCount() },
+            handler.subscribeToOne { db -> db.animelibViewQueries.animelibCategoriesChecksum() },
+            handler.subscribeToOne { db -> db.animelibViewQueries.animelibModifiedMax() },
+        ) { _, _, _, _ -> Unit }
+    }
+
+    override suspend fun getLibraryAnimePage(limit: Long, lastTitle: String?, lastId: Long): List<LibraryAnime> {
+        return handler.awaitList { db ->
+            db.animelibViewQueries.animelibPaged(lastTitle, lastId, limit, AnimeMapper::mapLibraryAnime)
+        }
     }
 
     override fun getRecentLibraryAnime(limit: Long): Flow<List<LibraryAnime>> {

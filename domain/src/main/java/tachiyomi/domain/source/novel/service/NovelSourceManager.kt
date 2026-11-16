@@ -13,6 +13,10 @@ interface NovelSourceManager {
 
     val catalogueSources: Flow<List<NovelCatalogueSource>>
 
+    // V6: arranca la carga de extensiones instaladas (bajo demanda, en segundo
+    // plano). Sin efecto si ya están cargadas o cargándose.
+    fun ensureExtensionsLoaded() {}
+
     fun get(sourceKey: Long): NovelSource?
 
     fun getOrStub(sourceKey: Long): NovelSource

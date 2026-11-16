@@ -54,6 +54,10 @@ CREATE INDEX animes_url_index ON animes(url);
 CREATE INDEX animes_parent_id ON animes(parent_id);
 CREATE INDEX animes_fetch_type ON animes(fetch_type);
 CREATE INDEX animes_favorite_modified_at_index ON animes(favorite_modified_at DESC);
+-- V6: la biblioteca ordena por título y por fecha; sin estos índices la vista
+-- animelibView ordenaba/filtraba con escaneos completos.
+CREATE INDEX animes_title_index ON animes(title);
+CREATE INDEX animes_date_added_index ON animes(date_added);
 
 CREATE TRIGGER update_last_favorite_at_animes
 AFTER UPDATE OF favorite ON animes

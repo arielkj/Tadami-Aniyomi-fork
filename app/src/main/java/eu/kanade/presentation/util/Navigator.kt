@@ -103,7 +103,9 @@ fun DefaultNavigatorScreenTransition(
     val density = LocalDensity.current
     val modernSlideDistance = with(density) { MODERN_SLIDE_DISTANCE.roundToPx() }
     val selectedMode = uiPreferences.navigationTransitionMode().collectAsState().value
-    val titleScreenAnimationEnabled = uiPreferences.titleScreenAnimation().collectAsState().value
+    // V6: el modo ultra ligero apaga la animación de entrada a los detalles.
+    val ultraLightMode = uiPreferences.ultraLightMode().collectAsState().value
+    val titleScreenAnimationEnabled = uiPreferences.titleScreenAnimation().collectAsState().value && !ultraLightMode
     val isEInkMode = LocalIsEInkMode.current
     val resolvedMode = resolveNavigationTransitionMode(
         selectedMode = selectedMode,

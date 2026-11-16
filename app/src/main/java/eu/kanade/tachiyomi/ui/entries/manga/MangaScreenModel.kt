@@ -595,7 +595,16 @@ class MangaScreenModel(
             val manga = mangaDeferred.await()
             val rawChapters = rawChaptersDeferred.await()
 
-            val source = Injekt.get<MangaSourceManager>().getOrStub(manga.source)
+            // V6: las extensiones se cargan bajo demanda; antes de resolver la
+            // fuente real hay que asegurarse de que terminaron de cargar (si no,
+            // getOrStub devuelve un stub y la descarga de capítulos falla). El
+            // contenido local no espera: su fuente es interna.
+            val mangaSourceManager = Injekt.get<MangaSourceManager>()
+            if (!manga.isLocal()) {
+                mangaSourceManager.ensureExtensionsLoaded()
+                withTimeoutOrNull(30_000) { mangaSourceManager.isInitialized.first { it } }
+            }
+            val source = mangaSourceManager.getOrStub(manga.source)
             val start = System.currentTimeMillis()
             // Cheap path for Aurora: list visible immediately. Real download states via observeDownloads + hydrate.
             val chapters = rawChapters.toChapterListItemsCheap(manga)

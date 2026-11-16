@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.extension.anime.AnimeExtensionManager
 import eu.kanade.tachiyomi.extension.manga.MangaExtensionManager
 import eu.kanade.tachiyomi.extension.novel.NovelExtensionManager
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.extension.novel.model.NovelPlugin
@@ -31,6 +32,17 @@ class ExtensionAutoUpdateRunner(
         if (!basePreferences.autoUpdateExtensions().get()) return
         val installer = basePreferences.extensionInstaller().get()
         if (installer != BasePreferences.ExtensionInstaller.PRIVATE) return
+
+        // V6: las extensiones se cargan bajo demanda; la auto-actualización las
+        // necesita cargadas (si no, installedExtensionsFlow emite la lista vacía).
+        mangaExtensionManager.ensureInitialized()
+        animeExtensionManager.ensureInitialized()
+        novelExtensionManager.get()?.ensureInitialized()
+        withTimeoutOrNull(60_000) {
+            mangaExtensionManager.isInitialized.first { it }
+            animeExtensionManager.isInitialized.first { it }
+            novelExtensionManager.get()?.isInitialized?.first { it }
+        }
 
         runCatching { updateMangaExtensions(context, installer) }
             .onFailure { logcat(LogPriority.WARN, it) { "Manga extension auto-update failed" } }

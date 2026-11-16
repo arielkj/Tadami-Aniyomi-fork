@@ -167,6 +167,13 @@ object SettingsAppearanceScreen : SearchableSettings {
                 if (!eInkProfile.isEnabled) {
                     add(
                         Preference.PreferenceItem.SwitchPreference(
+                            preference = uiPreferences.ultraLightMode(),
+                            title = stringResource(AYMR.strings.pref_ultra_light_mode),
+                            subtitle = stringResource(AYMR.strings.pref_ultra_light_mode_summary),
+                        ),
+                    )
+                    add(
+                        Preference.PreferenceItem.SwitchPreference(
                             preference = uiPreferences.animatedAuroraBackground(),
                             title = stringResource(AYMR.strings.pref_animated_aurora_background),
                             subtitle = stringResource(AYMR.strings.pref_animated_aurora_background_summary),

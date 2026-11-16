@@ -2160,6 +2160,8 @@
     <string name="pref_show_achievement_notifications_summary">Show popup when unlocking achievements</string>
     <string name="pref_animated_aurora_background">Animated Aurora background</string>
     <string name="pref_animated_aurora_background_summary">Show soft animated color glows on Aurora screens</string>
+    <string name="pref_ultra_light_mode">Ultra light mode</string>
+    <string name="pref_ultra_light_mode_summary">Turn off animations, blur and animated backgrounds, and use low-resolution thumbnails everywhere. Image pipeline changes apply after reopening the app.</string>
     <string name="pref_aurora_dark_rim_light">Rim light border in dark theme</string>
     <string name="pref_aurora_dark_rim_light_summary">Show the glowing top-edge border on Aurora cards in dark theme</string>
     <string name="pref_aurora_finished_stamp">Finished stamp on title screen</string>

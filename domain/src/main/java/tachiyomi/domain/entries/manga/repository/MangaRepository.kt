@@ -23,6 +23,13 @@ interface MangaRepository {
 
     fun getLibraryMangaAsFlow(): Flow<List<LibraryManga>>
 
+    // V6: biblioteca por tandas. Señal barata de invalidación (conteos por índice)
+    // y carga de una página por keyset (título + id), sin materializar la lista
+    // completa en cada cambio de la base de datos.
+    fun getLibraryMangaInvalidationSignal(): Flow<Unit>
+
+    suspend fun getLibraryMangaPage(limit: Long, lastTitle: String?, lastId: Long): List<LibraryManga>
+
     fun getMangaFavoritesBySourceId(sourceId: Long): Flow<List<Manga>>
 
     suspend fun getDuplicateLibraryManga(id: Long, title: String): List<Manga>

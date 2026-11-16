@@ -25,6 +25,13 @@ interface AnimeRepository {
 
     fun getLibraryAnimeAsFlow(): Flow<List<LibraryAnime>>
 
+    // V6: biblioteca por tandas. Señal barata de invalidación (conteos por índice)
+    // y carga de una página por keyset (título + id), sin materializar la lista
+    // completa en cada cambio de la base de datos.
+    fun getLibraryAnimeInvalidationSignal(): Flow<Unit>
+
+    suspend fun getLibraryAnimePage(limit: Long, lastTitle: String?, lastId: Long): List<LibraryAnime>
+
     fun getRecentLibraryAnime(limit: Long): Flow<List<LibraryAnime>>
 
     fun getRecentFavorites(limit: Long): Flow<List<Anime>>

@@ -154,9 +154,29 @@ class MangaExtensionManager(
         }
     }
 
+    private val initStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
     init {
-        initExtensions()
+        // V6: las extensiones ya no se cargan al arrancar. La carga arranca bajo
+        // demanda (al entrar a Explorar, al abrir un detalle o al descargar) con
+        // ensureInitialized(), en un hilo de fondo, y _isInitialized avisa
+        // cuando termina. Construir el manager es barato: solo registra el
+        // receptor de instalaciones.
         MangaExtensionInstallReceiver(InstallationListener()).register(context)
+    }
+
+    // V6: arranca la carga de extensiones instaladas una sola vez, en segundo
+    // plano. Seguro llamarlo desde cualquier hilo y tantas veces como se quiera.
+    fun ensureInitialized() {
+        if (initStarted.compareAndSet(false, true)) {
+            scope.launch {
+                runCatching { initExtensions() }
+                    .onFailure { logcat(LogPriority.ERROR, it) { "Manga extension load failed" } }
+                // Aunque la carga falle, no dejar esperando para siempre a quien
+                // aguarda isInitialized: marca listo con lo que haya cargado.
+                _isInitialized.value = true
+            }
+        }
     }
 
     private var subLanguagesEnabledOnFirstRun = preferences.enabledLanguages().isSet()
@@ -475,6 +495,8 @@ class MangaExtensionManager(
 
     /** Reconnects downloads orphaned by a process death and installs the finished ones. */
     fun resumeOrphanedDownloads() {
+        // V6: recuperar descargas huérfanas necesita las extensiones cargadas.
+        ensureInitialized()
         installer.resumeOrphanedDownloads(context)
     }
 

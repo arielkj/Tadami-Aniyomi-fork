@@ -45,6 +45,10 @@ CREATE TABLE mangas(
 CREATE INDEX library_favorite_index ON mangas(favorite) WHERE favorite = 1;
 CREATE INDEX mangas_url_index ON mangas(url);
 CREATE INDEX mangas_favorite_modified_at_index ON mangas(favorite_modified_at DESC);
+-- V6: la biblioteca ordena por título y por fecha; sin estos índices la vista
+-- libraryView ordenaba/filtraba con escaneos completos.
+CREATE INDEX mangas_title_index ON mangas(title);
+CREATE INDEX mangas_date_added_index ON mangas(date_added);
 
 CREATE TRIGGER update_last_favorite_at_mangas
 AFTER UPDATE OF favorite ON mangas

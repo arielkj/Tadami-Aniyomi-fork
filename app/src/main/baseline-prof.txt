@@ -37788,3 +37788,9 @@ PLuy/kohesive/injekt/registry/default/DefaultRegistrar$addSingletonFactory$1$$sp
 Luy/kohesive/injekt/registry/default/DefaultRegistrar$threadedValues$1;
 HSPLuy/kohesive/injekt/registry/default/DefaultRegistrar$threadedValues$1;-><init>()V
 PLuy/kohesive/injekt/registry/default/DefaultRegistrar$threadedValues$1;-><init>()V
+Ltachiyomi/data/achievement/handler/AchievementEventBus;
+Leu/kanade/domain/DomainModule;
+Leu/kanade/tachiyomi/ui/library/anime/AnimeLibraryScreenModel;
+Leu/kanade/tachiyomi/ui/library/manga/MangaLibraryScreenModel;
+Leu/kanade/tachiyomi/data/DatabaseMaintenance;
+Leu/kanade/domain/ui/UiPreferences;

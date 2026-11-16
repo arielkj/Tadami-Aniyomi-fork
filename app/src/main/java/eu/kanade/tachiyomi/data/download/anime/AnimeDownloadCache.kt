@@ -342,6 +342,8 @@ class AnimeDownloadCache(
             }
 
             // Try to wait until extensions and sources have loaded
+            // V6: las extensiones se cargan bajo demanda; arrancar la carga aquí.
+            extensionManager.ensureInitialized()
             val sources = withTimeoutOrNull(30.seconds) {
                 extensionManager.isInitialized.first { it }
                 sourceManager.isInitialized.first { it }

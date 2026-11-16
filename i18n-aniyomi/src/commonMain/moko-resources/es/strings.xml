@@ -564,6 +564,8 @@
     <string name="pref_e_ink_profile">Perfil de tinta electrónica</string>
     <string name="pref_animated_aurora_background">Fondo animado de Aurora</string>
     <string name="pref_animated_aurora_background_summary">Mostrar suaves resplandores de colores animados en las pantallas de Aurora</string>
+    <string name="pref_ultra_light_mode">Modo ultra ligero</string>
+    <string name="pref_ultra_light_mode_summary">Apaga animaciones, blur y fondos animados, y usa miniaturas en baja resolución en toda la app. Los cambios del pipeline de imágenes se aplican al reabrir la app.</string>
     <string name="pref_aurora_dark_rim_light">Borde luminoso en el tema oscuro</string>
     <string name="pref_aurora_dark_rim_light_summary">Mostrar un borde superior luminoso en las tarjetas de Aurora con el tema oscuro</string>
     <string name="pref_aurora_finished_stamp">Sello de finalización en la ficha del título</string>

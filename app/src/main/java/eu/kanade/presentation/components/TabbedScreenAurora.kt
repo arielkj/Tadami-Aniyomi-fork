@@ -744,7 +744,9 @@ internal fun AuroraTabRow(
 
     val uiPreferences = remember { Injekt.get<UiPreferences>() }
     val showTabGlowPref by uiPreferences.showTabGlow().collectAsState()
-    val showTabGlow = showTabGlowPref
+    // V6: el modo ultra ligero apaga el brillo de las pestañas aunque esté activado.
+    val ultraLightMode by uiPreferences.ultraLightMode().collectAsState()
+    val showTabGlow = showTabGlowPref && !ultraLightMode
 
     Card(
         modifier = Modifier

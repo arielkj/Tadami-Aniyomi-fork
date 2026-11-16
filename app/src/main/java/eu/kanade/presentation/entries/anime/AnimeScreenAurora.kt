@@ -270,7 +270,9 @@ fun AnimeScreenAuroraImpl(
     val episodeListDensity by uiPreferences.episodeListDensity().collectAsState()
     val titleScreenStyle by uiPreferences.titleScreenStyle().collectAsState()
     val titleScreenAnimation by uiPreferences.titleScreenAnimation().collectAsState()
-    val titleStaggerState = rememberTitleScreenStaggerState(titleScreenAnimation)
+    // V6: el modo ultra ligero apaga la animación de entrada al detalle.
+    val ultraLightMode by uiPreferences.ultraLightMode().collectAsState()
+    val titleStaggerState = rememberTitleScreenStaggerState(titleScreenAnimation && !ultraLightMode)
     val showOriginalTitle by uiPreferences.showOriginalTitle().collectAsState()
     val globalSearchQuery = remember(anime.displayTitle) { normalizeAuroraGlobalSearchQuery(anime.displayTitle) }
     val episodes = state.episodeListItems

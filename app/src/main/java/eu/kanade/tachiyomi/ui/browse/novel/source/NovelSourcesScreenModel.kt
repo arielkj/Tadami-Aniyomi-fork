@@ -55,6 +55,8 @@ class NovelSourcesScreenModel(
         screenModelScope.launchIO {
             // BRN-15: wait for manager initialization - the early EMPTY emission flipped
             // isLoading=false and cold start flashed "no sources" (manga etalon).
+            // V6: las extensiones se cargan bajo demanda; arrancar la carga aquí.
+            sourceManager?.ensureExtensionsLoaded()
             sourceManager?.isInitialized?.first { it }
             getEnabledSources.subscribe()
                 .catch {

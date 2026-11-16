@@ -380,7 +380,9 @@ fun NovelScreenAuroraImpl(
     val alwaysShowFullChapterList by uiPreferences.alwaysShowFullChapterListNovel().collectAsState()
     val titleScreenStyle by uiPreferences.titleScreenStyle().collectAsState()
     val titleScreenAnimation by uiPreferences.titleScreenAnimation().collectAsState()
-    val titleStaggerState = rememberTitleScreenStaggerState(titleScreenAnimation)
+    // V6: el modo ultra ligero apaga la animación de entrada al detalle.
+    val ultraLightMode by uiPreferences.ultraLightMode().collectAsState()
+    val titleStaggerState = rememberTitleScreenStaggerState(titleScreenAnimation && !ultraLightMode)
     val sourceClient = remember(state.source) {
         (state.source as? HttpNovelSource)?.client
             ?: (state.source as? HttpSource)?.client

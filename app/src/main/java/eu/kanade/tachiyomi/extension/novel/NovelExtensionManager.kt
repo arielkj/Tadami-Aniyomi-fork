@@ -4,7 +4,9 @@ import eu.kanade.tachiyomi.extension.novel.runtime.NovelPluginCapabilities
 import eu.kanade.tachiyomi.novelsource.NovelSource
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import tachiyomi.domain.extension.novel.model.NovelPlugin
 import tachiyomi.domain.source.novel.model.StubNovelSource
@@ -15,6 +17,16 @@ interface NovelExtensionManager {
     val availablePluginsFlow: Flow<List<NovelPlugin.Available>>
     val untrustedPluginsFlow: Flow<List<NovelPlugin.Untrusted>>
     val updatesFlow: Flow<List<NovelPlugin.Installed>>
+
+    // V6: true cuando terminó al menos una carga de extensiones instaladas.
+    // (Por defecto true para no bloquear a implementaciones que cargan en el
+    // constructor; DefaultNovelExtensionManager lo implementa de verdad.)
+    val isInitialized: StateFlow<Boolean>
+        get() = MutableStateFlow(true)
+
+    // V6: arranca la carga de extensiones instaladas (bajo demanda, en segundo
+    // plano). Sin efecto si ya están cargadas o cargándose.
+    fun ensureInitialized() {}
 
     /** Repo indexes that failed to load during the last refresh (baseUrl to error). */
     val repoFetchErrors: Flow<Map<String, String>>

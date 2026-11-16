@@ -13,6 +13,10 @@ interface MangaSourceManager {
 
     val catalogueSources: Flow<List<CatalogueSource>>
 
+    // V6: arranca la carga de extensiones instaladas (bajo demanda, en segundo
+    // plano). Sin efecto si ya están cargadas o cargándose.
+    fun ensureExtensionsLoaded() {}
+
     fun get(sourceKey: Long): MangaSource?
 
     fun getOrStub(sourceKey: Long): MangaSource

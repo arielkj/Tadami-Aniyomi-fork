@@ -65,7 +65,9 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.launch
 import tachiyomi.core.common.preference.CheckboxState
 import tachiyomi.core.common.preference.TriState
@@ -111,6 +113,9 @@ import kotlin.random.Random
  * Typealias for the library manga, using the category as keys, and list of manga as values.
  */
 typealias MangaLibraryMap = PersistentMap<Category, PersistentList<MangaLibraryItem>>
+
+// V6: tamaño de cada tanda al cargar la biblioteca por páginas.
+private const val LIBRARY_PAGE_SIZE = 250L
 
 class MangaLibraryScreenModel(
     private val getLibraryManga: GetLibraryManga = Injekt.get(),
@@ -892,9 +897,41 @@ class MangaLibraryScreenModel(
     /**
      * Get the categories and all its manga from the database.
      */
+    /**
+     * V6: la biblioteca se carga por tandas (keyset pagination sobre la vista,
+     * 250 entradas por página) en vez de materializar las 5.000+ entradas de
+     * golpe. La primera página pinta casi al instante y el resto se va sumando
+     * mientras se baja. Las señales baratas de invalidación (conteos por índice)
+     * reinician la carga cuando cambia la biblioteca; el orden, los filtros y
+     * la agrupación siguen aplicándose abajo sobre lo cargado, y el resultado
+     * final es idéntico al de antes.
+     */
+    private fun getPagedLibraryMangaFlow(): Flow<List<LibraryManga>> {
+        return getLibraryManga.subscribeInvalidation()
+            .transformLatest {
+                val accumulated = ArrayList<LibraryManga>()
+                var lastTitle: String? = null
+                var lastId = 0L
+                while (true) {
+                    val page = getLibraryManga.awaitLibraryPage(LIBRARY_PAGE_SIZE, lastTitle, lastId)
+                    if (page.isEmpty()) {
+                        if (accumulated.isEmpty()) emit(emptyList())
+                        break
+                    }
+                    accumulated.addAll(page)
+                    emit(accumulated.toList())
+                    if (page.size < LIBRARY_PAGE_SIZE) break
+                    val last = page.last().manga
+                    lastTitle = last.title
+                    lastId = last.id
+                    yield()
+                }
+            }
+    }
+
     private fun getLibraryFlow(): Flow<MangaLibraryMap> {
         val libraryMangasFlow = combine(
-            getLibraryManga.subscribe(),
+            getPagedLibraryMangaFlow(),
             getLibraryMangaSeries.subscribe(),
             sharedItemPreferencesFlow,
             getDownloadBadgeInvalidationFlow(),

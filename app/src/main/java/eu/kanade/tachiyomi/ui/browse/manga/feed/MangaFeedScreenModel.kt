@@ -61,6 +61,8 @@ class MangaFeedScreenModel(
     }
 
     override suspend fun awaitSourcesInitialized() {
+        // V6: las extensiones se cargan bajo demanda; arrancar la carga aquí.
+        sourceManager.ensureExtensionsLoaded()
         sourceManager.isInitialized.first { it }
     }
 

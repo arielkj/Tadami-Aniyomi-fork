@@ -37,6 +37,19 @@ class GetLibraryAnime(
             }
     }
 
+    // V6: señal barata de invalidación de la biblioteca (conteos por índice).
+    // La carga por tandas se reinicia cuando cambia, sin re-ejecutar la vista
+    // completa como señal.
+    fun subscribeInvalidation(): Flow<Unit> {
+        return animeRepository.getLibraryAnimeInvalidationSignal()
+    }
+
+    // V6: una página de la biblioteca por keyset (título + id). Primera página
+    // con lastTitle = null.
+    suspend fun awaitLibraryPage(limit: Long, lastTitle: String?, lastId: Long): List<LibraryAnime> {
+        return animeRepository.getLibraryAnimePage(limit, lastTitle, lastId)
+    }
+
     fun subscribeRecent(limit: Long): Flow<List<LibraryAnime>> {
         return animeRepository.getRecentLibraryAnime(limit)
             .retry(MAX_NPE_RETRIES) { cause ->

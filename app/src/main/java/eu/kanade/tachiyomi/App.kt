@@ -373,16 +373,20 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
             }
 
             val crossfadeMs = (300 * this@App.animatorDurationScale).toInt()
+            // V6 ultra ligero: sin crossfade, RGB565 y caché de memoria más pequeña.
+            // Se lee al construir el loader (al arrancar la app); el resto de los
+            // efectos del modo se aplica en vivo desde Compose.
+            val ultraLightMode = runCatching { Injekt.get<UiPreferences>().ultraLightMode().get() }.getOrDefault(false)
             // Long animations delay first paint of each cover; cap the scaled value.
-            crossfade(crossfadeMs.coerceAtMost(MAX_CROSSFADE_MS))
+            crossfade(if (ultraLightMode) 0 else crossfadeMs.coerceAtMost(MAX_CROSSFADE_MS))
             val isLowRam = DeviceUtil.isLowRamDevice(this@App)
             // A 256 MB heap cap leaves little headroom next to a quarter-heap bitmap cache and
             // 24 parallel cover decodes (OOM forensics 2026-09-13).
             val isSmallHeap = Runtime.getRuntime().maxMemory() <= SMALL_HEAP_MAX_BYTES
-            allowRgb565(isLowRam)
+            allowRgb565(isLowRam || ultraLightMode)
             memoryCache {
                 MemoryCache.Builder()
-                    .maxSizePercent(this@App, if (isSmallHeap) 0.15 else 0.25)
+                    .maxSizePercent(this@App, if (isSmallHeap || ultraLightMode) 0.15 else 0.25)
                     .build()
             }
             diskCache {

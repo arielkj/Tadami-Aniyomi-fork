@@ -35,3 +35,35 @@ WHERE M.favorite = 1;
 library:
 SELECT *
 FROM libraryView;
+
+-- V6: biblioteca por tandas (keyset pagination). La vista se recorre por título
+-- con LIMIT y se detiene en cuanto reúne la página, en vez de materializar las
+-- 5.000+ entradas de golpe. El _id desempata títulos repetidos.
+libraryPaged:
+SELECT *
+FROM libraryView
+WHERE (:lastTitle IS NULL OR (title COLLATE NOCASE > :lastTitle COLLATE NOCASE OR (title COLLATE NOCASE = :lastTitle COLLATE NOCASE AND _id > :lastId)))
+ORDER BY title COLLATE NOCASE ASC, _id ASC
+LIMIT :limit;
+
+-- V6: señales baratas de invalidación de la biblioteca (conteos por índice, sin
+-- re-ejecutar la vista completa). Cualquier cambio en favoritos, capítulos sin
+-- leer, categorías o metadatos hace que la carga por tandas se reinicie.
+libraryFavoriteCount:
+SELECT count(*)
+FROM mangas
+WHERE favorite = 1;
+
+libraryUnreadCount:
+SELECT count(*)
+FROM chapters
+WHERE read = 0 AND manga_id IN (SELECT _id FROM mangas WHERE favorite = 1);
+
+libraryCategoriesChecksum:
+SELECT coalesce(sum(manga_id * 1000003 + category_id), 0)
+FROM mangas_categories;
+
+libraryModifiedMax:
+SELECT coalesce(max(favorite_modified_at), 0)
+FROM mangas
+WHERE favorite = 1;

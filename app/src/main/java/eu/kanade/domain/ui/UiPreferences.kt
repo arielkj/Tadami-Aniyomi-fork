@@ -147,6 +147,12 @@ class UiPreferences(
     // anima en bucle (ver AuroraComponents).
     fun animatedAuroraBackground() = preferenceStore.getBoolean("animated_aurora_background", false)
 
+    // V6: modo ultra ligero: apaga de golpe animaciones, blur, fondos animados
+    // y fuerza miniaturas en baja resolución en toda la app. Los cambios de
+    // Compose se aplican al instante; los del pipeline de imágenes (crossfade,
+    // RGB565), al reabrir la app.
+    fun ultraLightMode() = preferenceStore.getBoolean("ultra_light_mode", false)
+
     fun auroraDarkRimLightEnabled() = preferenceStore.getBoolean("aurora_dark_rim_light_enabled", true)
 
     fun auroraFinishedStampEnabled() = preferenceStore.getBoolean("aurora_finished_stamp_enabled", true)

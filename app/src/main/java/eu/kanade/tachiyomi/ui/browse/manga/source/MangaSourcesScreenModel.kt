@@ -62,6 +62,8 @@ class MangaSourcesScreenModel(
             // BRN-15: wait for the source manager to initialize before treating the first
             // emission as authoritative - the early EMPTY emission flipped isLoading=false and
             // a cold start flashed "no sources" instead of Loading.
+            // V6: las extensiones se cargan bajo demanda; arrancar la carga aquí.
+            sourceManager?.ensureExtensionsLoaded()
             sourceManager?.isInitialized?.first { it }
             getEnabledSources.subscribe()
                 .catch {

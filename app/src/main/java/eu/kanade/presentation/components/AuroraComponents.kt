@@ -49,10 +49,12 @@ fun AuroraBackground(
     val uiPreferences = remember { Injekt.get<UiPreferences>() }
     val colors = AuroraTheme.colors
     val animatedAuroraBackground by uiPreferences.animatedAuroraBackground().collectAsState()
+    // V6: el modo ultra ligero apaga el fondo animado aunque esté activado.
+    val ultraLightMode by uiPreferences.ultraLightMode().collectAsState()
     val specialBackgroundStyle by uiPreferences.specialBackgroundStyle().collectAsState()
 
     AuroraAmbientBackground(
-        enabled = animatedAuroraBackground && !colors.isEInk,
+        enabled = animatedAuroraBackground && !ultraLightMode && !colors.isEInk,
         specialBackgroundStyle = specialBackgroundStyle,
         modifier = modifier,
         content = content,

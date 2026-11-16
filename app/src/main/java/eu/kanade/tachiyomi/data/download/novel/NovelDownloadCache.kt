@@ -114,6 +114,9 @@ class NovelDownloadCache(
 
         val restoreVersion = cacheStateVersion.get()
         scope.launch {
+            // V6: las extensiones se cargan bajo demanda; arrancar la carga aquí
+            // para que los lookups de capítulos descargados encuentren fuentes.
+            sourceManager.ensureExtensionsLoaded()
             try {
                 var restored = false
                 if (diskCacheFile.exists()) {

@@ -1,0 +1,3 @@
+-- Migration 63: V6 library indexes (fresh installs already get them from the .sq schema)
+CREATE INDEX IF NOT EXISTS mangas_title_index ON mangas(title);
+CREATE INDEX IF NOT EXISTS mangas_date_added_index ON mangas(date_added);

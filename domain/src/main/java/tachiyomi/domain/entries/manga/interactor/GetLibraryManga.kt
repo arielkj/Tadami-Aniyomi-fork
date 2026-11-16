@@ -36,6 +36,19 @@ class GetLibraryManga(
             }
     }
 
+    // V6: señal barata de invalidación de la biblioteca (conteos por índice).
+    // La carga por tandas se reinicia cuando cambia, sin re-ejecutar la vista
+    // completa como señal.
+    fun subscribeInvalidation(): Flow<Unit> {
+        return mangaRepository.getLibraryMangaInvalidationSignal()
+    }
+
+    // V6: una página de la biblioteca por keyset (título + id). Primera página
+    // con lastTitle = null.
+    suspend fun awaitLibraryPage(limit: Long, lastTitle: String?, lastId: Long): List<LibraryManga> {
+        return mangaRepository.getLibraryMangaPage(limit, lastTitle, lastId)
+    }
+
     private companion object {
         const val MAX_NPE_RETRIES = 3L
     }

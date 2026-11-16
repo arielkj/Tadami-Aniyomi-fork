@@ -431,6 +431,8 @@ class MangaDownloadCache(
                     _isInitializing.value = lastRenew == 0L
 
                     val sources = withTimeoutOrNull(30.seconds) {
+                        // V6: las extensiones se cargan bajo demanda; arrancar la carga aquí.
+                        extensionManager.ensureInitialized()
                         extensionManager.isInitialized.first { it }
                         sourceManager.isInitialized.first { it }
                         getSources()

@@ -45,6 +45,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.withTimeoutOrNull
 import logcat.LogPriority
 import mihon.domain.items.chapter.interactor.FilterChaptersForDownload
 import tachiyomi.core.common.i18n.stringResource
@@ -105,6 +106,13 @@ class MangaLibraryUpdateJob(private val context: Context, workerParams: WorkerPa
             logcat(LogPriority.WARN) { "Skipping manga library update: manga section is hidden" }
             return Result.success()
         }
+
+        // V6: las extensiones se cargan bajo demanda; la actualización necesita
+        // las fuentes reales (sin esto, getOrStub devuelve stubs y la descarga
+        // de capítulos falla). Con tope: si la carga no termina, se sigue con
+        // lo que haya, como antes.
+        sourceManager.ensureExtensionsLoaded()
+        withTimeoutOrNull(60_000) { sourceManager.isInitialized.first { it } }
 
         try {
             setForeground(getForegroundInfo())

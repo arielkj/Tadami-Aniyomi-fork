@@ -41,13 +41,20 @@ android {
         // buildConfigField("String", "ACRA_PASSWORD", "\"$acraPassword\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // V6: solo español. Se conservan los recursos sin calificador (inglés
+        // por defecto) como fallback y los de "es"; el resto de idiomas
+        // (~60 locales de moko-resources) ya no se empaquetan.
+        resourceConfigurations += "es"
     }
 
     buildTypes {
         getByName("debug") {
             applicationIdSuffix = ".localdev"
             versionNameSuffix = "-${getCommitCount()}"
-            isPseudoLocalesEnabled = true
+            // V6: las pseudo-locales (en-XA/ar-XB) no combinan con
+            // resourceConfigurations y no aportan nada al usuario final.
+            isPseudoLocalesEnabled = false
         }
         getByName("release") {
             isMinifyEnabled = Config.enableCodeShrink

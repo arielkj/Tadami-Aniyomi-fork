@@ -85,7 +85,10 @@ class AndroidAnimeSourceManager(
                         }
                     }
                     sourcesMapFlow.value = mutableMap
-                    _isInitialized.value = true
+                    // V6: con la carga de extensiones bajo demanda, la primera
+                    // emisión puede ser el mapa vacío antes de cargar; solo se
+                    // marca listo cuando el manager terminó la carga real.
+                    if (extensionManager.isInitialized.value) _isInitialized.value = true
                 }
         }
 
@@ -102,6 +105,11 @@ class AndroidAnimeSourceManager(
 
     override fun get(sourceKey: Long): AnimeSource? {
         return sourcesMapFlow.value[sourceKey]
+    }
+
+    // V6: extensiones bajo demanda.
+    override fun ensureExtensionsLoaded() {
+        extensionManager.ensureInitialized()
     }
 
     override fun getOrStub(sourceKey: Long): AnimeSource {

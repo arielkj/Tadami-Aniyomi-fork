@@ -8,6 +8,10 @@ CREATE TABLE animes_categories(
     ON DELETE CASCADE
 );
 
+-- V6: este índice solo existía en la migración 144 (bases actualizadas), no en
+-- el esquema de instalaciones nuevas; la vista lo necesita para el JOIN.
+CREATE INDEX animes_categories_anime_id_index ON animes_categories(anime_id);
+
 CREATE TRIGGER insert_anime_category_update_version AFTER INSERT ON animes_categories
 BEGIN
     UPDATE animes

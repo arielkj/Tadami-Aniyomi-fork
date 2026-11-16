@@ -67,7 +67,9 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.launch
 import tachiyomi.core.common.preference.CheckboxState
 import tachiyomi.core.common.preference.TriState
@@ -112,6 +114,9 @@ import kotlin.random.Random
  * Typealias for the library anime, using the category as keys, and list of anime as values.
  */
 typealias AnimeLibraryMap = PersistentMap<Category, PersistentList<AnimeLibraryItem>>
+
+// V6: tamaño de cada tanda al cargar la biblioteca por páginas.
+private const val LIBRARY_PAGE_SIZE = 250L
 
 class AnimeLibraryScreenModel(
     private val getLibraryAnime: GetLibraryAnime = Injekt.get(),
@@ -881,11 +886,43 @@ class AnimeLibraryScreenModel(
     }
 
     /**
+     * V6: la biblioteca se carga por tandas (keyset pagination sobre la vista,
+     * 250 entradas por página) en vez de materializar las 5.000+ entradas de
+     * golpe. La primera página pinta casi al instante y el resto se va sumando
+     * mientras se baja. Las señales baratas de invalidación (conteos por índice)
+     * reinician la carga cuando cambia la biblioteca; el orden, los filtros y
+     * la agrupación siguen aplicándose abajo sobre lo cargado, y el resultado
+     * final es idéntico al de antes.
+     */
+    private fun getPagedLibraryAnimeFlow(): Flow<List<LibraryAnime>> {
+        return getLibraryAnime.subscribeInvalidation()
+            .transformLatest {
+                val accumulated = ArrayList<LibraryAnime>()
+                var lastTitle: String? = null
+                var lastId = 0L
+                while (true) {
+                    val page = getLibraryAnime.awaitLibraryPage(LIBRARY_PAGE_SIZE, lastTitle, lastId)
+                    if (page.isEmpty()) {
+                        if (accumulated.isEmpty()) emit(emptyList())
+                        break
+                    }
+                    accumulated.addAll(page)
+                    emit(accumulated.toList())
+                    if (page.size < LIBRARY_PAGE_SIZE) break
+                    val last = page.last().anime
+                    lastTitle = last.title
+                    lastId = last.id
+                    yield()
+                }
+            }
+    }
+
+    /**
      * Get the categories and all its anime from the database.
      */
     private fun getLibraryFlow(): Flow<AnimeLibraryMap> {
         val animelibAnimesFlow = combine(
-            getLibraryAnime.subscribe(),
+            getPagedLibraryAnimeFlow(),
             getLibraryAnimeSeries.subscribe(),
             sharedItemPreferencesFlow,
             getDownloadBadgeInvalidationFlow(),

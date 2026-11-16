@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -127,10 +128,17 @@ class DefaultNovelExtensionManager(
         )
     }
 
+    private val _isInitialized = MutableStateFlow(false)
+    override val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
+
+    private val initStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
     init {
         if (context != null) {
             registerKotlinPackageReceiver(context)
-            reloadInstalledKotlinExtensions()
+            // V6: la carga de extensiones ya no arranca al construir el manager
+            // (antes corría en el arranque). Arranca bajo demanda con
+            // ensureInitialized(), en el scope IO de este manager.
         }
         scope.launch {
             repository.subscribeAll().collect {
@@ -143,6 +151,14 @@ class DefaultNovelExtensionManager(
         sourcePreferences?.showNsfwSource()?.changes()?.onEach {
             applyInstalledSnapshots()
         }?.launchIn(scope)
+    }
+
+    // V6: arranca la carga de extensiones instaladas una sola vez, en segundo
+    // plano. Seguro llamarlo desde cualquier hilo y tantas veces como se quiera.
+    override fun ensureInitialized() {
+        if (initStarted.compareAndSet(false, true)) {
+            scope.launch { reloadInstalledKotlinExtensions() }
+        }
     }
 
     private fun registerKotlinPackageReceiver(context: Context) {
@@ -365,9 +381,15 @@ class DefaultNovelExtensionManager(
     }
 
     private fun reloadInstalledKotlinExtensions() {
-        val appContext = context ?: return
-        installedKotlinExtensionsSnapshot = KotlinNovelExtensionLoader.loadExtensions(appContext)
-        applyInstalledSnapshots()
+        try {
+            val appContext = context ?: return
+            installedKotlinExtensionsSnapshot = KotlinNovelExtensionLoader.loadExtensions(appContext)
+            applyInstalledSnapshots()
+        } finally {
+            // V6: aunque la carga falle, no se deja al SourceManager esperando
+            // para siempre: marca listo con lo que haya cargado.
+            _isInitialized.value = true
+        }
     }
 
     /**

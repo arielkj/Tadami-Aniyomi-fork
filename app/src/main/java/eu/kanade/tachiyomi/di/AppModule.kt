@@ -910,13 +910,14 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { SyncPreferences(get()) }
         addSingletonFactory { GoogleDriveService(app) }
 
-        // Asynchronously init expensive components for a faster cold start
+        // Asynchronously init expensive components for a faster cold start.
+        // V6: los SourceManager ya NO se precalientan aquí: construirlos
+        // disparaba la carga de todas las extensiones instaladas en cada
+        // arranque. Ahora las extensiones se cargan bajo demanda (al entrar a
+        // Explorar, al abrir un detalle o al descargar) con
+        // ensureExtensionsLoaded().
         java.util.concurrent.Executors.newSingleThreadExecutor().execute {
             get<NetworkHelper>()
-
-            get<MangaSourceManager>()
-            get<AnimeSourceManager>()
-            get<NovelSourceManager>()
 
             get<Database>()
             get<AnimeDatabase>()
@@ -925,6 +926,10 @@ class AppModule(val app: Application) : InjektModule {
 
             get<MangaDownloadManager>()
             get<AnimeDownloadManager>()
+
+            // V6: limpieza ligera de las bases de datos (ANALYZE semanal y
+            // VACUUM solo si hay muchas páginas libres). Nunca tumba la app.
+            eu.kanade.tachiyomi.data.DatabaseMaintenance.runIfDue(app)
         }
     }
 }

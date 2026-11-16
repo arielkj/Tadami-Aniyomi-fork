@@ -1,6 +1,7 @@
 package tachiyomi.data.entries.manga
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.data.achievement.handler.AchievementEventBus
@@ -61,6 +62,21 @@ class MangaRepositoryImpl(
 
     override fun getLibraryMangaAsFlow(): Flow<List<LibraryManga>> {
         return handler.subscribeToList { db -> db.libraryViewQueries.library(MangaMapper::mapLibraryManga) }
+    }
+
+    override fun getLibraryMangaInvalidationSignal(): Flow<Unit> {
+        return combine(
+            handler.subscribeToOne { db -> db.libraryViewQueries.libraryFavoriteCount() },
+            handler.subscribeToOne { db -> db.libraryViewQueries.libraryUnreadCount() },
+            handler.subscribeToOne { db -> db.libraryViewQueries.libraryCategoriesChecksum() },
+            handler.subscribeToOne { db -> db.libraryViewQueries.libraryModifiedMax() },
+        ) { _, _, _, _ -> Unit }
+    }
+
+    override suspend fun getLibraryMangaPage(limit: Long, lastTitle: String?, lastId: Long): List<LibraryManga> {
+        return handler.awaitList { db ->
+            db.libraryViewQueries.libraryPaged(lastTitle, lastId, limit, MangaMapper::mapLibraryManga)
+        }
     }
 
     override fun getMangaFavoritesBySourceId(sourceId: Long): Flow<List<Manga>> {

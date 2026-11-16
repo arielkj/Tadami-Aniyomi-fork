@@ -1,0 +1,20 @@
+-- V6: mantenimiento periódico ligero de la base de datos de novelas.
+-- ANALYZE actualiza las estadísticas del planificador; VACUUM compacta solo
+-- cuando hay muchas páginas libres; auto_vacuum incremental evita que la base
+-- vuelva a crecer sin control. Todo se ejecuta con try/catch desde
+-- DatabaseMaintenance y nunca puede tumbar la app.
+
+analyzeLibrary:
+ANALYZE;
+
+vacuumLibrary:
+VACUUM;
+
+libraryFreelistCount:
+PRAGMA freelist_count;
+
+setIncrementalAutoVacuum:
+PRAGMA auto_vacuum = INCREMENTAL;
+
+incrementalVacuumLibrary:
+PRAGMA incremental_vacuum(500);

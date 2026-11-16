@@ -697,6 +697,14 @@ class AnimeScreenModel(
             val animeDeferred = async { getAnimeAndEpisodesAndSeasons.awaitAnime(animeId) }
             val rawEpisodesDeferred = async { getAnimeAndEpisodesAndSeasons.awaitEpisodes(animeId) }
             val anime = animeDeferred.await()
+            // V6: las extensiones se cargan bajo demanda; antes de resolver la
+            // fuente real hay que asegurarse de que terminaron de cargar (si no,
+            // getOrStub devuelve un stub y la descarga de episodios falla). El
+            // contenido local no espera: su fuente es interna.
+            if (!anime.isLocal()) {
+                sourceManager.ensureExtensionsLoaded()
+                withTimeoutOrNull(30_000) { sourceManager.isInitialized.first { it } }
+            }
             val source = sourceManager.getOrStub(anime.source)
 
             val rawEpisodes = if (anime.fetchType == FetchType.Seasons) {
