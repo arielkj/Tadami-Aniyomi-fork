@@ -53,7 +53,6 @@ import eu.kanade.domain.ui.model.AppTheme
 import eu.kanade.presentation.entries.components.ItemCover
 import eu.kanade.presentation.more.settings.LocalSettingsUiStyle
 import eu.kanade.presentation.more.settings.SettingsUiStyle
-import eu.kanade.presentation.more.settings.screen.isThemePreviewUnlocked
 import eu.kanade.presentation.more.settings.settingsTitleColor
 import eu.kanade.presentation.theme.TachiyomiTheme
 import eu.kanade.tachiyomi.util.system.DeviceUtil

@@ -556,8 +556,6 @@ class MainActivity : BaseActivity() {
             requestedOrientation = orientation
             restoreOrientationAfterPlayerExit = null
         }
-        // Start session time tracking
-        appSessionStartTime = System.currentTimeMillis()
     }
 
     // The manifest configChanges suppresses rotation recreation,
