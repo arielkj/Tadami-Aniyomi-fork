@@ -117,6 +117,7 @@ import mihon.domain.upcoming.manga.interactor.GetUpcomingManga
 import mihon.domain.upcoming.novel.interactor.GetUpcomingNovel
 import tachiyomi.data.achievement.ActivityDataRepositoryImpl
 import tachiyomi.data.achievement.UserProfileManager
+import tachiyomi.data.achievement.handler.AchievementEventBus
 import tachiyomi.data.achievement.handler.checkers.StreakAchievementChecker
 import tachiyomi.data.book.novel.NovelBookStateRepositoryImpl
 import tachiyomi.data.book.novel.NovelHighlightRepositoryImpl
@@ -789,6 +790,10 @@ class DomainModule : InjektModule {
         addFactory { TrackSelect(get(), get()) }
 
         // Kept: Home greeting stats / streak display still read the activity profile store.
+        // Kept: AchievementEventBus is a no-op event bus (no handler subscribes anymore),
+        // but Anime/Manga/Novel repositories and MangaDownloadStore still require it via DI.
+        // Removing this registration crashes the Anime library tab and manga downloads.
+        addSingletonFactory { AchievementEventBus() }
         addSingletonFactory<tachiyomi.domain.achievement.repository.UserProfileRepository> {
             tachiyomi.data.achievement.UserProfileRepositoryImpl(get())
         }
