@@ -2,6 +2,8 @@ name: Build debug APK (v3)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [tadami-v3]
 
 jobs:
   build:
