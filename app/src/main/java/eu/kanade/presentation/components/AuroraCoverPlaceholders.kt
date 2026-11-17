@@ -93,6 +93,11 @@ fun buildAuroraCoverImageRequest(
             // V6 ultra ligero: fuerza miniaturas en baja resolución en toda la app.
             if (ultraLightMode) size(Size(320, 480))
         }
+        // V7: fundido al aparecer la portada. La miniatura progresiva v6
+        // (placeholderMemoryCacheKey) aparece al instante y el fundido
+        // suaviza el paso a la portada completa; sin miniatura en caché,
+        // el fundido parte del placeholder que pone el AsyncImage.
+        .crossfade(true)
         .build()
 }
 

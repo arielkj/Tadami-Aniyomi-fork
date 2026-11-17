@@ -66,7 +66,8 @@ internal fun AnimeLibraryComfortableGrid(
             }
             // V5: igual que la compacta — AnimeCover cacheado por anime para
             // no reconstruirlo en cada recomposición del ítem.
-            val coverData = remember(anime) {
+            // V7: clave solo con los campos de la portada, no el anime entero.
+            val coverData = remember(anime.id, anime.source, anime.favorite, anime.thumbnailUrl, anime.coverLastModified) {
                 AnimeCover(
                     animeId = anime.id,
                     sourceId = anime.source,

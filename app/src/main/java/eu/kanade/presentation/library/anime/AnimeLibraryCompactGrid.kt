@@ -65,7 +65,8 @@ fun AnimeLibraryCompactGrid(
             } else {
                 libraryItem.libraryAnime
             }
-            val coverData = remember(anime) {
+            // V7: clave solo con los campos de la portada, no el anime entero.
+            val coverData = remember(anime.id, anime.source, anime.favorite, anime.thumbnailUrl, anime.coverLastModified) {
                 AnimeCover(
                     animeId = anime.id,
                     sourceId = anime.source,

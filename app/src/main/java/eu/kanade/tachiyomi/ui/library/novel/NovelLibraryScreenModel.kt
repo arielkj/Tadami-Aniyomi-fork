@@ -358,13 +358,27 @@ class NovelLibraryScreenModel(
                 .flowOn(libraryDispatcher)
                 .collectLatest { (libraryMap, libraryLanguages, libraryCount) ->
                     mutableState.update { state ->
-                        state.copy(
-                            isLoading = false,
-                            hasLoaded = true,
-                            library = libraryMap,
-                            libraryLanguages = libraryLanguages,
-                            libraryCount = libraryCount,
-                        )
+                        // V7: parchear en vez de sustituir (ver patchLibraryMap):
+                        // solo los ítems que realmente cambiaron se sustituyen
+                        // y si nada cambió no se toca el estado, así que entrar
+                        // y salir del detalle no reconstruye la lista.
+                        val patchedLibrary = patchLibraryMap(state.library, libraryMap)
+                        if (patchedLibrary === state.library &&
+                            state.libraryLanguages == libraryLanguages &&
+                            state.libraryCount == libraryCount &&
+                            !state.isLoading &&
+                            state.hasLoaded
+                        ) {
+                            state
+                        } else {
+                            state.copy(
+                                isLoading = false,
+                                hasLoaded = true,
+                                library = patchedLibrary,
+                                libraryLanguages = libraryLanguages,
+                                libraryCount = libraryCount,
+                            )
+                        }
                     }
                 }
         }
@@ -1207,6 +1221,50 @@ class NovelLibraryScreenModel(
             .sortedBy { entry -> entry.key.id }
             .associate { entry -> entry.key to entry.value }
             .toPersistentMap()
+    }
+
+    /**
+     * V7: parchea el mapa de la biblioteca reutilizando las instancias de
+     * los ítems que no cambiaron. Los ítems son data classes, así que la
+     * igualdad es estructural: si una novela no cambió nada, se conserva su
+     * instancia y Compose reutiliza su celda sin volver a pedir la portada.
+     * Solo los ítems que realmente cambiaron se sustituyen. Si nada cambió,
+     * devuelve el mapa viejo tal cual.
+     */
+    private fun patchLibraryMap(
+        old: NovelLibraryMap,
+        new: NovelLibraryMap,
+    ): NovelLibraryMap {
+        if (old === new) return old
+        var changed = old.keys != new.keys
+        val patched = new.mapValues { (category, newList) ->
+            val oldList = old[category]
+            if (oldList == null) {
+                changed = true
+                newList
+            } else if (oldList == newList) {
+                oldList
+            } else {
+                val oldById = oldList.associateBy { it.id }
+                var listChanged = oldList.size != newList.size
+                val patchedList = newList.map { newItem ->
+                    val oldItem = oldById[newItem.id]
+                    if (oldItem != null && oldItem == newItem) {
+                        oldItem
+                    } else {
+                        listChanged = true
+                        newItem
+                    }
+                }.toPersistentList()
+                if (listChanged) {
+                    changed = true
+                    patchedList
+                } else {
+                    oldList
+                }
+            }
+        }.toPersistentMap()
+        return if (changed) patched else old
     }
 
     private fun getLibraryFlow(): Flow<NovelLibraryMap> {

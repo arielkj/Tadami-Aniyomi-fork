@@ -405,6 +405,15 @@ fun TabbedScreenAurora(
                         state = state,
                         verticalAlignment = Alignment.Top,
                         userScrollEnabled = !disablePagerScroll,
+                        // V7: precomponer la sección vecina para que al cambiar
+                        // de Anime a Manga (o al revés) la cuadrícula ya esté
+                        // montada con sus portadas, en vez de aparecer de golpe.
+                        // Es seguro porque cada sección conserva su lista ya
+                        // cargada en su ScreenModel (V7: flujo compartido con
+                        // replay) y su tubería sigue inactiva hasta ser la
+                        // sección actual: no hay doble recomputo, solo la
+                        // composición de los ítems visibles del LazyGrid vecino.
+                        beyondBoundsPageCount = 1,
                     ) { page ->
                         val tabState = TabState(
                             tabs = tabs,

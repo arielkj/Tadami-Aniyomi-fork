@@ -465,7 +465,8 @@ private fun NovelLibraryCompactGridItem(
 ) {
     val placeholderPainter = rememberAuroraCoverPlaceholderPainter()
 
-    val coverData = remember(item) {
+    // V7: clave solo con los campos que forman la portada, no el ítem entero.
+    val coverData = remember(item.id, item.coverNovel?.id, item.coverNovel?.thumbnailUrl, item.coverNovel?.coverLastModified) {
         item.coverNovel?.asNovelCover() ?: NovelCover(
             novelId = item.id,
             sourceId = 0,
@@ -563,7 +564,8 @@ private fun NovelLibraryAuroraCard(
         remainingCount = item.unreadCount,
         isFinished = item.coverNovel?.let { resolveNovelLibraryCornerIndicatorIsFinished(it.status) } ?: false,
     )
-    val coverData = remember(item.coverNovel, item.id) {
+    // V7: clave solo con los campos que forman la portada, no la novela entera.
+    val coverData = remember(item.id, item.coverNovel?.id, item.coverNovel?.thumbnailUrl, item.coverNovel?.coverLastModified) {
         item.coverNovel?.asNovelCover() ?: NovelCover(
             novelId = item.id,
             sourceId = 0,

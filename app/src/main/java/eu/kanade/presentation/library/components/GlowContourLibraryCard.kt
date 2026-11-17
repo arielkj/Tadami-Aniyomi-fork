@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.PathParser
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.presentation.components.buildAuroraCoverImageRequest
 import eu.kanade.presentation.components.rememberAuroraCoverPlaceholderPainter
@@ -929,9 +930,29 @@ private fun GlowContourLibraryCard(
                 val coverRequest = remember(coverData) {
                     buildAuroraCoverImageRequest(context, coverData)
                 }
+                // V7: mismo patrón que ItemCover — placeholder solo cuando no
+                // hay nada que mostrar (sin miniatura en caché de memoria).
+                // No se pasa `placeholder` directo: Coil lo impondría por
+                // encima de la miniatura restaurada por
+                // placeholderMemoryCacheKey y provocaría un flash gris.
+                val coverTransform = remember(placeholderPainter) {
+                    { state: AsyncImagePainter.State ->
+                        when (state) {
+                            is AsyncImagePainter.State.Loading ->
+                                if (state.painter == null) {
+                                    state.copy(painter = placeholderPainter)
+                                } else {
+                                    state
+                                }
+                            is AsyncImagePainter.State.Error -> state.copy(painter = placeholderPainter)
+                            else -> state
+                        }
+                    }
+                }
 
                 AsyncImage(
                     model = coverRequest,
+                    transform = coverTransform,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     colorFilter = rememberAuroraPosterColorFilter(),

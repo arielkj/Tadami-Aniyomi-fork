@@ -312,7 +312,11 @@ private fun MangaLibraryAuroraList(
                 null
             }
 
-            val coverData = remember(manga) {
+            // V7: la clave solo incluye los campos que forman la portada.
+            // Antes era remember(manga) con el data class entero (~30 campos):
+            // cualquier cambio de la fila (leer, actualizar) invalidaba el
+            // remember y la portada se volvía a pedir aunque no hubiera cambiado.
+            val coverData = remember(manga.id, manga.source, manga.favorite, manga.thumbnailUrl, manga.coverLastModified) {
                 MangaCover(
                     mangaId = manga.id,
                     sourceId = manga.source,
@@ -514,7 +518,9 @@ private fun MangaLibraryAuroraCardGrid(
                     manga.status == SManga.CANCELLED.toLong(),
             )
 
-            val coverData = remember(manga) {
+            // V7: la clave solo incluye los campos que forman la portada
+            // (ver el otro remember de este archivo).
+            val coverData = remember(manga.id, manga.source, manga.favorite, manga.thumbnailUrl, manga.coverLastModified) {
                 MangaCover(
                     mangaId = manga.id,
                     sourceId = manga.source,

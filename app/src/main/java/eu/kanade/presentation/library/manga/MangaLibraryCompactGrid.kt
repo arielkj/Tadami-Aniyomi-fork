@@ -65,7 +65,8 @@ internal fun MangaLibraryCompactGrid(
             } else {
                 libraryItem.libraryManga
             }
-            val coverData = remember(manga) {
+            // V7: clave solo con los campos de la portada, no el manga entero.
+            val coverData = remember(manga.id, manga.source, manga.favorite, manga.thumbnailUrl, manga.coverLastModified) {
                 MangaCover(
                     mangaId = manga.id,
                     sourceId = manga.source,

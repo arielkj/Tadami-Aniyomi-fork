@@ -312,7 +312,11 @@ private fun AnimeLibraryAuroraList(
                 null
             }
 
-            val coverData = remember(anime) {
+            // V7: la clave solo incluye los campos que forman la portada.
+            // Antes era remember(anime) con el data class entero: cualquier
+            // cambio de la fila (ver, actualizar) invalidaba el remember y
+            // la portada se volvía a pedir aunque no hubiera cambiado.
+            val coverData = remember(anime.id, anime.source, anime.favorite, anime.thumbnailUrl, anime.coverLastModified) {
                 AnimeCover(
                     animeId = anime.id,
                     sourceId = anime.source,
@@ -512,7 +516,9 @@ private fun AnimeLibraryAuroraCardGrid(
                     anime.status == SAnime.CANCELLED.toLong(),
             )
 
-            val coverData = remember(anime) {
+            // V7: la clave solo incluye los campos que forman la portada
+            // (ver el otro remember de este archivo).
+            val coverData = remember(anime.id, anime.source, anime.favorite, anime.thumbnailUrl, anime.coverLastModified) {
                 AnimeCover(
                     animeId = anime.id,
                     sourceId = anime.source,

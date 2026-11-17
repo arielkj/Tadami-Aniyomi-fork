@@ -308,12 +308,24 @@ class AnimeLibraryScreenModel(
                 .flowOn(libraryDispatcher)
                 .collectLatest { (libraryMap, libraryLanguages, libraryCount) ->
                     mutableState.update { state ->
-                        state.copy(
-                            isLoading = false,
-                            library = libraryMap,
-                            libraryLanguages = libraryLanguages,
-                            libraryCount = libraryCount,
-                        )
+                        // V7: parchear en vez de sustituir (ver patchLibraryMap):
+                        // solo los ítems que realmente cambiaron se sustituyen
+                        // y si nada cambió no se toca el estado.
+                        val patchedLibrary = patchLibraryMap(state.library, libraryMap)
+                        if (patchedLibrary === state.library &&
+                            state.libraryLanguages == libraryLanguages &&
+                            state.libraryCount == libraryCount &&
+                            !state.isLoading
+                        ) {
+                            state
+                        } else {
+                            state.copy(
+                                isLoading = false,
+                                library = patchedLibrary,
+                                libraryLanguages = libraryLanguages,
+                                libraryCount = libraryCount,
+                            )
+                        }
                     }
                 }
         }
@@ -886,35 +898,85 @@ class AnimeLibraryScreenModel(
     }
 
     /**
-     * V6: la biblioteca se carga por tandas (keyset pagination sobre la vista,
-     * 250 entradas por página) en vez de materializar las 5.000+ entradas de
-     * golpe. La primera página pinta casi al instante y el resto se va sumando
-     * mientras se baja. Las señales baratas de invalidación (conteos por índice)
-     * reinician la carga cuando cambia la biblioteca; el orden, los filtros y
-     * la agrupación siguen aplicándose abajo sobre lo cargado, y el resultado
-     * final es idéntico al de antes.
+     * V7: la lista paginada se carga UNA sola vez por proceso y se comparte
+     * con replay. Antes, cada reactivación de la tubería (volver del detalle,
+     * cambiar de pestaña) volvía a suscribirse a la señal de invalidación,
+     * que re-emite su valor actual al suscribirse, y la carga entera se
+     * repetía emitiendo por tandas: la cuadrícula se reconstruía creciendo y
+     * cada remontaje volvía a pedir las portadas (el pestañeo). Con el flujo
+     * compartido, reactivar solo reproduce la lista ya cargada, sin releer
+     * la BD ni tocar la cuadrícula. Las recargas reales siguen llegando por
+     * la señal de invalidación (lecturas, actualizaciones manuales y
+     * programadas escriben en BD) y se emiten UNA sola vez al completar la
+     * carga, nunca por tanda, para que el cambio sea atómico. Abrir el
+     * detalle sin hacer nada no escribe nada que invalide la lista (el
+     * detalle solo consulta la fuente si el anime no está inicializado o no
+     * tiene episodios), así que entrar y salir ya no recarga nada.
      */
-    private fun getPagedLibraryAnimeFlow(): Flow<List<LibraryAnime>> {
-        return getLibraryAnime.subscribeInvalidation()
+    private val pagedLibraryAnimeFlow: Flow<List<LibraryAnime>> =
+        getLibraryAnime.subscribeInvalidation()
             .transformLatest {
                 val accumulated = ArrayList<LibraryAnime>()
                 var lastTitle: String? = null
                 var lastId = 0L
                 while (true) {
                     val page = getLibraryAnime.awaitLibraryPage(LIBRARY_PAGE_SIZE, lastTitle, lastId)
-                    if (page.isEmpty()) {
-                        if (accumulated.isEmpty()) emit(emptyList())
-                        break
-                    }
+                    if (page.isEmpty()) break
                     accumulated.addAll(page)
-                    emit(accumulated.toList())
                     if (page.size < LIBRARY_PAGE_SIZE) break
                     val last = page.last().anime
                     lastTitle = last.title
                     lastId = last.id
                     yield()
                 }
+                emit(accumulated.toList())
             }
+            .flowOn(libraryDispatcher)
+            .shareIn(screenModelScope, SharingStarted.Lazily, replay = 1)
+
+    /**
+     * V7: parchea el mapa de la biblioteca reutilizando las instancias de
+     * los ítems que no cambiaron. Los ítems son data classes, así que la
+     * igualdad es estructural: si un anime no cambió nada (ni visto, ni
+     * favorito, ni episodios), se conserva su instancia y Compose reutiliza
+     * su celda sin volver a pedir la portada. Solo los ítems que realmente
+     * cambiaron se sustituyen, así que ver un anime actualiza solo ese
+     * anime. Si nada cambió, devuelve el mapa viejo tal cual.
+     */
+    private fun patchLibraryMap(
+        old: AnimeLibraryMap,
+        new: AnimeLibraryMap,
+    ): AnimeLibraryMap {
+        if (old === new) return old
+        var changed = old.keys != new.keys
+        val patched = new.mapValues { (category, newList) ->
+            val oldList = old[category]
+            if (oldList == null) {
+                changed = true
+                newList
+            } else if (oldList == newList) {
+                oldList
+            } else {
+                val oldById = oldList.associateBy { it.id }
+                var listChanged = oldList.size != newList.size
+                val patchedList = newList.map { newItem ->
+                    val oldItem = oldById[newItem.id]
+                    if (oldItem != null && oldItem == newItem) {
+                        oldItem
+                    } else {
+                        listChanged = true
+                        newItem
+                    }
+                }.toPersistentList()
+                if (listChanged) {
+                    changed = true
+                    patchedList
+                } else {
+                    oldList
+                }
+            }
+        }.toPersistentMap()
+        return if (changed) patched else old
     }
 
     /**
@@ -922,7 +984,7 @@ class AnimeLibraryScreenModel(
      */
     private fun getLibraryFlow(): Flow<AnimeLibraryMap> {
         val animelibAnimesFlow = combine(
-            getPagedLibraryAnimeFlow(),
+            pagedLibraryAnimeFlow,
             getLibraryAnimeSeries.subscribe(),
             sharedItemPreferencesFlow,
             getDownloadBadgeInvalidationFlow(),
