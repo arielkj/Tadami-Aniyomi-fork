@@ -733,7 +733,7 @@ class MainActivity : BaseActivity() {
         }
 
         val tabToOpen = when (intent.action) {
-            Constants.SHORTCUT_HOME -> HomeScreen.Tab.HomeHub
+            Constants.SHORTCUT_HOME -> HomeScreen.Tab.Library()
             Constants.SHORTCUT_ANIMELIB -> HomeScreen.Tab.AnimeLib()
             Constants.SHORTCUT_LIBRARY -> HomeScreen.Tab.Library()
             Constants.SHORTCUT_MANGA -> {

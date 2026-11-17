@@ -40,7 +40,7 @@ class UiPreferences(
 
     fun tabletUiMode() = preferenceStore.getEnum("tablet_ui_mode", TabletUiMode.AUTOMATIC)
 
-    fun startScreen() = preferenceStore.getEnum("start_screen", StartScreen.HOME)
+    fun startScreen() = preferenceStore.getEnum("start_screen", StartScreen.ANIME)
 
     fun showAnimeSection() = preferenceStore.getBoolean("aurora_show_anime_section", true)
     fun showMangaSection() = preferenceStore.getBoolean("aurora_show_manga_section", true)

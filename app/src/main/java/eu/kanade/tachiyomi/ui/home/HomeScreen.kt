@@ -879,7 +879,6 @@ object HomeScreen : Screen() {
                                     BrowseTab
                                 }
                                 is Tab.More -> MoreTab
-                                is Tab.HomeHub -> HomeHubTab
                             }
                             if (it is Tab.NovelLib) {
                                 AnimeLibraryTab.showNovelSection()
@@ -1916,7 +1915,6 @@ object HomeScreen : Screen() {
         data object History : Tab
         data class Browse(val toExtensions: Boolean = false, val anime: Boolean = false) : Tab
         data class More(val toDownloads: Boolean) : Tab
-        data object HomeHub : Tab
     }
 }
 
