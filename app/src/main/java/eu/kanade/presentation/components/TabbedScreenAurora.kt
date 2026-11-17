@@ -405,15 +405,13 @@ fun TabbedScreenAurora(
                         state = state,
                         verticalAlignment = Alignment.Top,
                         userScrollEnabled = !disablePagerScroll,
-                        // V7: precomponer la sección vecina para que al cambiar
-                        // de Anime a Manga (o al revés) la cuadrícula ya esté
-                        // montada con sus portadas, en vez de aparecer de golpe.
-                        // Es seguro porque cada sección conserva su lista ya
-                        // cargada en su ScreenModel (V7: flujo compartido con
-                        // replay) y su tubería sigue inactiva hasta ser la
-                        // sección actual: no hay doble recomputo, solo la
-                        // composición de los ítems visibles del LazyGrid vecino.
-                        beyondBoundsPageCount = 1,
+                        // V7: se evaluó precomponer la sección vecina
+                        // (beyondBoundsPageCount), pero el HorizontalPager de
+                        // esta versión de Compose no tiene ese parámetro, así
+                        // que no se aplica. No hace falta: con la lista en
+                        // caché (flujo compartido con replay) y la emisión
+                        // única, la sección destino ya aparece completa al
+                        // cambiar, sin celdas en negro.
                     ) { page ->
                         val tabState = TabState(
                             tabs = tabs,

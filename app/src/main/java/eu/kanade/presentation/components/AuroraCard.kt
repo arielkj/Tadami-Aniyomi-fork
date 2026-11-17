@@ -89,6 +89,8 @@ fun AuroraCard(
     // que mostrar (sin miniatura en caché de memoria). No se pasa
     // `placeholder` directo: Coil lo impondría por encima de la miniatura
     // restaurada por placeholderMemoryCacheKey y provocaría un flash gris.
+    // Nota: la sobrecarga de AsyncImage con `transform` no admite
+    // `error`/`fallback`: el transform mapea esos estados aquí.
     val coverTransform = remember(placeholderPainter) {
         { state: AsyncImagePainter.State ->
             when (state) {
@@ -99,6 +101,7 @@ fun AuroraCard(
                         state
                     }
                 is AsyncImagePainter.State.Error -> state.copy(painter = placeholderPainter)
+                is AsyncImagePainter.State.Empty -> state.copy(painter = placeholderPainter)
                 else -> state
             }
         }
@@ -186,8 +189,6 @@ fun AuroraCard(
                                     RoundedCornerShape(12.dp)
                                 },
                             ),
-                        error = placeholderPainter,
-                        fallback = placeholderPainter,
                     )
                 }
 

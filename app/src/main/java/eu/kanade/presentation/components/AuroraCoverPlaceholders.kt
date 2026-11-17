@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import coil3.SingletonImageLoader
 import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 import coil3.size.Size
 import com.tadami.aurora.R
 import eu.kanade.domain.ui.UiPreferences
