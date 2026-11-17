@@ -196,6 +196,48 @@ class MangaLibraryScreenModel(
         libraryPipelineActive.value = active
     }
 
+    /**
+     * V7: la lista paginada se carga UNA sola vez por proceso y se comparte
+     * con replay. Antes, cada reactivación de la tubería (volver del detalle,
+     * cambiar de pestaña) volvía a suscribirse a la señal de invalidación,
+     * que re-emite su valor actual al suscribirse, y la carga entera se
+     * repetía emitiendo por tandas: la cuadrícula se reconstruía creciendo y
+     * cada remontaje volvía a pedir las portadas (el pestañeo). Con el flujo
+     * compartido, reactivar solo reproduce la lista ya cargada, sin releer
+     * la BD ni tocar la cuadrícula. Las recargas reales siguen llegando por
+     * la señal de invalidación (lecturas, actualizaciones manuales y
+     * programadas escriben en BD) y se emiten UNA sola vez al completar la
+     * carga, nunca por tanda, para que el cambio sea atómico. Abrir el
+     * detalle sin hacer nada no escribe nada que invalide la lista (el
+     * detalle solo consulta la fuente si el manga no está inicializado o no
+     * tiene capítulos), así que entrar y salir ya no recarga nada.
+     *
+     * V7.1: este val TIENE que estar declarado ANTES del bloque init (mismo
+     * bug que en AnimeLibraryScreenModel: el `this` escapa durante la
+     * construcción y la tubería puede leer el campo antes de inicializarlo,
+     * con NPE en Combine.kt:28 al arrancar).
+     */
+    private val pagedLibraryMangaFlow: Flow<List<LibraryManga>> =
+        getLibraryManga.subscribeInvalidation()
+            .transformLatest {
+                val accumulated = ArrayList<LibraryManga>()
+                var lastTitle: String? = null
+                var lastId = 0L
+                while (true) {
+                    val page = getLibraryManga.awaitLibraryPage(LIBRARY_PAGE_SIZE, lastTitle, lastId)
+                    if (page.isEmpty()) break
+                    accumulated.addAll(page)
+                    if (page.size < LIBRARY_PAGE_SIZE) break
+                    val last = page.last().manga
+                    lastTitle = last.title
+                    lastId = last.id
+                    yield()
+                }
+                emit(accumulated.toList())
+            }
+            .flowOn(libraryDispatcher)
+            .shareIn(screenModelScope, SharingStarted.Lazily, replay = 1)
+
     init {
         screenModelScope.launch {
             libraryPipelineActive
@@ -911,42 +953,7 @@ class MangaLibraryScreenModel(
     /**
      * Get the categories and all its manga from the database.
      */
-    /**
-     * V7: la lista paginada se carga UNA sola vez por proceso y se comparte
-     * con replay. Antes, cada reactivación de la tubería (volver del detalle,
-     * cambiar de pestaña) volvía a suscribirse a la señal de invalidación,
-     * que re-emite su valor actual al suscribirse, y la carga entera se
-     * repetía emitiendo por tandas: la cuadrícula se reconstruía creciendo y
-     * cada remontaje volvía a pedir las portadas (el pestañeo). Con el flujo
-     * compartido, reactivar solo reproduce la lista ya cargada, sin releer
-     * la BD ni tocar la cuadrícula. Las recargas reales siguen llegando por
-     * la señal de invalidación (lecturas, actualizaciones manuales y
-     * programadas escriben en BD) y se emiten UNA sola vez al completar la
-     * carga, nunca por tanda, para que el cambio sea atómico. Abrir el
-     * detalle sin hacer nada no escribe nada que invalide la lista (el
-     * detalle solo consulta la fuente si el manga no está inicializado o no
-     * tiene capítulos), así que entrar y salir ya no recarga nada.
-     */
-    private val pagedLibraryMangaFlow: Flow<List<LibraryManga>> =
-        getLibraryManga.subscribeInvalidation()
-            .transformLatest {
-                val accumulated = ArrayList<LibraryManga>()
-                var lastTitle: String? = null
-                var lastId = 0L
-                while (true) {
-                    val page = getLibraryManga.awaitLibraryPage(LIBRARY_PAGE_SIZE, lastTitle, lastId)
-                    if (page.isEmpty()) break
-                    accumulated.addAll(page)
-                    if (page.size < LIBRARY_PAGE_SIZE) break
-                    val last = page.last().manga
-                    lastTitle = last.title
-                    lastId = last.id
-                    yield()
-                }
-                emit(accumulated.toList())
-            }
-            .flowOn(libraryDispatcher)
-            .shareIn(screenModelScope, SharingStarted.Lazily, replay = 1)
+    // V7.1: pagedLibraryMangaFlow vive ahora antes del bloque init (ver arriba).
 
     /**
      * V7: parchea el mapa de la biblioteca reutilizando las instancias de

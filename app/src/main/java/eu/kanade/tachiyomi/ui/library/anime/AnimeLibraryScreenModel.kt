@@ -194,6 +194,51 @@ class AnimeLibraryScreenModel(
         libraryPipelineActive.value = active
     }
 
+    /**
+     * V7: la lista paginada se carga UNA sola vez por proceso y se comparte
+     * con replay. Antes, cada reactivación de la tubería (volver del detalle,
+     * cambiar de pestaña) volvía a suscribirse a la señal de invalidación,
+     * que re-emite su valor actual al suscribirse, y la carga entera se
+     * repetía emitiendo por tandas: la cuadrícula se reconstruía creciendo y
+     * cada remontaje volvía a pedir las portadas (el pestañeo). Con el flujo
+     * compartido, reactivar solo reproduce la lista ya cargada, sin releer
+     * la BD ni tocar la cuadrícula. Las recargas reales siguen llegando por
+     * la señal de invalidación (lecturas, actualizaciones manuales y
+     * programadas escriben en BD) y se emiten UNA sola vez al completar la
+     * carga, nunca por tanda, para que el cambio sea atómico. Abrir el
+     * detalle sin hacer nada no escribe nada que invalide la lista (el
+     * detalle solo consulta la fuente si el anime no está inicializado o no
+     * tiene episodios), así que entrar y salir ya no recarga nada.
+     *
+     * V7.1: este val TIENE que estar declarado ANTES del bloque init. La
+     * tubería lanzada en init lee este flujo (vía getLibraryFlow) y su
+     * colección se despacha a Dispatchers.Default, que puede leer el campo
+     * antes de que su inicializador haya corrido (el `this` escapa durante
+     * la construcción). Leerlo sin inicializar devuelve null y el combine
+     * revienta con NPE en Combine.kt:28 al arrancar: ese fue el crash de la
+     * v7, reproducido con la misma firma en un test aislado.
+     */
+    private val pagedLibraryAnimeFlow: Flow<List<LibraryAnime>> =
+        getLibraryAnime.subscribeInvalidation()
+            .transformLatest {
+                val accumulated = ArrayList<LibraryAnime>()
+                var lastTitle: String? = null
+                var lastId = 0L
+                while (true) {
+                    val page = getLibraryAnime.awaitLibraryPage(LIBRARY_PAGE_SIZE, lastTitle, lastId)
+                    if (page.isEmpty()) break
+                    accumulated.addAll(page)
+                    if (page.size < LIBRARY_PAGE_SIZE) break
+                    val last = page.last().anime
+                    lastTitle = last.title
+                    lastId = last.id
+                    yield()
+                }
+                emit(accumulated.toList())
+            }
+            .flowOn(libraryDispatcher)
+            .shareIn(screenModelScope, SharingStarted.Lazily, replay = 1)
+
     init {
         screenModelScope.launch {
             // I21: visibility-gated pipeline (manga/novel mirror this structure) - with the
@@ -897,42 +942,7 @@ class AnimeLibraryScreenModel(
         )
     }
 
-    /**
-     * V7: la lista paginada se carga UNA sola vez por proceso y se comparte
-     * con replay. Antes, cada reactivación de la tubería (volver del detalle,
-     * cambiar de pestaña) volvía a suscribirse a la señal de invalidación,
-     * que re-emite su valor actual al suscribirse, y la carga entera se
-     * repetía emitiendo por tandas: la cuadrícula se reconstruía creciendo y
-     * cada remontaje volvía a pedir las portadas (el pestañeo). Con el flujo
-     * compartido, reactivar solo reproduce la lista ya cargada, sin releer
-     * la BD ni tocar la cuadrícula. Las recargas reales siguen llegando por
-     * la señal de invalidación (lecturas, actualizaciones manuales y
-     * programadas escriben en BD) y se emiten UNA sola vez al completar la
-     * carga, nunca por tanda, para que el cambio sea atómico. Abrir el
-     * detalle sin hacer nada no escribe nada que invalide la lista (el
-     * detalle solo consulta la fuente si el anime no está inicializado o no
-     * tiene episodios), así que entrar y salir ya no recarga nada.
-     */
-    private val pagedLibraryAnimeFlow: Flow<List<LibraryAnime>> =
-        getLibraryAnime.subscribeInvalidation()
-            .transformLatest {
-                val accumulated = ArrayList<LibraryAnime>()
-                var lastTitle: String? = null
-                var lastId = 0L
-                while (true) {
-                    val page = getLibraryAnime.awaitLibraryPage(LIBRARY_PAGE_SIZE, lastTitle, lastId)
-                    if (page.isEmpty()) break
-                    accumulated.addAll(page)
-                    if (page.size < LIBRARY_PAGE_SIZE) break
-                    val last = page.last().anime
-                    lastTitle = last.title
-                    lastId = last.id
-                    yield()
-                }
-                emit(accumulated.toList())
-            }
-            .flowOn(libraryDispatcher)
-            .shareIn(screenModelScope, SharingStarted.Lazily, replay = 1)
+    // V7.1: pagedLibraryAnimeFlow vive ahora antes del bloque init (ver arriba).
 
     /**
      * V7: parchea el mapa de la biblioteca reutilizando las instancias de
