@@ -13,7 +13,10 @@ import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 
-private const val POSTER_BLUR_DURATION_MS = 650
+// V7.3: blur de entrada más corto y suave (antes 650 ms y 24 dp): el
+// desenfoque animado a pantalla completa era de lo más caro al abrir el
+// detalle. Ahora 300 ms y 8 dp.
+private const val POSTER_BLUR_DURATION_MS = 300
 private const val STAGGER_START_DELAY_MS = 140
 private const val STAGGER_STEP_DELAY_MS = 50
 private const val STAGGER_ITEM_DURATION_MS = 420
@@ -69,7 +72,8 @@ class AuroraTitleStaggerState internal constructor(
 
     /**
      * Progress for the background poster / backdrop layer (from 0 to 1).
-     * Drives the optical Blur Reveal (blur clears from 24dp -> 0dp).
+     * Drives the optical Blur Reveal (V7.3: blur clears from 8dp -> 0dp,
+     * antes 24dp).
      */
     fun posterProgress(): Float {
         if (!enabled) return 1f
@@ -96,7 +100,8 @@ fun rememberTitleScreenStaggerState(enabled: Boolean): AuroraTitleStaggerState {
 
 /**
  * Applies the Deep Zoom Blur Reveal to the background poster / backdrop layer.
- * As the screen opens, the poster smoothly de-blurs from 24dp to 0dp in graphicsLayer phase.
+ * As the screen opens, the poster smoothly de-blurs from 8dp to 0dp in graphicsLayer phase.
+ * (V7.3: antes 24dp.)
  */
 fun Modifier.titleScreenPosterEntrance(
     state: AuroraTitleStaggerState?,
@@ -106,7 +111,7 @@ fun Modifier.titleScreenPosterEntrance(
         val progress = state.posterProgress()
         alpha = (0.4f + 0.6f * progress).coerceIn(0f, 1f)
         if (progress < 0.999f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val blurPx = (24.dp.toPx() * (1f - progress)).coerceAtLeast(0.1f)
+            val blurPx = (8.dp.toPx() * (1f - progress)).coerceAtLeast(0.1f)
             renderEffect = android.graphics.RenderEffect.createBlurEffect(
                 blurPx,
                 blurPx,

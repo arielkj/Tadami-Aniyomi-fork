@@ -64,6 +64,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
@@ -1000,13 +1001,37 @@ class MangaLibraryScreenModel(
         return if (changed) patched else old
     }
 
+    // V7.3: caché de contadores de descarga. El flujo combinado se
+    // re-emite por cualquier cambio (preferencias, series, BD), y antes
+    // cada emisión recalculaba getDownloadCount() de los ~5.500 títulos
+    // (en fuentes locales es un escaneo de archivos). Ahora el contador
+    // de cada título se calcula una sola vez y se reutiliza; solo se
+    // invalida cuando cambia el estado de descargas (la señal de
+    // invalidación, versionada con scan) y los títulos nuevos se calculan
+    // bajo demanda con getOrPut. Solo lo toca el lambda del combine
+    // (emisiones serializadas).
+    private var downloadCountCacheVersion = -1L
+    private val downloadCountCache = HashMap<Long, Long>()
+
+    private fun cachedDownloadCount(
+        mangaId: Long,
+        badgeVersion: Long,
+        compute: () -> Long,
+    ): Long {
+        if (badgeVersion != downloadCountCacheVersion) {
+            downloadCountCacheVersion = badgeVersion
+            downloadCountCache.clear()
+        }
+        return downloadCountCache.getOrPut(mangaId, compute)
+    }
+
     private fun getLibraryFlow(): Flow<MangaLibraryMap> {
         val libraryMangasFlow = combine(
             pagedLibraryMangaFlow,
             getLibraryMangaSeries.subscribe(),
             sharedItemPreferencesFlow,
-            getDownloadBadgeInvalidationFlow(),
-        ) { libraryMangaList, librarySeriesList, prefs, _ ->
+            getDownloadBadgeInvalidationFlow().scan(0L) { version, _ -> version + 1 },
+        ) { libraryMangaList, librarySeriesList, prefs, badgeVersion ->
             // F6: membership ids derived from the already-loaded series entries - the extra
             // getMangaIdsInAnySeries subscription re-queried the same series-entries table on
             // every DB change.
@@ -1020,7 +1045,9 @@ class MangaLibraryScreenModel(
                     MangaLibraryItem.Single(
                         libraryMangaValue = libraryManga,
                         downloadCountValue = if (prefs.downloadBadge) {
-                            downloadManager.getDownloadCount(libraryManga.manga).toLong()
+                            cachedDownloadCount(libraryManga.manga.id, badgeVersion) {
+                                downloadManager.getDownloadCount(libraryManga.manga).toLong()
+                            }
                         } else {
                             0
                         },
@@ -1039,7 +1066,11 @@ class MangaLibraryScreenModel(
                     MangaLibraryItem.Series(
                         librarySeries = librarySeries,
                         downloadCountValue = if (prefs.downloadBadge) {
-                            librarySeries.entries.sumOf { downloadManager.getDownloadCount(it.manga).toLong() }
+                            librarySeries.entries.sumOf {
+                                cachedDownloadCount(it.manga.id, badgeVersion) {
+                                    downloadManager.getDownloadCount(it.manga).toLong()
+                                }
+                            }
                         } else {
                             0
                         },

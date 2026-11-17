@@ -422,8 +422,11 @@ object HomeScreen : Screen() {
                                     // centro), menos padding vertical e interior. Los iconos
                                     // NO cambian de tamaño (21 dp fijos); solo la cápsula
                                     // se achica. Misma duración/easing que la altura.
+                                    // V7.3: barra más compacta — iconos más pegados y
+                                    // cápsula visiblemente más corta: padding exterior
+                                    // 12→24 dp (expandida) y 56→64 dp (colapsada).
                                     val animatedAuroraBarHPadding by animateDpAsState(
-                                        targetValue = if (auroraBarCollapsed) 56.dp else 12.dp,
+                                        targetValue = if (auroraBarCollapsed) 64.dp else 24.dp,
                                         animationSpec = tween(
                                             durationMillis = 250,
                                             easing = AURORA_EASING,
@@ -452,8 +455,11 @@ object HomeScreen : Screen() {
                                     // podían desfasarse un frame entre sí: la cápsula
                                     // "ondulaba" al colapsar. Un solo valor animado para
                                     // todos = colapso uniforme, sin tirones.
+                                    // V7.3: hueco más estrecho (12→8 dp expandida, 6→4 dp
+                                    // colapsada): la píldora deslizante, que mide icono +
+                                    // este padding, queda más corta. El icono sigue en 21 dp.
                                     val animatedAuroraBarIconHPadding by animateDpAsState(
-                                        targetValue = if (auroraBarCollapsed) 6.dp else 12.dp,
+                                        targetValue = if (auroraBarCollapsed) 4.dp else 8.dp,
                                         animationSpec = tween(
                                             durationMillis = 250,
                                             easing = AURORA_EASING,
@@ -531,13 +537,18 @@ object HomeScreen : Screen() {
                                     } else {
                                         auroraSelectedIndex
                                     }
+                                    // V7.3: spring más rígido y rápido para
+                                    // la píldora (~200 ms; antes StiffnessMediumLow,
+                                    // ~400-600 ms): la píldora llegaba tarde y
+                                    // el contenido cambiaba primero, lo que se
+                                    // sentía tosco aunque no se perdieran frames.
                                     val slidingPillIndex = remember { Animatable(slidingPillTarget.toFloat()) }
                                     LaunchedEffect(slidingPillTarget) {
                                         slidingPillIndex.animateTo(
                                             targetValue = slidingPillTarget.toFloat(),
                                             animationSpec = spring(
                                                 dampingRatio = Spring.DampingRatioNoBouncy,
-                                                stiffness = Spring.StiffnessMediumLow,
+                                                stiffness = Spring.StiffnessMedium,
                                             ),
                                         )
                                     }
@@ -1485,11 +1496,20 @@ object HomeScreen : Screen() {
         hazeState: HazeState,
     ): Modifier {
         // V5: blur más barato — radio 12 dp en vez de 24 dp y la mitad de
-        // ruido; en AMOLED no hay haze en absoluto (la base opaca negra ya
-        // está debajo) ni sombra: el blur sobre negro puro no aporta nada.
+        // ruido; en AMOLED no había haze en absoluto (la base opaca negra ya
+        // estaba debajo) ni sombra: el blur sobre negro puro no aporta nada.
+        // V7.3: en AMOLED la barra vuelve a ser cristal (base gris muy
+        // oscuro translúcida + hazeBlur) a petición del usuario: menos
+        // oscura que el negro sólido, se nota el contenido detrás.
         val hazeStyle = HazeBlurStyle {
             backgroundColor(colors.background)
             colorEffects(listOf(HazeColorEffect.tint(colors.surface.copy(alpha = 0.65f))))
+            blurRadius(12.dp)
+            noiseFactor(0.06f)
+        }
+        val amoledGlassStyle = HazeBlurStyle {
+            backgroundColor(Color(0xFF1E1E1E))
+            colorEffects(listOf(HazeColorEffect.tint(Color.White.copy(alpha = 0.08f))))
             blurRadius(12.dp)
             noiseFactor(0.06f)
         }
@@ -1507,16 +1527,21 @@ object HomeScreen : Screen() {
             }
             shadowed
                 .clip(shape)
-                // Opaque base under the frost: on first frames after navigation
-                // (e.g. popping back to home) the haze layer has not captured
-                // content yet, so without this the bar flashes transparent.
-                .background(colors.background, shape)
-                .then(
+                // Base bajo el cristal: en AMOLED gris muy oscuro translúcido
+                // (#1E1E1E al 82%) en vez de negro opaco; en los primeros
+                // frames (antes de que el haze capture contenido) la barra
+                // no parpadea transparente. En no-AMOLED sigue el fondo opaco.
+                .background(
                     if (colors.isAmoled) {
-                        Modifier
+                        Color(0xFF1E1E1E).copy(alpha = 0.82f)
                     } else {
-                        Modifier.hazeBlur(input = HazeInput.Sources(hazeState), style = hazeStyle)
+                        colors.background
                     },
+                    shape,
+                )
+                .hazeBlur(
+                    input = HazeInput.Sources(hazeState),
+                    style = if (colors.isAmoled) amoledGlassStyle else hazeStyle,
                 )
                 .border(
                     BorderStroke(width = 1.dp, brush = auroraMenuRimLightBrush(colors)),

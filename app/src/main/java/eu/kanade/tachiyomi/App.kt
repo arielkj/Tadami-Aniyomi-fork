@@ -372,7 +372,10 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
                 add(NovelPluginImageKeyer())
             }
 
-            val crossfadeMs = (300 * this@App.animatorDurationScale).toInt()
+            // V7.3: fundido corto (~100 ms). Antes 300 ms por portada: con
+            // ~30 celdas visibles a la vez eran 30 animaciones simultáneas
+            // en cada scroll o cambio de pestaña.
+            val crossfadeMs = (100 * this@App.animatorDurationScale).toInt()
             // V6 ultra ligero: sin crossfade, RGB565 y caché de memoria más pequeña.
             // Se lee al construir el loader (al arrancar la app); el resto de los
             // efectos del modo se aplica en vivo desde Compose.
@@ -524,8 +527,9 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
 
 private const val ACTION_DISABLE_INCOGNITO_MODE = "tachi.action.DISABLE_INCOGNITO_MODE"
 
-/** Parallel cover fetches on non-low-RAM devices (was 16; grids of 30+ cells). */
-private const val COVER_FETCH_PARALLELISM = 24
+/** Parallel cover fetches on non-low-RAM devices (V7.3: era 24; 24 fetches
+ * simultáneos saturaban el hilo de decodificación durante el scroll). */
+private const val COVER_FETCH_PARALLELISM = 8
 
 /** Heap growth limit at or below which the image pipeline scales down (256 MB class). */
 private const val SMALL_HEAP_MAX_BYTES = 256L * 1024 * 1024
@@ -536,8 +540,9 @@ private fun diskCacheSizeBytes(context: android.content.Context): Long {
     return if (isLowRam) 128L * 1024 * 1024 else 256L * 1024 * 1024
 }
 
-/** Crossfade above this value delays first paint more than it helps. */
-private const val MAX_CROSSFADE_MS = 300
+/** Crossfade above this value delays first paint more than it helps.
+ * V7.3: era 300 ms. */
+private const val MAX_CROSSFADE_MS = 100
 
 private class MainThreadWatchdog(
     private val intervalMs: Long = 500,

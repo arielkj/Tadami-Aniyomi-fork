@@ -66,6 +66,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.flow.update
@@ -992,13 +993,37 @@ class AnimeLibraryScreenModel(
     /**
      * Get the categories and all its anime from the database.
      */
+    // V7.3: caché de contadores de descarga. El flujo combinado se
+    // re-emite por cualquier cambio (preferencias, series, BD), y antes
+    // cada emisión recalculaba getDownloadCount() de los ~1.900 títulos
+    // (en fuentes locales es un escaneo de archivos). Ahora el contador
+    // de cada título se calcula una sola vez y se reutiliza; solo se
+    // invalida cuando cambia el estado de descargas (la señal de
+    // invalidación, versionada con scan) y los títulos nuevos se calculan
+    // bajo demanda con getOrPut. Solo lo toca el lambda del combine
+    // (emisiones serializadas).
+    private var downloadCountCacheVersion = -1L
+    private val downloadCountCache = HashMap<Long, Long>()
+
+    private fun cachedDownloadCount(
+        animeId: Long,
+        badgeVersion: Long,
+        compute: () -> Long,
+    ): Long {
+        if (badgeVersion != downloadCountCacheVersion) {
+            downloadCountCacheVersion = badgeVersion
+            downloadCountCache.clear()
+        }
+        return downloadCountCache.getOrPut(animeId, compute)
+    }
+
     private fun getLibraryFlow(): Flow<AnimeLibraryMap> {
         val animelibAnimesFlow = combine(
             pagedLibraryAnimeFlow,
             getLibraryAnimeSeries.subscribe(),
             sharedItemPreferencesFlow,
-            getDownloadBadgeInvalidationFlow(),
-        ) { animelibAnimeList, librarySeriesList, prefs, _ ->
+            getDownloadBadgeInvalidationFlow().scan(0L) { version, _ -> version + 1 },
+        ) { animelibAnimeList, librarySeriesList, prefs, badgeVersion ->
             val idsInSeries = librarySeriesList.flatMapTo(HashSet()) { librarySeries ->
                 librarySeries.entries.map { it.anime.id }
             }
@@ -1008,7 +1033,9 @@ class AnimeLibraryScreenModel(
                     AnimeLibraryItem.Single(
                         libraryAnime = animelibAnime,
                         downloadCount = if (prefs.downloadBadge) {
-                            downloadManager.getDownloadCount(animelibAnime.anime).toLong()
+                            cachedDownloadCount(animelibAnime.anime.id, badgeVersion) {
+                                downloadManager.getDownloadCount(animelibAnime.anime).toLong()
+                            }
                         } else {
                             0
                         },
@@ -1027,7 +1054,11 @@ class AnimeLibraryScreenModel(
                     AnimeLibraryItem.Series(
                         librarySeries = librarySeries,
                         downloadCount = if (prefs.downloadBadge) {
-                            librarySeries.entries.sumOf { downloadManager.getDownloadCount(it.anime).toLong() }
+                            librarySeries.entries.sumOf {
+                                cachedDownloadCount(it.anime.id, badgeVersion) {
+                                    downloadManager.getDownloadCount(it.anime).toLong()
+                                }
+                            }
                         } else {
                             0
                         },

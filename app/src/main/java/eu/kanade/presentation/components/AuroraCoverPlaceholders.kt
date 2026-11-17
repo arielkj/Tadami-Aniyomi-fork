@@ -4,8 +4,6 @@ import android.content.Context
 import androidx.annotation.DrawableRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.painter.Painter
-import coil3.SingletonImageLoader
-import coil3.memory.MemoryCache
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
@@ -21,7 +19,6 @@ import tachiyomi.domain.entries.novel.model.Novel
 import tachiyomi.domain.entries.novel.model.NovelCover
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import java.util.Collections
 
 enum class AuroraCoverPlaceholderVariant {
     Portrait,
@@ -75,51 +72,26 @@ fun buildAuroraCoverImageRequest(
     data: Any?,
     configure: ImageRequest.Builder.() -> Unit = {},
 ): ImageRequest {
-    // V6: miniatura progresiva. Se pide primero una versión pequeña (160x240)
-    // que pinta al instante como placeholder de la petición completa; la
-    // petición principal no cambia (misma URL, misma caché de disco), así que
-    // si la miniatura falla no se pierde nada: el placeholder simplemente no
-    // aparece, como antes. No se toca el resto del pipeline de portadas.
+    // V7.3: se quitó la miniatura progresiva v6 (petición extra 160x240 por
+    // tarjeta): con ~30 celdas visibles cada scroll disparaba decenas de
+    // decodificaciones a la vez. La petición principal ya usa
+    // placeholderMemoryCacheKey con su propia clave de caché, así que si la
+    // portada está en memoria aparece al instante; si no, el placeholder
+    // genérico cubre el hueco y el fundido corto suaviza la llegada.
     val baseKey = resolveAuroraCoverPlaceholderMemoryCacheKey(data)
-    val thumbKey = baseKey?.let { "$it;thumb160" }
-    if (thumbKey != null) {
-        enqueueAuroraCoverThumb(context, data, thumbKey)
-    }
     val ultraLightMode = runCatching { Injekt.get<UiPreferences>().ultraLightMode().get() }.getOrDefault(false)
     return ImageRequest.Builder(context)
         .data(resolveAuroraCoverModel(data))
-        .placeholderMemoryCacheKey(thumbKey ?: baseKey)
+        .placeholderMemoryCacheKey(baseKey)
         .apply(configure)
         .apply {
             // V6 ultra ligero: fuerza miniaturas en baja resolución en toda la app.
             if (ultraLightMode) size(Size(320, 480))
         }
-        // V7: fundido al aparecer la portada. La miniatura progresiva v6
-        // (placeholderMemoryCacheKey) aparece al instante y el fundido
-        // suaviza el paso a la portada completa; sin miniatura en caché,
-        // el fundido parte del placeholder que pone el AsyncImage.
+        // V7: fundido al aparecer la portada (V7.3: acortado a ~100 ms en
+        // App.kt). El fundido parte del placeholder que pone el AsyncImage.
         .crossfade(true)
         .build()
-}
-
-// Claves de miniatura ya pedidas en este proceso (con tope, para no pedir la
-// misma dos veces en cada recomposición). La miniatura queda en la caché de
-// memoria de Coil, así que el set solo evita duplicar el trabajo.
-private val auroraCoverThumbRequested = Collections.synchronizedSet(LinkedHashSet<String>())
-
-private fun enqueueAuroraCoverThumb(context: Context, data: Any?, thumbKey: String) {
-    runCatching {
-        if (!auroraCoverThumbRequested.add(thumbKey)) return
-        if (auroraCoverThumbRequested.size > 1000) auroraCoverThumbRequested.clear()
-        val imageLoader = SingletonImageLoader.get(context)
-        if (imageLoader.memoryCache?.get(MemoryCache.Key(thumbKey)) != null) return
-        val thumbRequest = ImageRequest.Builder(context)
-            .data(resolveAuroraCoverModel(data))
-            .memoryCacheKey(thumbKey)
-            .size(Size(160, 240))
-            .build()
-        imageLoader.enqueue(thumbRequest)
-    }
 }
 
 @DrawableRes

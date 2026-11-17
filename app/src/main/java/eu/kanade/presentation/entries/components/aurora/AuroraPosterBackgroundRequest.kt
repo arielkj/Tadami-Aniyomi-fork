@@ -48,11 +48,21 @@ internal fun buildAuroraPosterBackgroundRequest(
             data,
         )} memoryKey=${spec.memoryCacheKey} placeholderKey=$placeholderKey size=${containerWidthPx}x$containerHeightPx"
     }
+    // V7.3: el backdrop se pedía a resolución completa de pantalla
+    // (~1440x3120 en el S938B, ~18 MB en ARGB8888) solo para ir detrás de
+    // un desenfoque. Se topa a 1080 px de ancho (alto proporcional): el
+    // recorte es el mismo y se decodifica casi 3x menos.
+    val cappedWidthPx = minOf(containerWidthPx, 1080)
+    val cappedHeightPx = if (containerWidthPx > 0) {
+        (containerHeightPx * cappedWidthPx / containerWidthPx).coerceAtLeast(1)
+    } else {
+        containerHeightPx
+    }
     return ImageRequest.Builder(context)
         .data(data)
         .memoryCacheKey(spec.memoryCacheKey)
         .placeholderMemoryCacheKey(placeholderKey)
-        .size(containerWidthPx, containerHeightPx)
+        .size(cappedWidthPx, cappedHeightPx)
         .apply(configure)
         .build()
 }

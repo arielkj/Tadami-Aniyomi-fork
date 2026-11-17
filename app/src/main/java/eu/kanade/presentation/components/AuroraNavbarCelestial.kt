@@ -147,7 +147,7 @@ fun Modifier.auroraCelestialBar(
                 wave.snapTo(0f)
                 wave.animateTo(
                     targetValue = 1f,
-                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
                 )
             }
         }
@@ -340,7 +340,7 @@ fun Modifier.auroraCelestialRail(
                 wave.snapTo(0f)
                 wave.animateTo(
                     targetValue = 1f,
-                    animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
                 )
             }
         }

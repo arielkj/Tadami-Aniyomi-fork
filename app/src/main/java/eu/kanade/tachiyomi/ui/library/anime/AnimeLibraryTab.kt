@@ -1511,7 +1511,11 @@ data object AnimeLibraryTab : Tab {
                             isMangaTab = isMangaTab,
                             showCompactHeader = true,
                             showTabs = false,
-                            instantTabSwitching = false,
+                            // V7.3: cambio instantáneo entre Anime/Manga: el
+                            // pager animado componía las dos cuadrículas a la
+                            // vez. El flujo compartido de v7 cubre que no haya
+                            // parpadeo al cambiar.
+                            instantTabSwitching = true,
                             extraHeaderContent = {
                                 AuroraLibraryPinnedHeader(
                                     title = stringResource(AYMR.strings.label_titles),
