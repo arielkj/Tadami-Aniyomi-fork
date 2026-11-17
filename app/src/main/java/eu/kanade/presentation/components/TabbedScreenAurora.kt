@@ -405,12 +405,12 @@ fun TabbedScreenAurora(
                         state = state,
                         verticalAlignment = Alignment.Top,
                         userScrollEnabled = !disablePagerScroll,
-                        // V7.3: pre-componer la página vecina (1 a cada lado)
-                        // para que al cambiar de pestaña no se compongan de
-                        // cero ~30 celdas pesadas. El parámetro sí existe en
-                        // esta versión de Compose (BOM 2026.09.00); el
-                        // comentario de v7 que decía lo contrario era erróneo.
-                        beyondBoundsPageCount = 1,
+                        // V7.3: se intentó precomponer la página vecina
+                        // (beyondBoundsPageCount=1), pero el compilador lo
+                        // rechaza: el HorizontalPager de esta versión de
+                        // Compose no tiene ese parámetro. Se deja fuera; la
+                        // lista en caché (flujo compartido con replay) y la
+                        // emisión única de v7 siguen cubriendo el cambio.
                     ) { page ->
                         val tabState = TabState(
                             tabs = tabs,
