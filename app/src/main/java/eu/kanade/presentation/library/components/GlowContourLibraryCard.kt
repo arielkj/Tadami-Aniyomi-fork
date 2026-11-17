@@ -947,7 +947,7 @@ private fun GlowContourLibraryCard(
                                     state
                                 }
                             is AsyncImagePainter.State.Error -> state.copy(painter = placeholderPainter)
-                            is AsyncImagePainter.State.Empty -> state.copy(painter = placeholderPainter)
+                            is AsyncImagePainter.State.Empty -> AsyncImagePainter.State.Loading(placeholderPainter)
                             else -> state
                         }
                     }

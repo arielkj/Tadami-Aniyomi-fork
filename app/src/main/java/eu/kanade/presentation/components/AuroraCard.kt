@@ -101,7 +101,7 @@ fun AuroraCard(
                         state
                     }
                 is AsyncImagePainter.State.Error -> state.copy(painter = placeholderPainter)
-                is AsyncImagePainter.State.Empty -> state.copy(painter = placeholderPainter)
+                is AsyncImagePainter.State.Empty -> AsyncImagePainter.State.Loading(placeholderPainter)
                 else -> state
             }
         }
