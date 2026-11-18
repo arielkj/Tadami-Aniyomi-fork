@@ -37,6 +37,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.mapbox.mapboxsdk.Mapbox
+import com.mapbox.mapboxsdk.WellKnownTileServer
 import com.mapbox.mapboxsdk.geometry.LatLng
 import com.mapbox.mapboxsdk.camera.CameraUpdateFactory
 import com.mapbox.mapboxsdk.maps.MapboxMap
@@ -139,6 +141,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // MapLibre 10.x exige el singleton inicializado ANTES de inflar
+        // el MapView: su constructor llama a validateMapbox() y sin esto
+        // la app se cierra al abrir (MapboxConfigurationException).
+        Mapbox.getInstance(this, "maparadio-local", WellKnownTileServer.MapLibre)
         setContentView(R.layout.activity_main)
 
         mapView = findViewById(R.id.mapView)
