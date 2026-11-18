@@ -333,7 +333,11 @@ fun NovelSeriesAuroraContent(
                         stickyHeader(key = "header_${libraryNovel.id}") {
                             ListGroupHeader(text = libraryNovel.novel.title)
                         }
-                        items(chapters, key = { "ch_${it.id}" }) { chapter ->
+                        items(
+                            chapters,
+                            key = { "ch_${it.id}" },
+                            contentType = { "chapter" },
+                        ) { chapter ->
                             NovelChapterCardCompactUi.Render(
                                 novel = libraryNovel.novel,
                                 chapter = chapter,
@@ -355,7 +359,12 @@ fun NovelSeriesAuroraContent(
                                 onChapterSwipe = {},
                                 downloaded = false,
                                 downloading = false,
-                                hazeState = hazeState,
+                                // V7.7 (lo de Nuvio): sin haze en las filas
+                                // de capítulos — igual que en la vista de
+                                // series de manga: cada fila con hazeBlur
+                                // vivo re-difuminaba en cada cuadro al
+                                // hacer scroll. La tarjeta ya tiene su fondo
+                                // plano translúcido + borde fino sin haze.
                             )
                         }
                     }

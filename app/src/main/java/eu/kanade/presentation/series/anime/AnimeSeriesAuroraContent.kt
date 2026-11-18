@@ -333,7 +333,11 @@ fun AnimeSeriesAuroraContent(
                         stickyHeader(key = "header_${libraryAnime.id}") {
                             ListGroupHeader(text = libraryAnime.anime.title)
                         }
-                        items(episodes, key = { "ep_${it.id}" }) { episode ->
+                        items(
+                            episodes,
+                            key = { "ep_${it.id}" },
+                            contentType = { "episode" },
+                        ) { episode ->
                             AnimeEpisodeCardCompact(
                                 anime = libraryAnime.anime,
                                 item = EpisodeList.Item(

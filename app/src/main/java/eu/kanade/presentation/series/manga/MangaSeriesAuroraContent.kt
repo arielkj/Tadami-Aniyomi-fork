@@ -335,7 +335,11 @@ fun MangaSeriesAuroraContent(
                         stickyHeader(key = "header_${libraryManga.id}") {
                             ListGroupHeader(text = libraryManga.manga.title)
                         }
-                        items(chapters, key = { "ch_${it.id}" }) { chapter ->
+                        items(
+                            chapters,
+                            key = { "ch_${it.id}" },
+                            contentType = { "chapter" },
+                        ) { chapter ->
                             MangaChapterCardCompact(
                                 manga = libraryManga.manga,
                                 item = ChapterList.Item(
@@ -351,8 +355,18 @@ fun MangaSeriesAuroraContent(
                                 onChapterClicked = { onChapterClicked(libraryManga, chapter) },
                                 onLongClick = {},
                                 onChapterSwipe = {},
+                                // V7.7 (lo de Nuvio): sin haze en las filas
+                                // de capítulos — cada fila con hazeBlur vivo
+                                // re-difuminaba el contenido detrás en cada
+                                // cuadro al hacer scroll por la lista (el
+                                // mismo problema de la barra en v7.3, por
+                                // fila). La tarjeta ya tiene su fondo plano
+                                // translúcido + borde fino sin haze, así que
+                                // el aspecto se mantiene y el scroll es
+                                // mucho más barato. El haze sigue en el
+                                // héroe y la barra superior (pocas piezas
+                                // estáticas), solo sale de la lista larga.
                                 onDownloadChapter = null,
-                                hazeState = hazeState,
                             )
                         }
                     }

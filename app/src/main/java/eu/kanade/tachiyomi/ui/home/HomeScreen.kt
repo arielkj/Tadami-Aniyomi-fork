@@ -136,6 +136,7 @@ import eu.kanade.presentation.theme.AuroraColors
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.LocalIsEInkMode
 import eu.kanade.presentation.tutorial.coachAnchorForTab
+import eu.kanade.presentation.util.AuroraMotionTokens
 import eu.kanade.presentation.util.BottomNavVisibilityController
 import eu.kanade.presentation.util.LocalBottomNavVisibilityController
 import eu.kanade.presentation.util.ResolvedNavigationTransitionMode
@@ -542,13 +543,22 @@ object HomeScreen : Screen() {
                                     // ~400-600 ms): la píldora llegaba tarde y
                                     // el contenido cambiaba primero, lo que se
                                     // sentía tosco aunque no se perdieran frames.
+                                    // V7.7 (lo de Nuvio): tween fijo de 220 ms en
+                                    // vez de spring — un spring integra según los
+                                    // cuadros que caen y puede saltar si se pierde
+                                    // uno; un tween dura siempre 220 ms y la
+                                    // píldora llega a la vez que el contenido.
+                                    // La cápsula se mantiene (el usuario la quiere);
+                                    // solo cambia cómo viaja. El dibujo de la
+                                    // píldora ya era un único rectángulo redondeado
+                                    // por ítem (drawBehind), así que no se toca.
                                     val slidingPillIndex = remember { Animatable(slidingPillTarget.toFloat()) }
                                     LaunchedEffect(slidingPillTarget) {
                                         slidingPillIndex.animateTo(
                                             targetValue = slidingPillTarget.toFloat(),
-                                            animationSpec = spring(
-                                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                                stiffness = Spring.StiffnessMedium,
+                                            animationSpec = tween(
+                                                durationMillis = AuroraMotionTokens.NORMAL_MS,
+                                                easing = AuroraMotionTokens.standardEasing,
                                             ),
                                         )
                                     }

@@ -3,6 +3,7 @@ package eu.kanade.presentation.entries.novel.components.aurora
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -45,6 +46,7 @@ import eu.kanade.presentation.entries.components.aurora.resolveAuroraPosterScrim
 import eu.kanade.presentation.entries.components.aurora.shouldDrawAuroraPosterBlurOverlay
 import eu.kanade.presentation.novel.sourceAwareNovelCoverModel
 import eu.kanade.presentation.theme.AuroraTheme
+import eu.kanade.presentation.util.AuroraMotionTokens
 import eu.kanade.tachiyomi.data.cache.NovelCoverCache
 import eu.kanade.tachiyomi.data.coil.AuroraPosterRequest
 import eu.kanade.tachiyomi.util.debugTitleCoverFlow
@@ -275,9 +277,12 @@ fun FullscreenPosterBackground(
 
             val highResAlpha by animateFloatAsState(
                 targetValue = if (isHighResPosterReady) 1f else 0f,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessLow,
+                // V7.7 (lo de Nuvio): tween fijo de 300 ms en vez de
+                // spring — el fundido del póster dura lo mismo se pierda
+                // un cuadro o no.
+                animationSpec = tween(
+                    durationMillis = AuroraMotionTokens.SHEET_MS,
+                    easing = AuroraMotionTokens.standardEasing,
                 ),
                 label = "highResPosterAlpha",
             )

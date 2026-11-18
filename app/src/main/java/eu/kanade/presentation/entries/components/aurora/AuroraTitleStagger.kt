@@ -1,17 +1,15 @@
 package eu.kanade.presentation.entries.components.aurora
 
-import android.os.Build
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import eu.kanade.presentation.util.AuroraMotionTokens
 
 // V7.3: blur de entrada más corto y suave (antes 650 ms y 24 dp): el
 // desenfoque animado a pantalla completa era de lo más caro al abrir el
@@ -20,13 +18,20 @@ import androidx.compose.ui.unit.dp
 // bloque llega antes (paso 50→35 ms, duración 420→320 ms; total
 // 1060→810 ms) y sube menos (14→10 dp). La animación se mantiene,
 // solo recorre menos distancia por cuadro y no se rompe.
+// V7.7 (lo de Nuvio): SIN blur animado de entrada — el RenderEffect
+// sobre el fondo a pantalla completa obligaba a re-dibujar y re-difuminar
+// toda la capa en cada cuadro de los 300 ms. El fondo entra solo con
+// fundido de alfa (0.4→1), que es una transformación barata de GPU, y
+// la cascada se acorta aún más (paso 35→25 ms, duración 320→220 ms,
+// subida 10→8 dp; total 810→610 ms). La entrada se mantiene, solo
+// cuesta menos por cuadro.
 private const val POSTER_BLUR_DURATION_MS = 300
 private const val STAGGER_START_DELAY_MS = 140
-private const val STAGGER_STEP_DELAY_MS = 35
-private const val STAGGER_ITEM_DURATION_MS = 320
+private const val STAGGER_STEP_DELAY_MS = 25
+private const val STAGGER_ITEM_DURATION_MS = AuroraMotionTokens.NORMAL_MS
 private const val STAGGER_MAX_INDEX = 10
-private val STAGGER_EASING = CubicBezierEasing(0.16f, 1.0f, 0.3f, 1.0f)
-private val POSTER_EASING = CubicBezierEasing(0.16f, 1.0f, 0.3f, 1.0f)
+private val STAGGER_EASING = AuroraMotionTokens.standardEasing
+private val POSTER_EASING = AuroraMotionTokens.standardEasing
 
 /**
  * Standard index mapping for the tiered title screen entrance cascade.
@@ -103,9 +108,15 @@ fun rememberTitleScreenStaggerState(enabled: Boolean): AuroraTitleStaggerState {
 }
 
 /**
- * Applies the Deep Zoom Blur Reveal to the background poster / backdrop layer.
- * As the screen opens, the poster smoothly de-blurs from 8dp to 0dp in graphicsLayer phase.
- * (V7.3: antes 24dp.)
+ * Applies the entrance fade to the background poster / backdrop layer.
+ * V7.7 (lo de Nuvio): antes era un "Blur Reveal" — el fondo se
+ * des-difuminaba de 8 dp a 0 dp con un RenderEffect animado, lo que
+ * obligaba a re-renderizar la capa a pantalla completa en cada cuadro.
+ * Ahora solo es un fundido de alfa (0.4→1 en 300 ms): el fondo aparece
+ * igual de suave y cada cuadro es una transformación barata de GPU.
+ * El desenfoque al hacer scroll sigue existiendo (capa a 1/8 de
+ * resolución en FullscreenPosterBackground), pero ya no hay blur
+ * animado al abrir el detalle.
  */
 fun Modifier.titleScreenPosterEntrance(
     state: AuroraTitleStaggerState?,
@@ -114,16 +125,6 @@ fun Modifier.titleScreenPosterEntrance(
     return graphicsLayer {
         val progress = state.posterProgress()
         alpha = (0.4f + 0.6f * progress).coerceIn(0f, 1f)
-        if (progress < 0.999f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val blurPx = (8.dp.toPx() * (1f - progress)).coerceAtLeast(0.1f)
-            renderEffect = android.graphics.RenderEffect.createBlurEffect(
-                blurPx,
-                blurPx,
-                android.graphics.Shader.TileMode.CLAMP,
-            ).asComposeRenderEffect()
-        } else {
-            renderEffect = null
-        }
     }
 }
 
@@ -140,6 +141,6 @@ fun Modifier.titleScreenStagger(
     return graphicsLayer {
         val progress = state.progressFor(index)
         alpha = progress
-        translationY = (1f - progress) * 10.dp.toPx()
+        translationY = (1f - progress) * 8.dp.toPx()
     }
 }

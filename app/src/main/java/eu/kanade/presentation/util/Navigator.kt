@@ -5,7 +5,6 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -59,10 +58,17 @@ private val uiPreferences: UiPreferences = Injekt.get()
 private const val MODERN_ENTER_DURATION = 300
 private const val MODERN_EXIT_DURATION = 300
 private const val MODERN_ENTER_DELAY = 0
-private const val TITLE_ZOOM_MS = 250
-private const val TITLE_ZOOM_FADE_IN_MS = 250
-private const val TITLE_ZOOM_EXIT_MS = 280
-private val AURORA_EASING = CubicBezierEasing(0.16f, 1.0f, 0.3f, 1.0f)
+// V7.7 (lo de Nuvio): la entrada al detalle es más larga (250→400 ms)
+// pero SOLO hace escala/alfa/traslación del póster — transformaciones
+// baratas de GPU. Nuvio abre el detalle en 550 ms y se siente bien por
+// lo mismo: larga pero barata. El blur animado se quitó en
+// AuroraTitleStagger (ahora solo fundido de alfa) y la cascada se
+// acortó, así que la entrada total no crece: llega antes y no se rompe.
+// Duraciones y curva de los tokens únicos (AuroraMotionTokens).
+private const val TITLE_ZOOM_MS = AuroraMotionTokens.SLOW_MS
+private const val TITLE_ZOOM_FADE_IN_MS = AuroraMotionTokens.SLOW_MS
+private const val TITLE_ZOOM_EXIT_MS = AuroraMotionTokens.SHEET_MS
+private val AURORA_EASING = AuroraMotionTokens.standardEasing
 private val MODERN_SLIDE_DISTANCE = 30.dp
 
 interface Tab : cafe.adriel.voyager.navigator.tab.Tab {

@@ -41,8 +41,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -1074,18 +1072,11 @@ private fun GlowContourLibraryCard(
                     } else {
                         size.height
                     }
-                    val progressPocketBrush = Brush.radialGradient(
-                        colors = listOf(
-                            colors.progressCyan.copy(alpha = bottomMaskSpec.pocketBloomAlpha),
-                            Color.Transparent,
-                        ),
-                        center = Offset(
-                            x = progressBounds.left + progressBounds.width * 0.7f,
-                            y = progressBounds.top + progressBounds.height * 0.35f,
-                        ),
-                        radius = progressBounds.width * 0.9f,
-                    )
-
+                    // V7.7 (lo de Nuvio): sin bloom radial — era un pase de
+                    // gradiente radial por tarjeta en cada cuadro al hacer
+                    // scroll. El relleno de cristal y la línea divisoria
+                    // con brillo ya dan el aspecto; el bloom no se echa en
+                    // falta y cada cuadro cuesta menos.
                     onDrawBehind {
                         drawPath(
                             path = zones.accentPath,
@@ -1095,10 +1086,6 @@ private fun GlowContourLibraryCard(
                             drawPath(
                                 path = zones.progressPath,
                                 brush = progressGlassBrush,
-                            )
-                            drawPath(
-                                path = zones.progressPath,
-                                brush = progressPocketBrush,
                             )
                         }
                         clipRect(bottom = dividerClipBottom) {
@@ -1172,22 +1159,15 @@ private fun GlowContourLibraryCard(
                         ),
                 )
                 progressState.fillFraction?.let { fillFraction ->
+                    // V7.7 (lo de Nuvio): sin sombra en el relleno — el
+                    // Modifier.shadow crea una capa offscreen por tarjeta
+                    // y se redibuja en cada cuadro al hacer scroll. El
+                    // degradado cian ya da el brillo; la sombra no se echa
+                    // en falta y el cuadro es mucho más barato.
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(fillFraction)
                             .height(progressSpec.lineHeight)
-                            .then(
-                                if (progressState.showGlow) {
-                                    Modifier.shadow(
-                                        elevation = progressSpec.glowElevation,
-                                        shape = progressShape,
-                                        ambientColor = colors.progressCyan.copy(alpha = progressSpec.glowAlpha),
-                                        spotColor = colors.progressCyan.copy(alpha = progressSpec.glowAlpha),
-                                    )
-                                } else {
-                                    Modifier
-                                },
-                            )
                             .clip(progressShape)
                             .background(
                                 Brush.horizontalGradient(
@@ -1228,12 +1208,9 @@ private fun GlowContourLibraryCard(
                         .align(Alignment.BottomEnd)
                         .padding(bottom = 1.dp)
                         .requiredSize(overlaySpec.buttonSizeDp)
-                        .shadow(
-                            elevation = buttonSpec.glowElevation,
-                            shape = CircleShape,
-                            ambientColor = colors.accent.copy(alpha = buttonSpec.glowAlpha),
-                            spotColor = colors.accent.copy(alpha = buttonSpec.glowAlpha),
-                        )
+                        // V7.7 (lo de Nuvio): sin sombra — igual que el
+                        // relleno de progreso: una capa offscreen por
+                        // tarjeta. El degradado + el borde ya dan el brillo.
                         .clip(CircleShape)
                         .background(
                             Brush.linearGradient(
@@ -1418,12 +1395,10 @@ private fun GlowContourStatusJewel(
                 .align(Alignment.BottomEnd)
                 .padding(bottom = 1.dp)
                 .requiredSize(overlaySpec.buttonSizeDp)
-                .shadow(
-                    elevation = buttonSpec.glowElevation,
-                    shape = CircleShape,
-                    ambientColor = colors.accent.copy(alpha = buttonSpec.glowAlpha * alphaMultiplier),
-                    spotColor = colors.accent.copy(alpha = buttonSpec.glowAlpha * alphaMultiplier),
-                )
+                // V7.7 (lo de Nuvio): sin sombra — la joya está en CADA
+                // tarjeta, así que era una capa offscreen por celda en
+                // cada cuadro al hacer scroll. El degradado + el borde
+                // ya dan el brillo.
                 .clip(CircleShape)
                 .background(Brush.linearGradient(colors = jewelBgColors))
                 .border(
