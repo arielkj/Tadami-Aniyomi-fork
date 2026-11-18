@@ -34,6 +34,18 @@ dependencyResolutionManagement {
     repositories {
         mavenCentral()
         google()
+        // FlexibleAdapter: JitPack no longer publishes
+        // com.github.arkon.FlexibleAdapter:flexible-adapter:c8013533
+        // (artifact 404). Local Maven repo with the same coordinates
+        // (AAR built from source at that commit), vendored in
+        // ci-maven-local. Build-only change, not part of the app.
+        maven {
+            name = "FlexibleAdapterLocal"
+            url = uri("ci-maven-local")
+            content {
+                includeModule("com.github.arkon.FlexibleAdapter", "flexible-adapter")
+            }
+        }
         maven(url = "https://www.jitpack.io")
     }
 }
