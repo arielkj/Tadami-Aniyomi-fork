@@ -288,6 +288,8 @@ object SettingsAppearanceScreen : SearchableSettings {
     private fun getNavigationGroup(
         uiPreferences: UiPreferences,
     ): Preference.PreferenceGroup {
+        val capsuleOpacityPref = uiPreferences.auroraCapsuleOpacity()
+        val capsuleOpacity by capsuleOpacityPref.collectAsState()
         return Preference.PreferenceGroup(
             title = stringResource(AYMR.strings.pref_category_navigation),
             preferenceItems = persistentListOf(
@@ -327,6 +329,17 @@ object SettingsAppearanceScreen : SearchableSettings {
                     title = stringResource(AYMR.strings.pref_refresh_rate_mode),
                     subtitle = stringResource(AYMR.strings.pref_refresh_rate_mode_summary),
                     onValueChanged = { true },
+                ),
+                Preference.PreferenceItem.SliderPreference(
+                    value = capsuleOpacity.coerceIn(0, 100),
+                    title = stringResource(AYMR.strings.pref_aurora_capsule_opacity, "$capsuleOpacity%"),
+                    subtitle = stringResource(AYMR.strings.pref_aurora_capsule_opacity_summary),
+                    valueRange = 0..100,
+                    steps = 99,
+                    onValueChanged = {
+                        capsuleOpacityPref.set(it.coerceIn(0, 100))
+                        true
+                    },
                 ),
             ),
         )

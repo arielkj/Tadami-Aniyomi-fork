@@ -93,6 +93,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -1045,8 +1046,18 @@ object HomeScreen : Screen() {
     ) {
         val appHaptics = LocalAppHaptics.current
         val interactionSource = remember { MutableInteractionSource() }
+        // V7.9: opacidad de la cápsula Aurora (Ajustes → Navegación).
+        // 0 = cristal translúcido, 1 = color liso (negro en tema oscuro,
+        // blanco en tema claro). El icono seleccionado pierde contraste
+        // sobre el color liso (el acento turquesa sobre blanco se lee
+        // mal), así que a partir del 50% se funde hacia el texto
+        // principal (claro en tema oscuro, oscuro en tema claro); en
+        // cristal queda el acento actual. Se aplica al instante.
+        val capsuleOpacity by uiPreferences.auroraCapsuleOpacity().collectAsState()
+        val capsuleOpacityF = (capsuleOpacity / 100f).coerceIn(0f, 1f)
         val iconColor = if (selected) {
-            auroraColors.accent
+            val solidFactor = ((capsuleOpacityF - 0.5f) / 0.5f).coerceIn(0f, 1f)
+            lerp(auroraColors.accent, auroraColors.textPrimary, solidFactor)
         } else {
             auroraColors.textSecondary.copy(alpha = if (auroraColors.isDark) 0.72f else 0.78f)
         }
@@ -1117,10 +1128,8 @@ object HomeScreen : Screen() {
                             slidingPillIndex = slidingPillIndex,
                             itemIndex = index,
                             itemWidthPx = itemWidthPx,
-                            accent = auroraColors.accent,
-                            accentVariant = auroraColors.accentVariant,
                             isDark = auroraColors.isDark,
-                            isAmoled = auroraColors.isAmoled,
+                            capsuleOpacity = capsuleOpacityF,
                         )
                         .padding(horizontal = iconBoxHPadding, vertical = 5.dp),
                     contentAlignment = Alignment.Center,
@@ -1440,40 +1449,43 @@ object HomeScreen : Screen() {
     }
 
     /**
-     * Единая плашка активной вкладки: рисуется в координатах иконки каждого
-     * айтема и плавно «переезжает» между ними по горизонтали. Каждый айтем
-     * рисует плашку только пока её центр находится в его зоне
-     * [index - 0.5, index + 0.5), поэтому между соседями нет ни двойной
-     * отрисовки, ни разрыва.
+     * Píldora deslizante Aurora con tono cristal glass (V7.9): el relleno
+     * es cristal translúcido como la barra a opacidad 0 y color liso a
+     * opacidad 1 (negro en tema oscuro, blanco en tema claro). El sólido
+     * se dibuja encima del cristal con alfa = opacidad, así que el paso
+     * de cristal a liso es continuo, sin saltos. SIN hazeBlur en vivo:
+     * la lección de v7.3 — el blur sobre la barra difuminaba todo el
+     * contenido en cada frame al hacer scroll. El borde fino se mantiene
+     * para que la píldora se distinga del cristal de la barra.
+     * La píldora sigue viajando con el tween fijo de 220 ms de v7.7;
+     * aquí solo cambia cómo se ve. Cada ítem dibuja la píldora solo
+     * mientras su centro está en su zona [index - 0.5, index + 0.5),
+     * así que entre vecinos no hay doble dibujo ni huecos.
      */
-    @Composable
     private fun Modifier.auroraSlidingPill(
         slidingPillIndex: Animatable<Float, AnimationVector1D>,
         itemIndex: Int,
         itemWidthPx: State<Float>,
-        accent: Color,
-        accentVariant: Color,
         isDark: Boolean,
-        isAmoled: Boolean = false,
+        capsuleOpacity: Float = 0.4f,
     ): Modifier {
-        val pillBrush = remember(accent, accentVariant, isDark, isAmoled) {
-            if (isAmoled) {
-                // AMOLED: la píldora deslizante es negra sólida con su borde
-                // fino; el tinte del acento la volvía gris.
-                SolidColor(Color.Black)
-            } else {
-                Brush.verticalGradient(
-                    listOf(
-                        if (isDark) accent.copy(alpha = 0.28f) else accent.copy(alpha = 0.18f),
-                        if (isDark) accentVariant.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.78f),
-                    ),
-                )
-            }
+        // Base cristal: como la barra Aurora (#1E1E1E al 82% + velo
+        // blanco del 8% en oscuro; blanco translúcido en claro).
+        val glassBase = if (isDark) {
+            Color(0xFF1E1E1E).copy(alpha = 0.82f)
+        } else {
+            Color.White.copy(alpha = 0.55f)
         }
+        val glassVeil = if (isDark) {
+            Color.White.copy(alpha = 0.08f)
+        } else {
+            Color.White.copy(alpha = 0.25f)
+        }
+        val solidColor = if (isDark) Color.Black else Color.White
         val borderColor = if (isDark) {
             Color.White.copy(alpha = 0.12f)
         } else {
-            accent.copy(alpha = 0.16f)
+            Color.Black.copy(alpha = 0.12f)
         }
         return this.drawBehind {
             val delta = slidingPillIndex.value - itemIndex
@@ -1481,11 +1493,25 @@ object HomeScreen : Screen() {
             val corner = CornerRadius(size.height / 2f, size.height / 2f)
             val topLeft = Offset(delta * itemWidthPx.value, 0f)
             drawRoundRect(
-                brush = pillBrush,
+                color = glassBase,
                 topLeft = topLeft,
                 size = size,
                 cornerRadius = corner,
             )
+            drawRoundRect(
+                color = glassVeil,
+                topLeft = topLeft,
+                size = size,
+                cornerRadius = corner,
+            )
+            if (capsuleOpacity > 0f) {
+                drawRoundRect(
+                    color = solidColor.copy(alpha = capsuleOpacity),
+                    topLeft = topLeft,
+                    size = size,
+                    cornerRadius = corner,
+                )
+            }
             drawRoundRect(
                 color = borderColor,
                 topLeft = topLeft,
@@ -1702,8 +1728,13 @@ object HomeScreen : Screen() {
     ) {
         val appHaptics = LocalAppHaptics.current
         val interactionSource = remember { MutableInteractionSource() }
+        // V7.9: igual que la barra inferior — la opacidad de la cápsula
+        // (Ajustes → Navegación) y el contraste del icono seleccionado.
+        val capsuleOpacity by uiPreferences.auroraCapsuleOpacity().collectAsState()
+        val capsuleOpacityF = (capsuleOpacity / 100f).coerceIn(0f, 1f)
         val iconColor = if (selected) {
-            auroraColors.accent
+            val solidFactor = ((capsuleOpacityF - 0.5f) / 0.5f).coerceIn(0f, 1f)
+            lerp(auroraColors.accent, auroraColors.textPrimary, solidFactor)
         } else {
             auroraColors.textSecondary.copy(alpha = if (auroraColors.isDark) 0.72f else 0.78f)
         }
@@ -1712,25 +1743,16 @@ object HomeScreen : Screen() {
         } else {
             auroraColors.textSecondary.copy(alpha = if (auroraColors.isDark) 0.82f else 0.88f)
         }
+        // Fondo de la píldora del rail: mismo cristal→liso que la barra
+        // (un solo color interpolado: cristal a 0, liso a 1).
         val iconBackgroundBrush = if (selected) {
-            if (auroraColors.isAmoled) {
-                SolidColor(Color.Black)
+            val glassColor = if (auroraColors.isDark) {
+                Color(0xFF2A2A2A)
             } else {
-                Brush.verticalGradient(
-                    listOf(
-                        if (auroraColors.isDark) {
-                            auroraColors.accent.copy(alpha = 0.28f)
-                        } else {
-                            auroraColors.accent.copy(alpha = 0.18f)
-                        },
-                        if (auroraColors.isDark) {
-                            auroraColors.accentVariant.copy(alpha = 0.18f)
-                        } else {
-                            Color.White.copy(alpha = 0.78f)
-                        },
-                    ),
-                )
+                Color.White.copy(alpha = 0.6f)
             }
+            val solidColor = if (auroraColors.isDark) Color.Black else Color.White
+            SolidColor(lerp(glassColor, solidColor, capsuleOpacityF))
         } else {
             null
         }

@@ -108,6 +108,15 @@ class UiPreferences(
         RefreshRateMode.ADAPTIVE,
     )
 
+    // V7.9: opacidad de la cápsula Aurora (0-100). 40 por defecto: cristal.
+    // 0 = cristal translúcido como la barra; 100 = color liso (negro en
+    // tema oscuro, blanco en tema claro). Se aplica al instante, sin
+    // reinicio; se lee en HomeScreen (AuroraBarItemShell).
+    fun auroraCapsuleOpacity() = preferenceStore.getInt(
+        "aurora_capsule_opacity",
+        40,
+    )
+
     /**
      * Source for external metadata (posters, ratings, type, status).
      * Default is NONE (Off).

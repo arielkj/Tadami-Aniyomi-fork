@@ -1458,6 +1458,8 @@
     <string name="pref_refresh_rate_mode_summary">Adaptive asks for the screen's maximum refresh rate; Standard caps it at 60 Hz. Animations stay short and smooth in both modes.</string>
     <string name="pref_refresh_rate_mode_adaptive">Adaptive (up to 120 Hz)</string>
     <string name="pref_refresh_rate_mode_standard">Standard (60 Hz)</string>
+    <string name="pref_aurora_capsule_opacity">Capsule opacity: %s</string>
+    <string name="pref_aurora_capsule_opacity_summary">Glass at the left, solid color at the right — black in dark theme, white in light theme.</string>
     <string name="pref_default_home_tab_library">Set start screen to Manga Tab</string>
     <string name="default_manga_category">Default manga category</string>
     <string name="default_anime_category">Default anime category</string>
