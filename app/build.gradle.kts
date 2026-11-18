@@ -60,6 +60,15 @@ android {
             isMinifyEnabled = Config.enableCodeShrink
             isShrinkResources = Config.enableCodeShrink
 
+            // SOLO BUILD (prueba release v7.8): mismo sufijo que debug para
+            // que esta release instale ENCIMA de la debug (.localdev) y
+            // conserve la biblioteca; sin esto el paquete seria
+            // com.tadami.aurora y no instalaria sobre la debug (paquete
+            // distinto, biblioteca vacia) ni junto a la Tadami original
+            // (mismo paquete, firma distinta). Quitar al volver a una
+            // release normal.
+            applicationIdSuffix = ".localdev"
+
             proguardFiles("proguard-android-optimize.txt", "proguard-rules.pro")
 
             buildConfigField("String", "BUILD_TIME", "\"${getBuildTime(useLastCommitTime = true)}\"")

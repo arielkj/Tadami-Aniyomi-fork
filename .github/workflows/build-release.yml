@@ -1,0 +1,58 @@
+name: Build release APK (v3)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [tadami-v3]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tadami-v3
+        uses: actions/checkout@v4
+        with:
+          ref: tadami-v3
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # The runner already ships an Android SDK (ANDROID_HOME set). Do NOT use
+      # android-actions/setup-android@v3: it runs `sdkmanager tools`, and the
+      # obsolete "tools" package no longer exists in cmdline-tools 16.0, so
+      # that step fails with exit code 1. NOTE: sdkmanager is NOT on PATH on
+      # the runner; it lives at $ANDROID_HOME/cmdline-tools/latest/bin.
+      - name: Check preinstalled Android SDK
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
+          ls "$ANDROID_HOME/platforms" 2>/dev/null || true
+
+      - name: Install Android SDK packages
+        run: |
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          yes | "$SDKMGR" --licenses
+
+      # Release: R8 corre dentro del daemon Gradle y pesa mas que el dex
+      # de debug (que ya dio OOM con 2g y se arreglo con 4g). Gradle 4g -> 6g;
+      # Kotlin se queda en 8192m (6g + 8g = 14g dentro del runner de 16 GB).
+      - name: Heap sized for the 16 GB runner
+        run: |
+          sed -i 's/-Xmx512m/-Xmx6g/' gradle.properties
+          sed -i 's/-Xmx6656m/-Xmx8192m/' gradle.properties
+          grep -E 'jvmargs' gradle.properties
+
+      - name: Build release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: tadami-release-apks
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 7
