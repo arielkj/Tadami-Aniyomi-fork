@@ -133,6 +133,9 @@ fun DefaultNavigatorScreenTransition(
                     // Dedicated title-screen entrance: Deep Zoom (scale + fade),
                     // only when pushing an entry screen forward and the option
                     // is enabled. Everything else keeps the configured mode.
+                    // V7.6: recorrido limitado (0.95 en vez de 0.90): el zoom
+                    // se ve igual de fluido a 60 Hz y a 120 Hz porque cada
+                    // cuadro mueve menos distancia y no se rompe la animación.
                     titleScreenAnimationEnabled &&
                         isForward &&
                         targetState.isTitleScreen() -> titleScreenDeepZoom()
@@ -170,7 +173,7 @@ private fun AnimatedContentTransitionScope<Screen>.titleScreenDeepZoom(): Conten
             easing = AURORA_EASING,
         ),
     ) + scaleIn(
-        initialScale = 0.90f,
+        initialScale = 0.95f,
         animationSpec = tween(
             durationMillis = TITLE_ZOOM_MS,
             easing = AURORA_EASING,
@@ -200,7 +203,7 @@ private fun AnimatedContentTransitionScope<Screen>.titleScreenZoomOut(): Content
             easing = AURORA_EASING,
         ),
     ) + scaleOut(
-        targetScale = 0.94f,
+        targetScale = 0.97f,
         animationSpec = tween(
             durationMillis = TITLE_ZOOM_EXIT_MS,
             easing = AURORA_EASING,

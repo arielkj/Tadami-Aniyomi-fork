@@ -16,10 +16,14 @@ import androidx.compose.ui.unit.dp
 // V7.3: blur de entrada más corto y suave (antes 650 ms y 24 dp): el
 // desenfoque animado a pantalla completa era de lo más caro al abrir el
 // detalle. Ahora 300 ms y 8 dp.
+// V7.6: cascada más corta para que se vea fluida también a 60 Hz: cada
+// bloque llega antes (paso 50→35 ms, duración 420→320 ms; total
+// 1060→810 ms) y sube menos (14→10 dp). La animación se mantiene,
+// solo recorre menos distancia por cuadro y no se rompe.
 private const val POSTER_BLUR_DURATION_MS = 300
 private const val STAGGER_START_DELAY_MS = 140
-private const val STAGGER_STEP_DELAY_MS = 50
-private const val STAGGER_ITEM_DURATION_MS = 420
+private const val STAGGER_STEP_DELAY_MS = 35
+private const val STAGGER_ITEM_DURATION_MS = 320
 private const val STAGGER_MAX_INDEX = 10
 private val STAGGER_EASING = CubicBezierEasing(0.16f, 1.0f, 0.3f, 1.0f)
 private val POSTER_EASING = CubicBezierEasing(0.16f, 1.0f, 0.3f, 1.0f)
@@ -136,6 +140,6 @@ fun Modifier.titleScreenStagger(
     return graphicsLayer {
         val progress = state.progressFor(index)
         alpha = progress
-        translationY = (1f - progress) * 14.dp.toPx()
+        translationY = (1f - progress) * 10.dp.toPx()
     }
 }

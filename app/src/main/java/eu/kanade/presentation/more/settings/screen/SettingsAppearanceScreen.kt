@@ -38,6 +38,7 @@ import eu.kanade.domain.ui.model.HomeHeroCtaMode
 import eu.kanade.domain.ui.model.HomeHubRecentCardMode
 import eu.kanade.domain.ui.model.NavStyle
 import eu.kanade.domain.ui.model.NavTransitionMode
+import eu.kanade.domain.ui.model.RefreshRateMode
 import eu.kanade.domain.ui.model.StartScreen
 import eu.kanade.domain.ui.model.TabletUiMode
 import eu.kanade.domain.ui.model.ThemeMode
@@ -317,6 +318,15 @@ object SettingsAppearanceScreen : SearchableSettings {
                     ).toImmutableMap(),
                     title = stringResource(AYMR.strings.pref_navigation_transition_mode),
                     subtitle = stringResource(AYMR.strings.pref_navigation_transition_mode_summary),
+                ),
+                Preference.PreferenceItem.ListPreference(
+                    preference = uiPreferences.refreshRateMode(),
+                    entries = RefreshRateMode.entries
+                        .associateWith { stringResource(it.titleRes) }
+                        .toImmutableMap(),
+                    title = stringResource(AYMR.strings.pref_refresh_rate_mode),
+                    subtitle = stringResource(AYMR.strings.pref_refresh_rate_mode_summary),
+                    onValueChanged = { true },
                 ),
             ),
         )

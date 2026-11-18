@@ -580,6 +580,10 @@
     <string name="pref_navigation_transition_mode_auto">Automático</string>
     <string name="pref_navigation_transition_mode_modern">Moderno</string>
     <string name="pref_navigation_transition_mode_legacy">Clásico</string>
+    <string name="pref_refresh_rate_mode">Fluidez de movimientos</string>
+    <string name="pref_refresh_rate_mode_summary">Adaptable pide la tasa máxima de la pantalla; Estándar la limita a 60 Hz. En ambos casos las animaciones son cortas y suaves.</string>
+    <string name="pref_refresh_rate_mode_adaptive">Adaptable (hasta 120 Hz)</string>
+    <string name="pref_refresh_rate_mode_standard">Estándar (60 Hz)</string>
     <string name="pref_navigation_transition_mode">Modo de transición de navegación</string>
     <string name="pref_navigation_transition_mode_summary">El modo automático usa el modo moderno y cambia al clásico cuando se activa el ahorro de batería</string>
     <string name="pref_aurora_customization">Personalización de Aurora</string>

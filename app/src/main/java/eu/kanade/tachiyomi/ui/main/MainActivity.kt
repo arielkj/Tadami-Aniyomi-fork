@@ -72,6 +72,7 @@ import eu.kanade.domain.source.manga.interactor.GetMangaIncognitoState
 import eu.kanade.domain.source.novel.interactor.GetNovelIncognitoState
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.ui.UserProfilePreferences
+import eu.kanade.domain.ui.model.RefreshRateMode
 import eu.kanade.presentation.components.AppStateBanners
 import eu.kanade.presentation.components.DownloadedOnlyBannerBackgroundColor
 import eu.kanade.presentation.components.IncognitoModeBannerBackgroundColor
@@ -238,6 +239,10 @@ class MainActivity : BaseActivity() {
             ) {
                 // PERF: move theme collect inside to lighten root composition on launch
                 val uiPreferences = remember { Injekt.get<UiPreferences>() }
+                // V7.6: aplicar el modo de fluidez en cuanto cambia en
+                // Ajustes, sin reiniciar la app.
+                val refreshRateMode by uiPreferences.refreshRateMode().collectAsStateWithLifecycle()
+                LaunchedEffect(refreshRateMode) { requestRefreshRateMode(refreshRateMode) }
                 val theme by uiPreferences.appTheme().collectAsStateWithLifecycle()
                 val isAurora = theme.isAuroraStyle
 
@@ -552,10 +557,46 @@ class MainActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        // V7.6: aplicar el modo de fluidez guardado (Adaptable / Estándar).
+        requestRefreshRateMode()
         restoreOrientationAfterPlayerExit?.let { orientation ->
             requestedOrientation = orientation
             restoreOrientationAfterPlayerExit = null
         }
+    }
+
+    // V7.6: fluidez de movimientos, como Samsung (Adaptable / Estándar).
+    // La ventana pide la tasa de refresco según la preferencia guardada
+    // (por defecto Adaptable = la máxima del panel; Estándar = 60 Hz).
+    // No-op si el modo pedido ya es el actual, así que nunca cambia de
+    // modo en mitad de un gesto. En e-ink no se pide nada (como el lector).
+    // Si el sistema está en «Estándar» 60 Hz, Samsung puede capar la
+    // petición a 60 Hz: la mejora completa necesita el teléfono en
+    // «Adaptable», pero las animaciones cortas de v7.6 se ven fluidas
+    // también a 60 Hz.
+    private fun requestRefreshRateMode() {
+        requestRefreshRateMode(Injekt.get<UiPreferences>().refreshRateMode().get())
+    }
+
+    private fun requestRefreshRateMode(mode: RefreshRateMode) {
+        if (Injekt.get<UiPreferences>().eInkProfile().get().isEnabled) return
+        val currentDisplay = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            display
+        } else {
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay
+        } ?: return
+        val current = currentDisplay.mode
+        val sameSizeModes = currentDisplay.supportedModes
+            .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+        val target = when (mode) {
+            RefreshRateMode.ADAPTIVE -> sameSizeModes.maxByOrNull { it.refreshRate }
+            RefreshRateMode.STANDARD -> sameSizeModes.minByOrNull {
+                kotlin.math.abs(it.refreshRate - 60f)
+            }
+        } ?: return
+        if (target.modeId == current.modeId) return
+        window.attributes = window.attributes.apply { preferredDisplayModeId = target.modeId }
     }
 
     // The manifest configChanges suppresses rotation recreation,

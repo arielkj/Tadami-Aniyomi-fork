@@ -7,6 +7,7 @@ import eu.kanade.domain.ui.model.EInkThemeMode
 import eu.kanade.domain.ui.model.EpisodeListDensity
 import eu.kanade.domain.ui.model.NavStyle
 import eu.kanade.domain.ui.model.NavTransitionMode
+import eu.kanade.domain.ui.model.RefreshRateMode
 import eu.kanade.domain.ui.model.StartScreen
 import eu.kanade.domain.ui.model.TabletUiMode
 import eu.kanade.domain.ui.model.ThemeMode
@@ -97,6 +98,14 @@ class UiPreferences(
     fun navigationTransitionMode() = preferenceStore.getEnum(
         "navigation_transition_mode",
         NavTransitionMode.MODERN,
+    )
+
+    // V7.6: fluidez de movimientos (Adaptable / Estándar). Por defecto
+    // Adaptable: la ventana pide la tasa máxima del panel. Estándar pide
+    // 60 Hz. Se aplica en MainActivity al reanudar y al cambiar en Ajustes.
+    fun refreshRateMode() = preferenceStore.getEnum(
+        "refresh_rate_mode",
+        RefreshRateMode.ADAPTIVE,
     )
 
     /**
