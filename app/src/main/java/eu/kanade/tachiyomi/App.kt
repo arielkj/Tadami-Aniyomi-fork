@@ -410,8 +410,14 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
                     },
                 ),
             )
+            // V7.8: 4 decodificadores eran el cuello de botella del fling. Con
+            // ~7.400 títulos, un fling largo sale de la caché de memoria y
+            // cada portada nueva hay que decodificarla de disco; 4 hilos
+            // no daban abasto y las portadas llegaban segundos tarde
+            // (tarjetas negras al hacer scroll). 8 hilos en un teléfono
+            // normal vacían la cola ~2x más rápido; en poca RAM se quedan 3.
             decoderCoroutineContext(
-                Dispatchers.IO.limitedParallelism(if (isLowRam || isSmallHeap) 3 else 4),
+                Dispatchers.IO.limitedParallelism(if (isLowRam || isSmallHeap) 3 else 8),
             )
         }
             .build()

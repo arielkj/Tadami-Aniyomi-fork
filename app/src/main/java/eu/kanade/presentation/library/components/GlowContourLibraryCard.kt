@@ -910,6 +910,12 @@ private fun GlowContourLibraryCard(
             )
         }
 
+        // V7.8: un solo clipPath para el póster y su overlay de título. Antes
+        // había dos Box con el mismo clipPath (uno para la portada y otro
+        // para el título): dos pases de recorte por tarjeta en cada cuadro
+        // al hacer scroll, para dibujar exactamente lo mismo. El gradiente
+        // y el título ya viven dentro de la zona del póster, así que el
+        // resultado visual es idéntico con un solo recorte.
         Box(
             modifier = Modifier
                 .matchParentSize()
@@ -960,22 +966,8 @@ private fun GlowContourLibraryCard(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-        }
 
-        if (textSpec?.showTextOverlay == true && title != null) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .drawWithCache {
-                        val zones = cachedGlowContourZonedPaths(size)
-                        val posterClipPath = zones.posterPath
-                        onDrawWithContent {
-                            clipPath(posterClipPath) {
-                                this@onDrawWithContent.drawContent()
-                            }
-                        }
-                    },
-            ) {
+            if (textSpec?.showTextOverlay == true && title != null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -1118,24 +1110,31 @@ private fun GlowContourLibraryCard(
                 },
         )
 
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .drawWithCache {
-                    val carryGlowBrush = Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0f to Color.Transparent,
-                            0.78f to Color.Transparent,
-                            1f to colors.accent.copy(alpha = blendSpec.topCarryGlowAlpha * 0.7f),
-                        ),
-                        startY = 0f,
-                        endY = size.height,
-                    )
-                    onDrawBehind {
-                        drawRect(brush = carryGlowBrush)
-                    }
-                },
-        )
+        // V7.8: en modo rendimiento (bibliotecas de más de 500 títulos, o sea
+        // siempre en este usuario) se salta el brillo inferior: un rectángulo
+        // de gradiente a toda la tarjeta en cada cuadro, por un tinte tenue
+        // (alfa ~0,13) en el borde inferior. El modo rendimiento ya existía
+        // pero solo atenuaba el aura; ahora sí quita trabajo por cuadro.
+        if (!performanceMode) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .drawWithCache {
+                        val carryGlowBrush = Brush.verticalGradient(
+                            colorStops = arrayOf(
+                                0f to Color.Transparent,
+                                0.78f to Color.Transparent,
+                                1f to colors.accent.copy(alpha = blendSpec.topCarryGlowAlpha * 0.7f),
+                            ),
+                            startY = 0f,
+                            endY = size.height,
+                        )
+                        onDrawBehind {
+                            drawRect(brush = carryGlowBrush)
+                        }
+                    },
+            )
+        }
 
         if (progressState.showTrack) {
             val progressSpec = DEFAULT_GLOW_CONTOUR_PROGRESS_LINE_RENDER_SPEC

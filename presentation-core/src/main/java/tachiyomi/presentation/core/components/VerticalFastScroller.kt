@@ -370,11 +370,27 @@ fun VerticalGridFastScroller(
             scrollStateTracker.value = state.isScrollInProgress
 
             val columnCount = slotSizesSums(constraints).size.coerceAtLeast(1)
-            val visibleItems = layoutInfo.visibleItemsInfo.map {
-                FastScrollerItemInfo(
-                    index = it.index,
-                    top = it.offset.y,
-                    size = it.size.height,
+            // V7.8: computeFastScrollerGridProgress solo lee el primer y el
+            // último visible; mapear TODOS los visibles a una lista nueva en
+            // cada cuadro de scroll era asignación basura en el hilo
+            // principal durante el fling. Con solo primero+último el
+            // resultado es idéntico (la función no usa los intermedios).
+            val firstVisibleItem = layoutInfo.visibleItemsInfo.firstOrNull()
+            val lastVisibleItem = layoutInfo.visibleItemsInfo.lastOrNull()
+            val visibleItems = if (firstVisibleItem == null || lastVisibleItem == null) {
+                emptyList()
+            } else {
+                listOf(
+                    FastScrollerItemInfo(
+                        index = firstVisibleItem.index,
+                        top = firstVisibleItem.offset.y,
+                        size = firstVisibleItem.size.height,
+                    ),
+                    FastScrollerItemInfo(
+                        index = lastVisibleItem.index,
+                        top = lastVisibleItem.offset.y,
+                        size = lastVisibleItem.size.height,
+                    ),
                 )
             }
             val gridProgress = computeFastScrollerGridProgress(

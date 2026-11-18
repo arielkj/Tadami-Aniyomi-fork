@@ -250,6 +250,12 @@ class NovelCoverFetcher(
         if (CoverRequestPolicy.isBlacklisted(url.toHttpUrlOrNull()?.host.orEmpty())) {
             throw IOException("Skipped blacklisted cover host: ${url.toHttpUrlOrNull()?.host}")
         }
+        // V7.8: una URL que falló hace menos de 60 s no vuelve a tocar la red
+        // (ver CoverRequestPolicy): sin esto, cada remontaje de la tarjeta
+        // repetía los 2 intentos con sus timeouts y retrasaba las demás.
+        if (CoverRequestPolicy.isUrlRecentlyFailed(url)) {
+            throw IOException("Skipped recently failed cover url")
+        }
         var lastException: IOException? = null
         repeat(COVER_NETWORK_ATTEMPTS) { attempt ->
             val pluginHeaders = pluginHeadersProvider()
@@ -280,11 +286,14 @@ class NovelCoverFetcher(
                 // HTTP errors are not retried here.
                 if (!response.isSuccessful && response.code != HTTP_NOT_MODIFIED) {
                     response.close()
+                    CoverRequestPolicy.recordUrlFailure(url)
                     throw IOException("HTTP ${response.code}: ${response.message.ifBlank { "No response message" }}")
                 }
+                CoverRequestPolicy.clearUrlFailure(url)
                 return response
             }
         }
+        CoverRequestPolicy.recordUrlFailure(url)
         throw lastException ?: IOException("Failed to fetch cover")
     }
 

@@ -80,7 +80,44 @@ object CoverRequestPolicy {
         }
     }
 
+    // V7.8: caché negativa por URL con TTL corto. El interceptor no registra
+    // IOExceptions (son transitorias) y Coil no cachea fallos, así que una
+    // portada con el host caído o la URL muerta repetía 2 intentos de red
+    // (hasta 25 s de timeout cada uno + 500 ms de espera) CADA VEZ que su
+    // tarjeta entraba en pantalla al hacer scroll, ocupando los hilos
+    // fetcher y retrasando las portadas buenas. Con esto, una URL que falla
+    // no vuelve a tocar la red durante 60 s; pasado el TTL se reintenta
+    // sola, y un éxito la desbloquea al instante. No afecta a las portadas
+    // que ya están en caché (archivo o disco): esas nunca llegan aquí.
+    private const val URL_FAILURE_TTL_MS = 60_000L
+    private const val URL_FAILURE_MAX_ENTRIES = 512
+
+    private val urlFailures = ConcurrentHashMap<String, Long>()
+
+    fun isUrlRecentlyFailed(url: String): Boolean {
+        val at = urlFailures[url] ?: return false
+        if (System.currentTimeMillis() - at > URL_FAILURE_TTL_MS) {
+            urlFailures.remove(url, at)
+            return false
+        }
+        return true
+    }
+
+    fun recordUrlFailure(url: String) {
+        if (urlFailures.size >= URL_FAILURE_MAX_ENTRIES) {
+            val now = System.currentTimeMillis()
+            urlFailures.entries.removeIf { now - it.value > URL_FAILURE_TTL_MS }
+            if (urlFailures.size >= URL_FAILURE_MAX_ENTRIES) urlFailures.clear()
+        }
+        urlFailures[url] = System.currentTimeMillis()
+    }
+
+    fun clearUrlFailure(url: String) {
+        urlFailures.remove(url)
+    }
+
     fun resetForTests() {
         clearAll()
+        urlFailures.clear()
     }
 }
