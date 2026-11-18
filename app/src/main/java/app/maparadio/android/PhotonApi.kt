@@ -29,9 +29,10 @@ object PhotonApi {
 
     fun search(query: String, lat: Double, lon: Double, limit: Int = 8): List<SearchResult> {
         val q = URLEncoder.encode(query, "UTF-8")
-        val url = "$BASE/api/?q=$q&lat=$lat&lon=$lon&limit=$limit"
+        // countrycode=DO: el buscador es SOLO Republica Dominicana (v1.2).
+        val url = "$BASE/api/?q=$q&lat=$lat&lon=$lon&limit=$limit&countrycode=DO"
         val req = Request.Builder().url(url)
-            .header("User-Agent", "MapaRadio/1.0-test")
+            .header("User-Agent", "MapaRadio/1.2-test")
             .build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return emptyList()
@@ -67,6 +68,12 @@ object PhotonApi {
             val geom = f.optJSONObject("geometry")?.optJSONArray("coordinates") ?: continue
             val lon = geom.optDouble(0)
             val lat = geom.optDouble(1)
+            // Red de seguridad (v1.2): aunque Photon ya filtra con
+            // countrycode=DO, aqui se descarta todo lo que caiga fuera
+            // del cuadro de RD o cuyo pais no sea DO.
+            val country = props.optString("countrycode")
+            if (country.isNotEmpty() && country != "DO") continue
+            if (lat !in 17.5..19.9 || lon !in -72.0..-68.6) continue
             val street = props.optString("street").takeIf { it.isNotEmpty() }
             val city = props.optString("city").takeIf { it.isNotEmpty() }
                 ?: props.optString("locality").takeIf { it.isNotEmpty() }

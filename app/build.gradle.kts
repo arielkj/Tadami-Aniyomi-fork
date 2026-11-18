@@ -11,8 +11,8 @@ android {
         applicationId = "app.maparadio.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1-test"
+        versionCode = 3
+        versionName = "1.2-test"
 
         // v1 de prueba: solo arm64 (telefono del usuario). La version del
         // radio usara armeabi-v7a.
@@ -58,4 +58,7 @@ dependencies {
     // OkHttp viene como dependencia transitiva de MapLibre; se declara
     // explicito para usarlo en OSRM y Photon.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Ubicacion precisa: FusedLocationProvider (GPS+WiFi+celda) como
+    // fuente principal en v1.2; LocationManager queda de fallback.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 }

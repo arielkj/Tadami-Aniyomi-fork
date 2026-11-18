@@ -49,3 +49,24 @@ GitHub Actions (`.github/workflows/build-mapa.yml`): push a la rama
 Firma: `~/workspace/mapa-radio.keystore` (alias `androiddebugkey`). TODAS
 las versiones futuras deben firmarse con ese keystore para instalar
 encima de la anterior.
+
+## v1.2 (en construcción)
+
+- Ajustes (engranaje): modo Oscuro / Claro / Automático (guardado, el
+  botón rápido de día/noche fija el modo explícito); descarga y
+  actualización del mapa offline de RD (OfflineManager, dos regiones
+  dark+liberty, zoom 6–14, límite de tiles subido a 200.000) con progreso,
+  tamaño y borrado.
+- Botón de centrar (mira): fix fresco y preciso (≤30 m) con timeout de 8 s.
+- Iconos más pequeños (botones 40dp, antes 56dp), barra de búsqueda más
+  fina, panel de guía compacto y favoritos minimalistas de una línea.
+- Mini-reproductor: lee TODAS las sesiones activas vía
+  NotificationListenerService + MediaSessionManager (Spotify, YouTube
+  Music, ViTune…), con anterior / play-pausa / siguiente y cambio de
+  reproductor; en Ajustes se explica y se abre el acceso a notificaciones.
+- Ubicación precisa: FusedLocationProvider (GPS+WiFi+celda) como fuente
+  principal; solo se mueve el carro con fix ≤25 m (gracia de 10 s y
+  tope de salto de 150 m para fixes de 25–60 m); nunca fixes viejos
+  (>30 s) ni peores de 60 m; LocationManager solo de fallback.
+- Búsqueda solo República Dominicana: Photon con countrycode=DO más
+  filtro en cliente por cuadro de RD (lat 17.5–19.9, lon -72.0 a -68.6).

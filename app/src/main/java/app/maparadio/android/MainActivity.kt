@@ -2,7 +2,9 @@ package app.maparadio.android
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -11,9 +13,11 @@ import android.graphics.RectF
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -24,17 +28,31 @@ import android.widget.BaseAdapter
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ListView
+import android.widget.PopupMenu
+import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.mapbox.mapboxsdk.Mapbox
@@ -54,17 +72,25 @@ import com.mapbox.geojson.Feature
 import com.mapbox.geojson.FeatureCollection
 import com.mapbox.geojson.LineString
 import com.mapbox.geojson.Point
+import android.media.session.MediaSessionManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * Mapa Radio v1 (prueba en el telefono).
+ * Mapa Radio v1.2 (prueba en el telefono).
  *
  * Diseno del mockup v2: mapa oscuro estilo Tesla, ruta azul, carro blanco
  * centrado, velocidad arriba a la izquierda con la busqueda ENCIMA de ella,
  * panel de guia a un lado que crece cerca del giro, controles a la derecha
- * (brujula, dia/noche, zoom +/-), barra inferior con lugares guardados.
+ * (ajustes, brujula, centrar, dia/noche, zoom +/-), barra inferior con
+ * lugares guardados.
+ *
+ * v1.2 anade: Ajustes (modo oscuro/claro/automatico + descarga y
+ * actualizacion del mapa offline de RD), boton de centrar, iconos mas
+ * pequenos y favoritos minimalistas, mini-reproductor de musica que lee
+ * TODOS los reproductores con sesion activa, ubicacion precisa con
+ * FusedLocationProvider y buscador solo de Republica Dominicana.
  *
  * Pegado a la calle (snap-to-road): con ruta activa el carro se dibuja
  * SOBRE la polilinea de la ruta (el GPS solo mide el avance); sin ruta se
@@ -80,6 +106,15 @@ class MainActivity : AppCompatActivity() {
         private const val REQ_LOCATION = 1
         private const val OFF_ROUTE_METERS = 60.0
         private const val MANUAL_ZOOM_MS = 20_000L
+        // Umbrales de precision de ubicacion (v1.2).
+        private const val GOOD_ACCURACY_M = 25f
+        private const val MAX_ACCURACY_M = 60f
+        private const val CENTER_ACCURACY_M = 30f
+        private const val GOOD_FIX_GRACE_MS = 10_000L
+        private const val STALE_FIX_MS = 30_000L
+        private const val LAST_KNOWN_MAX_AGE_MS = 120_000L
+        private const val MAX_JUMP_M = 150.0
+        private const val CENTER_TIMEOUT_MS = 8_000L
     }
 
     private lateinit var mapView: MapView
@@ -101,22 +136,52 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pointSub: TextView
     private lateinit var btnDayNight: ImageButton
 
+    // Ajustes (v1.2)
+    private lateinit var settingsPanel: ScrollView
+    private lateinit var modeDark: TextView
+    private lateinit var modeLight: TextView
+    private lateinit var modeAuto: TextView
+    private lateinit var offlineStatus: TextView
+    private lateinit var offlineProgress: ProgressBar
+    private lateinit var btnDownloadMap: TextView
+    private lateinit var btnUpdateMap: TextView
+    private lateinit var btnDeleteMap: TextView
+    private lateinit var musicPermStatus: TextView
+    private lateinit var btnMusicPerm: TextView
+
+    // Musica (v1.2)
+    private lateinit var musicBar: LinearLayout
+    private lateinit var musicPlayerChip: TextView
+    private lateinit var musicTitle: TextView
+    private lateinit var musicPlayPause: ImageButton
+    private var currentPlayer: PlayerInfo? = null
+    private var selectedPlayerPkg: String? = null
+    private var musicJob: Job? = null
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var searchJob: Job? = null
 
     private var locationManager: LocationManager? = null
+    private var fusedClient: FusedLocationProviderClient? = null
+    private var fusedCallback: LocationCallback? = null
+    private var locationStarted = false
     private var lastLocation: Location? = null
     private var lastCarPos: LatLng? = null
     private var lastBearing = 0.0
     private var lastSpeedMps = 0.0
+    private var hasGoodFix = false
+    private var firstFixRequestAt = 0L
+    private var centering = false
+    private var centerTimeoutJob: Job? = null
 
+    private var mode = AppPrefs.MODE_DARK
     private var followMode = true
     private var headingUp = true
-    private var isNight = true
     private var simplified = false
     private var manualZoomUntil = 0L
     private var lastZoomBand = -1
     private var guidanceExpanded = false
+    private var offlineDownloading = false
 
     private var route: Route? = null
     private var routeIndex = 0
@@ -136,6 +201,9 @@ class MainActivity : AppCompatActivity() {
             onNewFix(location)
         }
     }
+
+    private val sessionsListener =
+        MediaSessionManager.OnActiveSessionsChangedListener { refreshMusic() }
 
     // ------------------------------------------------------------------ ciclo
 
@@ -164,7 +232,27 @@ class MainActivity : AppCompatActivity() {
         pointSub = findViewById(R.id.pointSub)
         btnDayNight = findViewById(R.id.btnDayNight)
 
+        settingsPanel = findViewById(R.id.settingsPanel)
+        modeDark = findViewById(R.id.modeDark)
+        modeLight = findViewById(R.id.modeLight)
+        modeAuto = findViewById(R.id.modeAuto)
+        offlineStatus = findViewById(R.id.offlineStatus)
+        offlineProgress = findViewById(R.id.offlineProgress)
+        btnDownloadMap = findViewById(R.id.btnDownloadMap)
+        btnUpdateMap = findViewById(R.id.btnUpdateMap)
+        btnDeleteMap = findViewById(R.id.btnDeleteMap)
+        musicPermStatus = findViewById(R.id.musicPermStatus)
+        btnMusicPerm = findViewById(R.id.btnMusicPerm)
+
+        musicBar = findViewById(R.id.musicBar)
+        musicPlayerChip = findViewById(R.id.musicPlayerChip)
+        musicTitle = findViewById(R.id.musicTitle)
+        musicPlayPause = findViewById(R.id.musicPlayPause)
+
+        findViewById<ImageButton>(R.id.btnSettings).setOnClickListener { toggleSettings() }
+        findViewById<ImageButton>(R.id.btnCloseSettings).setOnClickListener { hideSettings() }
         findViewById<ImageButton>(R.id.btnCompass).setOnClickListener { onCompass() }
+        findViewById<ImageButton>(R.id.btnCenter).setOnClickListener { onCenter() }
         btnDayNight.setOnClickListener { onDayNight() }
         findViewById<ImageButton>(R.id.btnZoomIn).setOnClickListener { onZoomButton(1.0) }
         findViewById<ImageButton>(R.id.btnZoomOut).setOnClickListener { onZoomButton(-1.0) }
@@ -172,6 +260,19 @@ class MainActivity : AppCompatActivity() {
         btnCancelRoute.setOnClickListener { cancelRoute() }
         findViewById<TextView>(R.id.btnGo).setOnClickListener { onGoToPoint() }
         findViewById<TextView>(R.id.btnSavePoint).setOnClickListener { onSavePoint() }
+
+        modeDark.setOnClickListener { setMode(AppPrefs.MODE_DARK) }
+        modeLight.setOnClickListener { setMode(AppPrefs.MODE_LIGHT) }
+        modeAuto.setOnClickListener { setMode(AppPrefs.MODE_AUTO) }
+        btnDownloadMap.setOnClickListener { startOfflineDownload() }
+        btnUpdateMap.setOnClickListener { startOfflineDownload() }
+        btnDeleteMap.setOnClickListener { deleteOfflineMap() }
+        btnMusicPerm.setOnClickListener { MusicController.openAccessSettings(this) }
+
+        musicPlayerChip.setOnClickListener { showPlayerSwitcher() }
+        musicPlayPause.setOnClickListener { currentPlayer?.let { MusicController.togglePlayPause(it) }; refreshMusic() }
+        findViewById<ImageButton>(R.id.musicPrev).setOnClickListener { currentPlayer?.let { MusicController.skipPrevious(it) }; refreshMusic() }
+        findViewById<ImageButton>(R.id.musicNext).setOnClickListener { currentPlayer?.let { MusicController.skipNext(it) }; refreshMusic() }
 
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -207,7 +308,7 @@ class MainActivity : AppCompatActivity() {
                     followMode = false
                 }
             }
-            loadStyle(if (isNight) STYLE_DARK else STYLE_LIGHT)
+            loadStyle(styleUrlForMode())
             mapLibreMap.animateCamera(
                 CameraUpdateFactory.newCameraPosition(
                     com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
@@ -215,6 +316,19 @@ class MainActivity : AppCompatActivity() {
                 ),
                 1,
             )
+        }
+
+        // Modo guardado (oscuro por defecto). Si cambia respecto al
+        // supuesto inicial, se recarga el estilo.
+        scope.launch {
+            val saved = AppPrefs.loadMode(this@MainActivity)
+            if (saved != mode) {
+                mode = saved
+                applyModeToUi()
+                map?.let { loadStyle(styleUrlForMode()) }
+            } else {
+                applyModeToUi()
+            }
         }
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -292,52 +406,170 @@ class MainActivity : AppCompatActivity() {
         return bmp
     }
 
+    // ------------------------------------------------------------- modo
+
+    private fun isNightNow(): Boolean {
+        return when (mode) {
+            AppPrefs.MODE_DARK -> true
+            AppPrefs.MODE_LIGHT -> false
+            else -> {
+                val night = resources.configuration.uiMode and
+                    Configuration.UI_MODE_NIGHT_MASK
+                night == Configuration.UI_MODE_NIGHT_YES
+            }
+        }
+    }
+
+    private fun styleUrlForMode(): String =
+        if (isNightNow()) STYLE_DARK else STYLE_LIGHT
+
+    private fun applyModeToUi() {
+        val night = isNightNow()
+        btnDayNight.setImageResource(if (night) R.drawable.ic_day else R.drawable.ic_night)
+        modeDark.setBackgroundResource(
+            if (mode == AppPrefs.MODE_DARK) R.drawable.bg_chip_selected else R.drawable.bg_chip
+        )
+        modeLight.setBackgroundResource(
+            if (mode == AppPrefs.MODE_LIGHT) R.drawable.bg_chip_selected else R.drawable.bg_chip
+        )
+        modeAuto.setBackgroundResource(
+            if (mode == AppPrefs.MODE_AUTO) R.drawable.bg_chip_selected else R.drawable.bg_chip
+        )
+    }
+
+    private fun setMode(newMode: String) {
+        if (newMode == mode) return
+        mode = newMode
+        applyModeToUi()
+        scope.launch { AppPrefs.saveMode(this@MainActivity, newMode) }
+        loadStyle(styleUrlForMode())
+    }
+
     // ------------------------------------------------------------- ubicacion
 
-    private fun ensureLocationPermission() {
-        val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-        if (fine == PackageManager.PERMISSION_GRANTED) {
-            startLocation()
-        } else {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                ),
-                REQ_LOCATION,
-            )
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun fusedAvailable(): Boolean {
+        return try {
+            GoogleApiAvailability.getInstance()
+                .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS
+        } catch (_: Exception) {
+            false
         }
+    }
+
+    private fun ensureLocationPermission() {
+        if (hasLocationPermission()) {
+            startLocation()
+            return
+        }
+        if (ActivityCompat.shouldShowRequestPermissionRationale(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        ) {
+            Toast.makeText(this, R.string.location_perm_needed, Toast.LENGTH_LONG).show()
+        }
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+            REQ_LOCATION,
+        )
     }
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_LOCATION &&
-            grantResults.isNotEmpty() &&
+        if (requestCode != REQ_LOCATION) return
+        if (grantResults.isNotEmpty() &&
             grantResults[0] == PackageManager.PERMISSION_GRANTED
         ) {
             startLocation()
+        } else if (!ActivityCompat.shouldShowRequestPermissionRationale(
+                this, Manifest.permission.ACCESS_FINE_LOCATION
+            )
+        ) {
+            // Negado para siempre: no quedarse en silencio; mandar a Ajustes.
+            Toast.makeText(this, R.string.location_perm_settings, Toast.LENGTH_LONG).show()
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", packageName, null),
+                )
+            )
         } else {
             Toast.makeText(this, R.string.location_denied, Toast.LENGTH_LONG).show()
         }
     }
 
+    /**
+     * Fuente principal: FusedLocationProvider (GPS+WiFi+celda, fix mas
+     * rapido y preciso). LocationManager queda solo de fallback si Play
+     * Services no esta disponible.
+     */
     private fun startLocation() {
+        if (locationStarted) return
+        if (!hasLocationPermission()) return
+        firstFixRequestAt = SystemClock.elapsedRealtime()
+        hasGoodFix = false
+        if (fusedAvailable()) {
+            val client = LocationServices.getFusedLocationProviderClient(this)
+            fusedClient = client
+            val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
+                .setMinUpdateIntervalMillis(500L)
+                .build()
+            val callback = object : LocationCallback() {
+                override fun onLocationResult(result: LocationResult) {
+                    result.lastLocation?.let { onNewFix(it) }
+                }
+            }
+            fusedCallback = callback
+            try {
+                client.requestLocationUpdates(request, callback, Looper.getMainLooper())
+                client.lastLocation.addOnSuccessListener { loc ->
+                    if (loc != null) {
+                        val age = System.currentTimeMillis() - loc.time
+                        if (age < LAST_KNOWN_MAX_AGE_MS &&
+                            loc.accuracy > 0f && loc.accuracy <= GOOD_ACCURACY_M
+                        ) {
+                            onNewFix(loc)
+                        }
+                    }
+                }
+                locationStarted = true
+            } catch (_: SecurityException) {
+                // Sin permiso: el mapa sigue usable centrado en Santo Domingo.
+            }
+        } else {
+            startLocationManagerFallback()
+        }
+    }
+
+    private fun startLocationManagerFallback() {
         val lm = locationManager ?: return
         try {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED
-            ) return
             lm.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER, 1000L, 0f, locationListener, Looper.getMainLooper()
             )
             lm.requestLocationUpdates(
                 LocationManager.NETWORK_PROVIDER, 2000L, 0f, locationListener, Looper.getMainLooper()
             )
-            lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let { onNewFix(it) }
-                ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)?.let { onNewFix(it) }
+            val last = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            if (last != null) {
+                val age = System.currentTimeMillis() - last.time
+                if (age < LAST_KNOWN_MAX_AGE_MS &&
+                    last.accuracy > 0f && last.accuracy <= GOOD_ACCURACY_M
+                ) {
+                    onNewFix(last)
+                }
+            }
+            locationStarted = true
         } catch (_: SecurityException) {
             // Sin permiso: el mapa sigue usable centrado en Santo Domingo.
         } catch (_: IllegalArgumentException) {
@@ -346,7 +578,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onNewFix(location: Location) {
-        if (location.accuracy > 60f) return // GPS muy impreciso: ignorar.
+        // --- Filtro de calidad (v1.2): el carro NUNCA se mueve con un
+        // fix malo, viejo o impreciso.
+        val ageMs = System.currentTimeMillis() - location.time
+        if (ageMs > STALE_FIX_MS) return // fix viejo: ignorar
+        val acc = location.accuracy
+        if (acc <= 0f || acc > MAX_ACCURACY_M) return // sin precision o peor de 60 m
+        if (acc > GOOD_ACCURACY_M) {
+            // Fix mediocre (25-60 m): solo se acepta si no teletransporta
+            // el carro, y si todavia no hubo un fix bueno, solo despues
+            // de 10 s de gracia esperando uno mejor.
+            if (!hasGoodFix &&
+                SystemClock.elapsedRealtime() - firstFixRequestAt < GOOD_FIX_GRACE_MS
+            ) {
+                return
+            }
+            val last = lastCarPos
+            if (last != null) {
+                val jump = RouteEngine.metersBetween(
+                    last, LatLng(location.latitude, location.longitude)
+                )
+                if (jump > MAX_JUMP_M) return
+            }
+        } else {
+            hasGoodFix = true
+        }
+
+        // Si se esta centrando, este fix bueno es el que manda.
+        if (centering && acc <= CENTER_ACCURACY_M) {
+            centerTimeoutJob?.cancel()
+            centering = false
+            centerOn(location)
+        }
+
         val pos = LatLng(location.latitude, location.longitude)
         val prev = lastLocation
         val speedMps = when {
@@ -413,6 +677,67 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ------------------------------------------------------------- centrar
+
+    private fun onCenter() {
+        if (!hasLocationPermission()) {
+            ensureLocationPermission()
+            return
+        }
+        centering = true
+        followMode = true
+        statusText.setText(R.string.centering)
+        // Pedir un fix fresco y preciso; si no llega, lo cubren las
+        // actualizaciones continuas y el timeout avisa.
+        if (fusedAvailable()) {
+            val client = fusedClient ?: LocationServices.getFusedLocationProviderClient(this)
+            fusedClient = client
+            try {
+                val source = CancellationTokenSource()
+                client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, source.token)
+                    .addOnSuccessListener { loc ->
+                        if (loc != null && centering) {
+                            val age = System.currentTimeMillis() - loc.time
+                            if (age <= STALE_FIX_MS && loc.accuracy > 0f &&
+                                loc.accuracy <= CENTER_ACCURACY_M
+                            ) {
+                                centerTimeoutJob?.cancel()
+                                centering = false
+                                centerOn(loc)
+                            }
+                        }
+                    }
+            } catch (_: SecurityException) {
+            }
+        }
+        centerTimeoutJob?.cancel()
+        centerTimeoutJob = scope.launch {
+            delay(CENTER_TIMEOUT_MS)
+            if (centering) {
+                centering = false
+                Toast.makeText(this@MainActivity, R.string.center_failed, Toast.LENGTH_LONG).show()
+                refreshOfflineStatusText()
+            }
+        }
+    }
+
+    private fun centerOn(location: Location) {
+        val pos = LatLng(location.latitude, location.longitude)
+        lastCarPos = pos
+        lastLocation = location
+        updateCarMarker()
+        map?.animateCamera(
+            CameraUpdateFactory.newCameraPosition(
+                com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
+                    .target(pos).zoom(16.0).tilt(45.0)
+                    .bearing(if (headingUp) lastBearing else 0.0).build()
+            ),
+            700,
+        )
+        Toast.makeText(this, R.string.centered, Toast.LENGTH_SHORT).show()
+        refreshOfflineStatusText()
+    }
+
     // ------------------------------------------------------------- guia
 
     private fun updateGuidance(progressMeters: Double) {
@@ -443,10 +768,10 @@ class MainActivity : AppCompatActivity() {
     private fun setGuidanceExpanded(expanded: Boolean) {
         if (expanded == guidanceExpanded) return
         guidanceExpanded = expanded
-        maneuverTitle.textSize = if (expanded) 24f else 18f
-        maneuverStreet.textSize = if (expanded) 17f else 15f
+        maneuverTitle.textSize = if (expanded) 22f else 17f
+        maneuverStreet.textSize = if (expanded) 16f else 14f
         val arrowLp = maneuverArrow.layoutParams
-        val size = (if (expanded) 56 else 40) * resources.displayMetrics.density
+        val size = (if (expanded) 44 else 32) * resources.displayMetrics.density
         arrowLp.width = size.toInt()
         arrowLp.height = size.toInt()
         maneuverArrow.layoutParams = arrowLp
@@ -545,7 +870,7 @@ class MainActivity : AppCompatActivity() {
             }
             if (newRoute == null) {
                 Toast.makeText(this@MainActivity, R.string.no_route, Toast.LENGTH_LONG).show()
-                statusText.setText(R.string.offline_status)
+                refreshOfflineStatusText()
                 return@launch
             }
             route = newRoute
@@ -587,7 +912,7 @@ class MainActivity : AppCompatActivity() {
         setSimplified(false)
         destSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         redrawRoute()
-        statusText.setText(R.string.offline_status)
+        refreshOfflineStatusText()
     }
 
     // ------------------------------------------------------------- controles
@@ -604,9 +929,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onDayNight() {
-        isNight = !isNight
-        btnDayNight.setImageResource(if (isNight) R.drawable.ic_day else R.drawable.ic_night)
-        loadStyle(if (isNight) STYLE_DARK else STYLE_LIGHT)
+        // El boton rapido fija el modo explicito (el selector de Ajustes
+        // sigue siendo el control principal).
+        setMode(if (isNightNow()) AppPrefs.MODE_LIGHT else AppPrefs.MODE_DARK)
     }
 
     private fun onZoomButton(delta: Double) {
@@ -662,6 +987,204 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this@MainActivity, R.string.saved, Toast.LENGTH_SHORT).show()
         }
         pointCard.visibility = View.GONE
+    }
+
+    // ------------------------------------------------------------- ajustes
+
+    private fun toggleSettings() {
+        if (settingsPanel.visibility == View.VISIBLE) {
+            hideSettings()
+        } else {
+            hideOverlays()
+            settingsPanel.visibility = View.VISIBLE
+            refreshSettingsPanel()
+        }
+    }
+
+    private fun hideSettings() {
+        settingsPanel.visibility = View.GONE
+    }
+
+    private fun refreshSettingsPanel() {
+        applyModeToUi()
+        musicPermStatus.text = getString(
+            if (MusicController.hasAccess(this)) R.string.music_perm_on
+            else R.string.music_perm_off
+        )
+        btnMusicPerm.text = getString(
+            if (MusicController.hasAccess(this)) R.string.music_perm_on
+            else R.string.music_perm_allow
+        )
+        refreshOfflineStatus()
+    }
+
+    private fun refreshOfflineStatus() {
+        if (offlineDownloading) return
+        OfflineMapManager.queryStatus(this) { infos ->
+            runOnUiThread {
+                if (infos.isEmpty()) {
+                    offlineStatus.setText(R.string.offline_not_downloaded)
+                } else {
+                    val size = infos.sumOf { it.sizeBytes }
+                    val complete = infos.size == 2 && infos.all { it.complete }
+                    offlineStatus.text = if (complete) {
+                        getString(
+                            R.string.offline_downloaded,
+                            OfflineMapManager.formatSize(size),
+                        )
+                    } else {
+                        getString(R.string.offline_incomplete)
+                    }
+                }
+            }
+        }
+    }
+
+    /** Texto de la barra inferior segun si el mapa offline existe. */
+    private fun refreshOfflineStatusText() {
+        if (route != null || centering) return
+        OfflineMapManager.queryStatus(this) { infos ->
+            runOnUiThread {
+                if (infos.size == 2 && infos.all { it.complete }) {
+                    val size = infos.sumOf { it.sizeBytes }
+                    statusText.text = getString(R.string.offline_ready) +
+                        " • " + OfflineMapManager.formatSize(size)
+                } else {
+                    statusText.setText(R.string.offline_status)
+                }
+            }
+        }
+    }
+
+    private fun startOfflineDownload() {
+        if (offlineDownloading) return
+        offlineDownloading = true
+        offlineStatus.setText(R.string.offline_needs_wifi)
+        offlineProgress.visibility = View.VISIBLE
+        offlineProgress.progress = 0
+        setOfflineButtonsEnabled(false)
+        OfflineMapManager.downloadAll(
+            this, STYLE_DARK, STYLE_LIGHT,
+            onProgress = { frac, bytes ->
+                runOnUiThread {
+                    offlineProgress.progress = (frac * 100).toInt()
+                    offlineStatus.text = getString(
+                        R.string.offline_downloading,
+                        (frac * 100).toInt(),
+                        OfflineMapManager.formatSize(bytes),
+                    )
+                }
+            },
+            onDone = { ok, error ->
+                runOnUiThread {
+                    offlineDownloading = false
+                    offlineProgress.visibility = View.GONE
+                    setOfflineButtonsEnabled(true)
+                    if (ok) {
+                        Toast.makeText(this, R.string.offline_ready, Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(
+                            this,
+                            getString(R.string.offline_error) +
+                                (error?.let { ": $it" } ?: ""),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    refreshOfflineStatus()
+                    refreshOfflineStatusText()
+                }
+            },
+        )
+    }
+
+    private fun deleteOfflineMap() {
+        if (offlineDownloading) return
+        OfflineMapManager.deleteAll(this) {
+            runOnUiThread {
+                Toast.makeText(this, R.string.offline_deleted, Toast.LENGTH_SHORT).show()
+                refreshOfflineStatus()
+                refreshOfflineStatusText()
+            }
+        }
+    }
+
+    private fun setOfflineButtonsEnabled(enabled: Boolean) {
+        btnDownloadMap.isEnabled = enabled
+        btnUpdateMap.isEnabled = enabled
+        btnDeleteMap.isEnabled = enabled
+        val alpha = if (enabled) 1f else 0.4f
+        btnDownloadMap.alpha = alpha
+        btnUpdateMap.alpha = alpha
+        btnDeleteMap.alpha = alpha
+    }
+
+    // ------------------------------------------------------------- musica
+
+    private fun refreshMusic() {
+        val players = MusicController.activePlayers(this)
+        if (players.isEmpty()) {
+            currentPlayer = null
+            musicBar.visibility = View.GONE
+            return
+        }
+        val current = players.find { it.packageName == selectedPlayerPkg } ?: players.first()
+        if (players.none { it.packageName == selectedPlayerPkg }) {
+            selectedPlayerPkg = current.packageName
+        }
+        currentPlayer = current
+        musicBar.visibility = View.VISIBLE
+        musicPlayerChip.text = current.appName + " ▾"
+        musicTitle.text = if (current.title == getString(R.string.music_no_player)) {
+            current.title
+        } else {
+            current.title + " — " + current.artist
+        }
+        musicPlayPause.setImageResource(
+            if (current.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+        )
+    }
+
+    private fun showPlayerSwitcher() {
+        val players = MusicController.activePlayers(this)
+        if (players.isEmpty()) return
+        val popup = PopupMenu(this, musicPlayerChip)
+        for ((index, player) in players.withIndex()) {
+            popup.menu.add(0, index, 0, player.appName)
+        }
+        popup.setOnMenuItemClickListener { item ->
+            selectedPlayerPkg = players[item.itemId].packageName
+            refreshMusic()
+            true
+        }
+        popup.show()
+    }
+
+    private fun startMusicUpdates() {
+        try {
+            val msm = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            msm.addOnActiveSessionsChangedListener(
+                sessionsListener,
+                android.content.ComponentName(this, MusicListenerService::class.java),
+            )
+        } catch (_: Exception) {
+        }
+        musicJob?.cancel()
+        musicJob = scope.launch {
+            while (isActive) {
+                refreshMusic()
+                delay(2000)
+            }
+        }
+    }
+
+    private fun stopMusicUpdates() {
+        musicJob?.cancel()
+        musicJob = null
+        try {
+            val msm = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            msm.removeOnActiveSessionsChangedListener(sessionsListener)
+        } catch (_: Exception) {
+        }
     }
 
     // ------------------------------------------------------------- busqueda
@@ -755,6 +1278,7 @@ class MainActivity : AppCompatActivity() {
     private fun hideOverlays() {
         searchResults.visibility = View.GONE
         pointCard.visibility = View.GONE
+        hideSettings()
     }
 
     private fun hideKeyboard() {
@@ -772,10 +1296,17 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         mapView.onResume()
+        // Al volver de Ajustes del sistema (permiso), arrancar si ya hay permiso.
+        if (hasLocationPermission() && !locationStarted) {
+            startLocation()
+        }
+        refreshOfflineStatusText()
+        startMusicUpdates()
     }
 
     override fun onPause() {
         super.onPause()
+        stopMusicUpdates()
         mapView.onPause()
     }
 
@@ -792,9 +1323,14 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         try {
+            fusedCallback?.let { fusedClient?.removeLocationUpdates(it) }
+        } catch (_: Exception) {
+        }
+        try {
             locationManager?.removeUpdates(locationListener)
         } catch (_: Exception) {
         }
+        centerTimeoutJob?.cancel()
         scope.coroutineContext[Job]?.cancel()
         mapView.onDestroy()
     }
