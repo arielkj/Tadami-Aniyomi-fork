@@ -697,14 +697,11 @@ class AnimeScreenModel(
             val animeDeferred = async { getAnimeAndEpisodesAndSeasons.awaitAnime(animeId) }
             val rawEpisodesDeferred = async { getAnimeAndEpisodesAndSeasons.awaitEpisodes(animeId) }
             val anime = animeDeferred.await()
-            // V6: las extensiones se cargan bajo demanda; antes de resolver la
-            // fuente real hay que asegurarse de que terminaron de cargar (si no,
-            // getOrStub devuelve un stub y la descarga de episodios falla). El
+            // V7.5: la fuente se resuelve SIN esperar a las extensiones para que
+            // el detalle muestre de inmediato lo de la BD (getOrStub devuelve
+            // un stub si aún no cargaron); la fuente real se resuelve justo
+            // después de la primera emisión de State.Success (ver abajo). El
             // contenido local no espera: su fuente es interna.
-            if (!anime.isLocal()) {
-                sourceManager.ensureExtensionsLoaded()
-                withTimeoutOrNull(30_000) { sourceManager.isInitialized.first { it } }
-            }
             val source = sourceManager.getOrStub(anime.source)
 
             val rawEpisodes = if (anime.fetchType == FetchType.Seasons) {
@@ -757,6 +754,21 @@ class AnimeScreenModel(
                         SuggestionState.Disabled
                     },
                 )
+            }
+
+            // V7.5: resolver la fuente real después de la primera emisión, para
+            // que el detalle no espere a las extensiones detrás de una pantalla
+            // negra. Con la precarga del arranque la espera ya es ~0 ms; esto es
+            // el seguro para el caso raro (detalle abierto en el primer segundo
+            // de un arranque frío). El refresh desde la fuente (abajo) lee el
+            // source del estado, así que ya ve la fuente real.
+            if (!anime.isLocal()) {
+                sourceManager.ensureExtensionsLoaded()
+                withTimeoutOrNull(30_000) { sourceManager.isInitialized.first { it } }
+                val resolvedSource = sourceManager.getOrStub(anime.source)
+                if (resolvedSource !== source) {
+                    updateSuccessState { it.copy(source = resolvedSource) }
+                }
             }
 
             // PERF: apply default episode/season flags off the critical path; the UI already

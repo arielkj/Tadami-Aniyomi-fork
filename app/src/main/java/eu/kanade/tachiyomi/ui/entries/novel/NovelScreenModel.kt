@@ -570,15 +570,15 @@ class NovelScreenModel(
             val chapters = chaptersDeferred.await()
             val resumeChapterId = resumeChapterIdDeferred.await()
             val initialBookState = bookStateDeferred.await()
-            // V6: las extensiones se cargan bajo demanda; antes de resolver la
-            // fuente real hay que asegurarse de que terminaron de cargar (si no,
-            // getOrStub devuelve un stub y la descarga de capítulos falla). El
+            // V7.5: la fuente se resuelve SIN esperar a las extensiones para que
+            // el detalle muestre de inmediato lo de la BD (getOrStub devuelve
+            // un stub si aún no cargaron); la fuente real se resuelve justo
+            // después de la primera emisión de State.Success (ver abajo). El
             // contenido local no espera: su fuente es interna.
-            if (!novel.isLocal()) {
-                sourceManager.ensureExtensionsLoaded()
-                withTimeoutOrNull(30_000) { sourceManager.isInitialized.first { it } }
-            }
-            val source = sourceManager.getOrStub(novel.source)
+            // source/isSourceConfigurable/shouldAutoRefreshChapters son var:
+            // se corrigen tras resolver la fuente real (un stub nunca es
+            // Jaomix ni configurable, y eso cambiaría la decisión de refresh).
+            var source = sourceManager.getOrStub(novel.source)
             val readerSettings = novelReaderPreferences.resolveSettings(novel.source)
             readerSettingsCache = readerSettings
             val translatedDownloadFormat = novelReaderPreferences.translatedDownloadFormat(novel.id)
@@ -592,7 +592,7 @@ class NovelScreenModel(
             val shouldAutoRefreshNovel = !novel.initialized ||
                 chapters.isEmpty() ||
                 hasForeignMangaLocalCover
-            val shouldAutoRefreshChapters = chapters.isEmpty() ||
+            var shouldAutoRefreshChapters = chapters.isEmpty() ||
                 isJaomixPagedSource ||
                 LocalNovelIntegrity.shouldForceLocalChapterResync(isLocalNovel)
             val displayNovel = if (hasForeignMangaLocalCover) {
@@ -619,7 +619,8 @@ class NovelScreenModel(
                 .orEmpty()
             // PERF: runtime discovery boots the plugin runtime (QuickJS) and must not delay
             // the first frame; run the cheap manifest check now and discover asynchronously.
-            val isSourceConfigurable = source.hasVisiblePluginSettings()
+            // V7.5: var, se corrige abajo tras resolver la fuente real.
+            var isSourceConfigurable = source.hasVisiblePluginSettings()
             val initialState = State.Success(
                 novel = displayNovel,
                 source = source,
@@ -662,6 +663,33 @@ class NovelScreenModel(
             )
             mutableState.update {
                 initialState
+            }
+
+            // V7.5: resolver la fuente real después de la primera emisión, para
+            // que el detalle no espere a las extensiones detrás de una pantalla
+            // negra. Con la precarga del arranque la espera ya es ~0 ms; esto es
+            // el seguro para el caso raro (detalle abierto en el primer segundo
+            // de un arranque frío). Si la fuente real es Jaomix, el refresh de
+            // capítulos se activa aquí (un stub nunca lo es); si es
+            // configurable, se salta el discovery caro de abajo.
+            if (!novel.isLocal()) {
+                sourceManager.ensureExtensionsLoaded()
+                withTimeoutOrNull(30_000) { sourceManager.isInitialized.first { it } }
+                val resolvedSource = sourceManager.getOrStub(novel.source)
+                if (resolvedSource !== source) {
+                    source = resolvedSource
+                    isSourceConfigurable = resolvedSource.hasVisiblePluginSettings()
+                    if (resolvedSource.isJaomixPagedSource() && !shouldAutoRefreshChapters) {
+                        shouldAutoRefreshChapters = true
+                    }
+                    updateSuccessState {
+                        it.copy(
+                            source = resolvedSource,
+                            isSourceConfigurable = isSourceConfigurable,
+                            isRefreshingData = shouldAutoRefreshNovel || shouldAutoRefreshChapters,
+                        )
+                    }
+                }
             }
 
             // PERF: apply default chapter flags off the critical path. Scanlator branch data

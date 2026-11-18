@@ -595,15 +595,12 @@ class MangaScreenModel(
             val manga = mangaDeferred.await()
             val rawChapters = rawChaptersDeferred.await()
 
-            // V6: las extensiones se cargan bajo demanda; antes de resolver la
-            // fuente real hay que asegurarse de que terminaron de cargar (si no,
-            // getOrStub devuelve un stub y la descarga de capítulos falla). El
+            // V7.5: la fuente se resuelve SIN esperar a las extensiones para que
+            // el detalle muestre de inmediato lo de la BD (getOrStub devuelve
+            // un stub si aún no cargaron); la fuente real se resuelve justo
+            // después de la primera emisión de State.Success (ver abajo). El
             // contenido local no espera: su fuente es interna.
             val mangaSourceManager = Injekt.get<MangaSourceManager>()
-            if (!manga.isLocal()) {
-                mangaSourceManager.ensureExtensionsLoaded()
-                withTimeoutOrNull(30_000) { mangaSourceManager.isInitialized.first { it } }
-            }
             val source = mangaSourceManager.getOrStub(manga.source)
             val start = System.currentTimeMillis()
             // Cheap path for Aurora: list visible immediately. Real download states via observeDownloads + hydrate.
@@ -641,6 +638,21 @@ class MangaScreenModel(
                         SuggestionState.Disabled
                     },
                 )
+            }
+
+            // V7.5: resolver la fuente real después de la primera emisión, para
+            // que el detalle no espere a las extensiones detrás de una pantalla
+            // negra. Con la precarga del arranque la espera ya es ~0 ms; esto es
+            // el seguro para el caso raro (detalle abierto en el primer segundo
+            // de un arranque frío). El refresh desde la fuente (abajo) lee el
+            // source del estado, así que ya ve la fuente real.
+            if (!manga.isLocal()) {
+                mangaSourceManager.ensureExtensionsLoaded()
+                withTimeoutOrNull(30_000) { mangaSourceManager.isInitialized.first { it } }
+                val resolvedSource = mangaSourceManager.getOrStub(manga.source)
+                if (resolvedSource !== source) {
+                    updateSuccessState { it.copy(source = resolvedSource) }
+                }
             }
 
             // Apply default chapter flags off the critical path so the DB write round-trip does not

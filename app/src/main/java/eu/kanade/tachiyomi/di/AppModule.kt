@@ -911,11 +911,13 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory { GoogleDriveService(app) }
 
         // Asynchronously init expensive components for a faster cold start.
-        // V6: los SourceManager ya NO se precalientan aquí: construirlos
-        // disparaba la carga de todas las extensiones instaladas en cada
-        // arranque. Ahora las extensiones se cargan bajo demanda (al entrar a
-        // Explorar, al abrir un detalle o al descargar) con
-        // ensureExtensionsLoaded().
+        // V7.5: las extensiones vuelven a precargarse al arrancar, en segundo
+        // plano y sin bloquear el splash ni la primera pantalla (el usuario
+        // acepta el pequeño coste extra): así Explorar y los detalles abren
+        // de inmediato en vez de cargar las extensiones bajo demanda al
+        // entrar. ensureExtensionsLoaded() solo dispara la carga una vez, en
+        // su propio hilo de fondo; la biblioteca sigue saliendo al instante
+        // desde la instantánea v7.4.
         java.util.concurrent.Executors.newSingleThreadExecutor().execute {
             get<NetworkHelper>()
 
@@ -926,6 +928,13 @@ class AppModule(val app: Application) : InjektModule {
 
             get<MangaDownloadManager>()
             get<AnimeDownloadManager>()
+
+            // V7.5: precarga de extensiones (anime/manga/novela).
+            // Fire-and-forget: cada llamada arranca la carga en segundo plano
+            // y devuelve de inmediato; isInitialized avisa cuando termina.
+            get<AnimeSourceManager>().ensureExtensionsLoaded()
+            get<MangaSourceManager>().ensureExtensionsLoaded()
+            get<NovelSourceManager>().ensureExtensionsLoaded()
 
             // V7.4 (B4): el mantenimiento semanal de la BD ya NO corre aquí:
             // VACUUM bloquea la base en exclusiva y alargaba la primera

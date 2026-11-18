@@ -57,6 +57,15 @@ class MangaSourcesScreenModel(
     @Volatile
     private var rawSources: List<Source> = emptyList()
 
+    // V7.5: true solo cuando la suscripción de fuentes emitió al menos una
+    // vez. Los colectores de preferencias (verticalPinnedLayout) emiten su
+    // valor actual al suscribirse y llamaban a updateState() antes de tiempo,
+    // apagando isLoading con la lista aún vacía -> destello de "no se ha
+    // encontrado ninguna fuente". Sin esto la precarga no basta en arranques
+    // lentos.
+    @Volatile
+    private var sourcesEmitted = false
+
     init {
         screenModelScope.launchIO {
             // BRN-15: wait for the source manager to initialize before treating the first
@@ -68,10 +77,15 @@ class MangaSourcesScreenModel(
             getEnabledSources.subscribe()
                 .catch {
                     logcat(LogPriority.ERROR, it)
+                    // La suscripción falló: no hay lista que esperar; mostrar el
+                    // estado vacío (con el evento de error) en vez de girar siempre.
+                    sourcesEmitted = true
+                    updateState()
                     _events.send(Event.FailedFetchingSources)
                 }
                 .collectLatest { sources ->
                     rawSources = sources
+                    sourcesEmitted = true
                     updateState()
                 }
         }
@@ -148,7 +162,9 @@ class MangaSourcesScreenModel(
             }
 
             current.copy(
-                isLoading = false,
+                // V7.5: no apagar la carga hasta que las fuentes emitieron al
+                // menos una vez (ver sourcesEmitted).
+                isLoading = if (sourcesEmitted) false else current.isLoading,
                 items = uiItems.toImmutableList(),
                 pinnedItems = pinned.toImmutableList(),
             )
