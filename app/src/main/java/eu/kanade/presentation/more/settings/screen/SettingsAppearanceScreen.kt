@@ -333,7 +333,12 @@ object SettingsAppearanceScreen : SearchableSettings {
                 Preference.PreferenceItem.SliderPreference(
                     value = capsuleOpacity.coerceIn(0, 100),
                     title = stringResource(AYMR.strings.pref_aurora_capsule_opacity, "$capsuleOpacity%"),
-                    subtitle = stringResource(AYMR.strings.pref_aurora_capsule_opacity_summary),
+                    // V7.9.1: la explicación NO va en subtitle — eso la
+                    // ponía como valueText de la píldora y aplastaba el
+                    // título a una letra por línea. Sin subtitle la
+                    // píldora muestra solo el número; la explicación va
+                    // como texto de ayuda bajo el deslizador.
+                    helperText = stringResource(AYMR.strings.pref_aurora_capsule_opacity_summary),
                     valueRange = 0..100,
                     steps = 99,
                     onValueChanged = {

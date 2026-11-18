@@ -243,6 +243,10 @@ fun BaseSliderItem(
     modifier: Modifier = Modifier,
     steps: Int = with(valueRange) { (last - first) - 1 },
     valueText: String = value.toString(),
+    // V7.9.1: texto de ayuda pequeño bajo el deslizador. Las
+    // explicaciones largas NO van en valueText (la píldora junto al
+    // título es para valores cortos como "16sp").
+    helperText: String? = null,
     labelStyle: TextStyle = MaterialTheme.typography.bodyMedium,
     pillColor: Color = MaterialTheme.colorScheme.surfaceContainerHigh,
 ) {
@@ -279,6 +283,14 @@ fun BaseSliderItem(
             valueRange = valueRange,
             steps = steps,
         )
+
+        if (!helperText.isNullOrEmpty()) {
+            Text(
+                text = helperText,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

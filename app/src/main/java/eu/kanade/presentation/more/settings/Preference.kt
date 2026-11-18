@@ -68,6 +68,12 @@ sealed class Preference {
             val valueRange: IntProgression = 0..1,
             @IntRange(from = 0) val steps: Int = with(valueRange) { (last - first) - 1 },
             override val subtitle: String? = null,
+            // V7.9.1: texto de ayuda pequeño bajo el deslizador. No usar
+            // subtitle para explicaciones largas: PreferenceItem pone el
+            // subtitle como valueText de la píldora junto al título y una
+            // frase larga aplasta el título (la píldora crece y el título
+            // queda a una letra por línea).
+            val helperText: String? = null,
             override val enabled: Boolean = true,
             override val onValueChanged: suspend (value: Int) -> Boolean = { true },
         ) : PreferenceItem<Int>() {

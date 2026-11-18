@@ -99,6 +99,7 @@ internal fun PreferenceItem(
                                 value = item.value,
                                 valueRange = item.valueRange,
                                 valueText = item.subtitle.takeUnless { it.isNullOrEmpty() } ?: item.value.toString(),
+                                helperText = item.helperText,
                                 steps = item.steps,
                                 labelStyle = MaterialTheme.typography.titleLarge.copy(fontSize = TitleFontSize),
                                 onChange = {
@@ -118,6 +119,7 @@ internal fun PreferenceItem(
                             value = item.value,
                             valueRange = item.valueRange,
                             valueText = item.subtitle.takeUnless { it.isNullOrEmpty() } ?: item.value.toString(),
+                            helperText = item.helperText,
                             steps = item.steps,
                             labelStyle = MaterialTheme.typography.titleLarge.copy(fontSize = TitleFontSize),
                             onChange = {

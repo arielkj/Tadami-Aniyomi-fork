@@ -1469,41 +1469,51 @@ object HomeScreen : Screen() {
         isDark: Boolean,
         capsuleOpacity: Float = 0.4f,
     ): Modifier {
-        // Base cristal: como la barra Aurora (#1E1E1E al 82% + velo
-        // blanco del 8% en oscuro; blanco translúcido en claro).
+        // V7.9.1: en tema oscuro la cápsula de v7.9 era casi invisible
+        // contra la barra (#1E1E1E al 82% ≈ #1C1C1C): de 0% a 100% el
+        // relleno solo iba de #212121 a #000000 y el cambio no se
+        // notaba. Ahora el cristal es más claro que la barra (#2A2A2A,
+        // como el rail) y se APAGA a medida que sube el sólido, así que
+        // a 100% la píldora es un color plano y uniforme, sin velo; el
+        // borde gana presencia con la opacidad para que el contorno se
+        // lea aunque el relleno se parezca a la barra.
+        val glassFade = 1f - capsuleOpacity
         val glassBase = if (isDark) {
-            Color(0xFF1E1E1E).copy(alpha = 0.82f)
+            Color(0xFF2A2A2A).copy(alpha = 0.82f * glassFade)
         } else {
-            Color.White.copy(alpha = 0.55f)
+            Color.White.copy(alpha = 0.55f * glassFade)
         }
         val glassVeil = if (isDark) {
-            Color.White.copy(alpha = 0.08f)
+            Color.White.copy(alpha = 0.10f * glassFade)
         } else {
-            Color.White.copy(alpha = 0.25f)
+            Color.White.copy(alpha = 0.25f * glassFade)
         }
         val solidColor = if (isDark) Color.Black else Color.White
+        val borderAlpha = 0.12f + (if (isDark) 0.28f else 0.23f) * capsuleOpacity
         val borderColor = if (isDark) {
-            Color.White.copy(alpha = 0.12f)
+            Color.White.copy(alpha = borderAlpha)
         } else {
-            Color.Black.copy(alpha = 0.12f)
+            Color.Black.copy(alpha = borderAlpha)
         }
         return this.drawBehind {
             val delta = slidingPillIndex.value - itemIndex
             if (delta < -0.5f || delta >= 0.5f) return@drawBehind
             val corner = CornerRadius(size.height / 2f, size.height / 2f)
             val topLeft = Offset(delta * itemWidthPx.value, 0f)
-            drawRoundRect(
-                color = glassBase,
-                topLeft = topLeft,
-                size = size,
-                cornerRadius = corner,
-            )
-            drawRoundRect(
-                color = glassVeil,
-                topLeft = topLeft,
-                size = size,
-                cornerRadius = corner,
-            )
+            if (glassFade > 0f) {
+                drawRoundRect(
+                    color = glassBase,
+                    topLeft = topLeft,
+                    size = size,
+                    cornerRadius = corner,
+                )
+                drawRoundRect(
+                    color = glassVeil,
+                    topLeft = topLeft,
+                    size = size,
+                    cornerRadius = corner,
+                )
+            }
             if (capsuleOpacity > 0f) {
                 drawRoundRect(
                     color = solidColor.copy(alpha = capsuleOpacity),
@@ -1797,10 +1807,13 @@ object HomeScreen : Screen() {
                                     .border(
                                         BorderStroke(
                                             1.dp,
+                                            // V7.9.1: como en la barra inferior, el borde
+                                            // gana presencia con la opacidad para que el
+                                            // contorno de la píldora se lea a 100%.
                                             if (auroraColors.isDark) {
-                                                Color.White.copy(alpha = 0.12f)
+                                                Color.White.copy(alpha = 0.12f + 0.28f * capsuleOpacityF)
                                             } else {
-                                                auroraColors.accent.copy(alpha = 0.16f)
+                                                auroraColors.accent.copy(alpha = 0.16f + 0.19f * capsuleOpacityF)
                                             },
                                         ),
                                         iconShape,
