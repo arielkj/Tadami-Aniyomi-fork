@@ -927,9 +927,11 @@ class AppModule(val app: Application) : InjektModule {
             get<MangaDownloadManager>()
             get<AnimeDownloadManager>()
 
-            // V6: limpieza ligera de las bases de datos (ANALYZE semanal y
-            // VACUUM solo si hay muchas páginas libres). Nunca tumba la app.
-            eu.kanade.tachiyomi.data.DatabaseMaintenance.runIfDue(app)
+            // V7.4 (B4): el mantenimiento semanal de la BD ya NO corre aquí:
+            // VACUUM bloquea la base en exclusiva y alargaba la primera
+            // carga de la biblioteca justo en el arranque. Se encola como
+            // trabajo en segundo plano (WorkManager) y corre cuando pueda.
+            eu.kanade.tachiyomi.data.DatabaseMaintenanceWorker.enqueue(app)
         }
     }
 }

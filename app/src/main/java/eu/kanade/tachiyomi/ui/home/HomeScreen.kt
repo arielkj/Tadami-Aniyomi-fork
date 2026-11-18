@@ -1501,15 +1501,16 @@ object HomeScreen : Screen() {
         // V7.3: en AMOLED la barra vuelve a ser cristal (base gris muy
         // oscuro translúcida + hazeBlur) a petición del usuario: menos
         // oscura que el negro sólido, se nota el contenido detrás.
+        // V7.4: el hazeBlur de AMOLED se quita OTRA VEZ — el blur volvía a
+        // difuminar TODO el contenido en cada frame al hacer scroll (el
+        // hazeSource envuelve todo el scaffold) y era la causa principal
+        // del lag general de la v7.3. El cristal se queda (base #1E1E1E al
+        // 82%) y el velo blanco del 8% va como capa translúcida encima,
+        // sin difuminar nada: la barra sigue viéndose menos oscura que el
+        // negro sólido, sin pagar el blur por frame.
         val hazeStyle = HazeBlurStyle {
             backgroundColor(colors.background)
             colorEffects(listOf(HazeColorEffect.tint(colors.surface.copy(alpha = 0.65f))))
-            blurRadius(12.dp)
-            noiseFactor(0.06f)
-        }
-        val amoledGlassStyle = HazeBlurStyle {
-            backgroundColor(Color(0xFF1E1E1E))
-            colorEffects(listOf(HazeColorEffect.tint(Color.White.copy(alpha = 0.08f))))
             blurRadius(12.dp)
             noiseFactor(0.06f)
         }
@@ -1539,9 +1540,15 @@ object HomeScreen : Screen() {
                     },
                     shape,
                 )
-                .hazeBlur(
-                    input = HazeInput.Sources(hazeState),
-                    style = if (colors.isAmoled) amoledGlassStyle else hazeStyle,
+                .then(
+                    if (colors.isAmoled) {
+                        // V7.4: sin hazeBlur en AMOLED (ver comentario de
+                        // arriba): el velo blanco del 8% es una capa
+                        // translúcida sobre el cristal, no un blur.
+                        Modifier.background(Color.White.copy(alpha = 0.08f), shape)
+                    } else {
+                        Modifier.hazeBlur(input = HazeInput.Sources(hazeState), style = hazeStyle)
+                    },
                 )
                 .border(
                     BorderStroke(width = 1.dp, brush = auroraMenuRimLightBrush(colors)),

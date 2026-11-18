@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.library.manga
 
+import android.app.Application
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -23,6 +24,8 @@ import eu.kanade.presentation.library.components.LibraryToolbarTitle
 import eu.kanade.tachiyomi.data.cache.MangaCoverCache
 import eu.kanade.tachiyomi.data.download.manga.MangaDownloadCache
 import eu.kanade.tachiyomi.data.download.manga.MangaDownloadManager
+import eu.kanade.tachiyomi.data.library.LibrarySnapshotStore
+import eu.kanade.tachiyomi.data.library.PagedLibraryEmission
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
@@ -32,6 +35,7 @@ import eu.kanade.tachiyomi.ui.library.resolveLibraryRangeSelectionAdditions
 import eu.kanade.tachiyomi.ui.library.sortPinnedSeriesFirst
 import eu.kanade.tachiyomi.util.chapter.getNextUnread
 import eu.kanade.tachiyomi.util.removeCovers
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.PersistentList
@@ -55,6 +59,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
@@ -141,6 +146,7 @@ class MangaLibraryScreenModel(
     private val downloadManager: MangaDownloadManager = Injekt.get(),
     private val downloadCache: MangaDownloadCache = Injekt.get(),
     private val trackerManager: TrackerManager = Injekt.get(),
+    private val application: Application = Injekt.get(),
     private val startActive: Boolean = true,
     private val libraryDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : StateScreenModel<MangaLibraryScreenModel.State>(
@@ -197,6 +203,9 @@ class MangaLibraryScreenModel(
         libraryPipelineActive.value = active
     }
 
+    // V7.4 (B3): primera invalidación inmediata, las siguientes con debounce (ver abajo).
+    private val invalidationFirst = AtomicBoolean(true)
+
     /**
      * V7: la lista paginada se carga UNA sola vez por proceso y se comparte
      * con replay. Antes, cada reactivación de la tubería (volver del detalle,
@@ -218,9 +227,16 @@ class MangaLibraryScreenModel(
      * construcción y la tubería puede leer el campo antes de inicializarlo,
      * con NPE en Combine.kt:28 al arrancar).
      */
-    private val pagedLibraryMangaFlow: Flow<List<LibraryManga>> =
+    private val pagedLibraryMangaFlow: Flow<PagedLibraryEmission<LibraryManga>> =
         getLibraryManga.subscribeInvalidation()
+            // V7.4 (B3): igual que en anime — primera emisión inmediata,
+            // las siguientes esperan 500 ms de calma.
+            .debounce { if (invalidationFirst.compareAndSet(true, false)) 0L else 500L }
             .transformLatest {
+                // V7.4 (B1): instantánea primero (ver AnimeLibraryScreenModel).
+                LibrarySnapshotStore.readMangaSnapshot(application)?.let {
+                    emit(PagedLibraryEmission(it, isSnapshot = true))
+                }
                 val accumulated = ArrayList<LibraryManga>()
                 var lastTitle: String? = null
                 var lastId = 0L
@@ -234,10 +250,16 @@ class MangaLibraryScreenModel(
                     lastId = last.id
                     yield()
                 }
-                emit(accumulated.toList())
+                emit(PagedLibraryEmission(accumulated.toList(), isSnapshot = false))
+                LibrarySnapshotStore.writeMangaSnapshotIfChanged(application, accumulated)
             }
             .flowOn(libraryDispatcher)
-            .shareIn(screenModelScope, SharingStarted.Lazily, replay = 1)
+            // V7.4 (B2): Eagerly — la lectura de la BD arranca al crear el
+            // modelo (al abrir la app), no en la primera visita a Manga. El
+            // gate de libraryPipelineActive sigue controlando SOLO el
+            // recomputado caro del combine, no la lectura de la BD: cuando
+            // el usuario toca Manga, la lista ya está en el replay.
+            .shareIn(screenModelScope, SharingStarted.Eagerly, replay = 1)
 
     init {
         screenModelScope.launch {
@@ -1031,7 +1053,11 @@ class MangaLibraryScreenModel(
             getLibraryMangaSeries.subscribe(),
             sharedItemPreferencesFlow,
             getDownloadBadgeInvalidationFlow().scan(0L) { version, _ -> version + 1 },
-        ) { libraryMangaList, librarySeriesList, prefs, badgeVersion ->
+        ) { emission, librarySeriesList, prefs, badgeVersion ->
+            val libraryMangaList = emission.items
+            // V7.4 (B5): en la emisión de la instantánea no se calculan los
+            // contadores de descarga (ver AnimeLibraryScreenModel).
+            val isSnapshot = emission.isSnapshot
             // F6: membership ids derived from the already-loaded series entries - the extra
             // getMangaIdsInAnySeries subscription re-queried the same series-entries table on
             // every DB change.
@@ -1044,7 +1070,7 @@ class MangaLibraryScreenModel(
                     // Display mode based on user preference: take it from global library setting or category
                     MangaLibraryItem.Single(
                         libraryMangaValue = libraryManga,
-                        downloadCountValue = if (prefs.downloadBadge) {
+                        downloadCountValue = if (prefs.downloadBadge && !isSnapshot) {
                             cachedDownloadCount(libraryManga.manga.id, badgeVersion) {
                                 downloadManager.getDownloadCount(libraryManga.manga).toLong()
                             }
@@ -1065,7 +1091,7 @@ class MangaLibraryScreenModel(
                 .map { librarySeries ->
                     MangaLibraryItem.Series(
                         librarySeries = librarySeries,
-                        downloadCountValue = if (prefs.downloadBadge) {
+                        downloadCountValue = if (prefs.downloadBadge && !isSnapshot) {
                             librarySeries.entries.sumOf {
                                 cachedDownloadCount(it.manga.id, badgeVersion) {
                                     downloadManager.getDownloadCount(it.manga).toLong()

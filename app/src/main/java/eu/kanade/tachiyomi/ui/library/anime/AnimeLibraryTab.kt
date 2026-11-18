@@ -1511,11 +1511,17 @@ data object AnimeLibraryTab : Tab {
                             isMangaTab = isMangaTab,
                             showCompactHeader = true,
                             showTabs = false,
-                            // V7.3: cambio instantáneo entre Anime/Manga: el
-                            // pager animado componía las dos cuadrículas a la
-                            // vez. El flujo compartido de v7 cubre que no haya
-                            // parpadeo al cambiar.
-                            instantTabSwitching = true,
+                            // V7.4: se revierte el cambio instantáneo de la
+                            // v7.3 (instantTabSwitching=true): en modo
+                            // instantáneo las píldoras de la cabecera animaban
+                            // el pager directamente sin actualizar
+                            // instantSelectedPage, y el efecto de sincronización
+                            // devolvía el pager a Anime al tocar Manga (y podía
+                            // dejar la ruedita de carga). Con el cambio
+                            // animado de siempre el botón de Manga funciona y
+                            // la píldora y el contenido van juntos; el flujo
+                            // compartido de v7 cubre que no haya parpadeo.
+                            instantTabSwitching = false,
                             extraHeaderContent = {
                                 AuroraLibraryPinnedHeader(
                                     title = stringResource(AYMR.strings.label_titles),

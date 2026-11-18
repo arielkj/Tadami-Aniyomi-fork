@@ -528,8 +528,10 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
 private const val ACTION_DISABLE_INCOGNITO_MODE = "tachi.action.DISABLE_INCOGNITO_MODE"
 
 /** Parallel cover fetches on non-low-RAM devices (V7.3: era 24; 24 fetches
- * simultáneos saturaban el hilo de decodificación durante el scroll). */
-private const val COVER_FETCH_PARALLELISM = 8
+ * simultáneos saturaban el hilo de decodificación durante el scroll; la
+ * v7.3 lo bajó a 8 y la cola de decodificación se alargó en cada scroll
+ * rápido. V7.4: 16, término medio — la cola se vacía sin saturar). */
+private const val COVER_FETCH_PARALLELISM = 16
 
 /** Heap growth limit at or below which the image pipeline scales down (256 MB class). */
 private const val SMALL_HEAP_MAX_BYTES = 256L * 1024 * 1024

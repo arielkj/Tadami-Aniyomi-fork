@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.ui.library.anime
 
+import android.app.Application
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -26,6 +27,8 @@ import eu.kanade.tachiyomi.data.cache.AnimeBackgroundCache
 import eu.kanade.tachiyomi.data.cache.AnimeCoverCache
 import eu.kanade.tachiyomi.data.download.anime.AnimeDownloadCache
 import eu.kanade.tachiyomi.data.download.anime.AnimeDownloadManager
+import eu.kanade.tachiyomi.data.library.LibrarySnapshotStore
+import eu.kanade.tachiyomi.data.library.PagedLibraryEmission
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.ui.library.LibrarySearchQuery
 import eu.kanade.tachiyomi.ui.library.leadingDebounce
@@ -34,6 +37,7 @@ import eu.kanade.tachiyomi.ui.library.sortPinnedSeriesFirst
 import eu.kanade.tachiyomi.util.episode.getNextUnseen
 import eu.kanade.tachiyomi.util.removeBackgrounds
 import eu.kanade.tachiyomi.util.removeCovers
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.PersistentList
@@ -57,6 +61,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
@@ -143,6 +148,7 @@ class AnimeLibraryScreenModel(
     private val downloadManager: AnimeDownloadManager = Injekt.get(),
     private val downloadCache: AnimeDownloadCache = Injekt.get(),
     private val trackerManager: TrackerManager = Injekt.get(),
+    private val application: Application = Injekt.get(),
     private val startActive: Boolean = true,
     private val libraryDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : StateScreenModel<AnimeLibraryScreenModel.State>(
@@ -195,6 +201,9 @@ class AnimeLibraryScreenModel(
         libraryPipelineActive.value = active
     }
 
+    // V7.4 (B3): primera invalidación inmediata, las siguientes con debounce (ver abajo).
+    private val invalidationFirst = AtomicBoolean(true)
+
     /**
      * V7: la lista paginada se carga UNA sola vez por proceso y se comparte
      * con replay. Antes, cada reactivación de la tubería (volver del detalle,
@@ -219,9 +228,24 @@ class AnimeLibraryScreenModel(
      * revienta con NPE en Combine.kt:28 al arrancar: ese fue el crash de la
      * v7, reproducido con la misma firma en un test aislado.
      */
-    private val pagedLibraryAnimeFlow: Flow<List<LibraryAnime>> =
+    private val pagedLibraryAnimeFlow: Flow<PagedLibraryEmission<LibraryAnime>> =
         getLibraryAnime.subscribeInvalidation()
+            // V7.4 (B3): la actualización programada escribe muchas filas
+            // seguidas y cada escritura reiniciaba la carga paginada desde
+            // la página 1 sin que ninguna llegara a completar (cada
+            // transformLatest cancela la carga en curso). Primera emisión
+            // inmediata; las siguientes esperan 500 ms de calma antes de
+            // recargar, así una ráfaga de escrituras recarga una sola vez.
+            .debounce { if (invalidationFirst.compareAndSet(true, false)) 0L else 500L }
             .transformLatest {
+                // V7.4 (B1): si hay una instantánea guardada, emitirla
+                // primero para que la lista aparezca DE INMEDIATO al
+                // reabrir la app aunque Android haya matado el proceso.
+                // La carga fresca de la BD corre detrás y parchea solo lo
+                // que cambió (patchLibraryMap), sin parpadeo.
+                LibrarySnapshotStore.readAnimeSnapshot(application)?.let {
+                    emit(PagedLibraryEmission(it, isSnapshot = true))
+                }
                 val accumulated = ArrayList<LibraryAnime>()
                 var lastTitle: String? = null
                 var lastId = 0L
@@ -235,7 +259,8 @@ class AnimeLibraryScreenModel(
                     lastId = last.id
                     yield()
                 }
-                emit(accumulated.toList())
+                emit(PagedLibraryEmission(accumulated.toList(), isSnapshot = false))
+                LibrarySnapshotStore.writeAnimeSnapshotIfChanged(application, accumulated)
             }
             .flowOn(libraryDispatcher)
             .shareIn(screenModelScope, SharingStarted.Lazily, replay = 1)
@@ -1023,7 +1048,14 @@ class AnimeLibraryScreenModel(
             getLibraryAnimeSeries.subscribe(),
             sharedItemPreferencesFlow,
             getDownloadBadgeInvalidationFlow().scan(0L) { version, _ -> version + 1 },
-        ) { animelibAnimeList, librarySeriesList, prefs, badgeVersion ->
+        ) { emission, librarySeriesList, prefs, badgeVersion ->
+            val animelibAnimeList = emission.items
+            // V7.4 (B5): en la emisión de la instantánea NO se calculan los
+            // contadores de descarga (en fuentes locales es un listado de
+            // archivos en disco POR TÍTULO y era gran parte del coste de la
+            // primera emisión). Los distintivos se rellenan con la emisión
+            // fresca de la BD, que llega detrás por el mismo combine.
+            val isSnapshot = emission.isSnapshot
             val idsInSeries = librarySeriesList.flatMapTo(HashSet()) { librarySeries ->
                 librarySeries.entries.map { it.anime.id }
             }
@@ -1032,7 +1064,7 @@ class AnimeLibraryScreenModel(
                 .map { animelibAnime ->
                     AnimeLibraryItem.Single(
                         libraryAnime = animelibAnime,
-                        downloadCount = if (prefs.downloadBadge) {
+                        downloadCount = if (prefs.downloadBadge && !isSnapshot) {
                             cachedDownloadCount(animelibAnime.anime.id, badgeVersion) {
                                 downloadManager.getDownloadCount(animelibAnime.anime).toLong()
                             }
@@ -1053,7 +1085,7 @@ class AnimeLibraryScreenModel(
                 .map { librarySeries ->
                     AnimeLibraryItem.Series(
                         librarySeries = librarySeries,
-                        downloadCount = if (prefs.downloadBadge) {
+                        downloadCount = if (prefs.downloadBadge && !isSnapshot) {
                             librarySeries.entries.sumOf {
                                 cachedDownloadCount(it.anime.id, badgeVersion) {
                                     downloadManager.getDownloadCount(it.anime).toLong()

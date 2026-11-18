@@ -72,12 +72,16 @@ fun buildAuroraCoverImageRequest(
     data: Any?,
     configure: ImageRequest.Builder.() -> Unit = {},
 ): ImageRequest {
-    // V7.3: se quitó la miniatura progresiva v6 (petición extra 160x240 por
-    // tarjeta): con ~30 celdas visibles cada scroll disparaba decenas de
-    // decodificaciones a la vez. La petición principal ya usa
-    // placeholderMemoryCacheKey con su propia clave de caché, así que si la
-    // portada está en memoria aparece al instante; si no, el placeholder
-    // genérico cubre el hueco y el fundido corto suaviza la llegada.
+    // V7.4: la petición principal guarda su resultado bajo la misma
+    // clave base que usa placeholderMemoryCacheKey. En v7.3 la clave del
+    // placeholder nunca acertaba porque nada se guardaba bajo esa clave
+    // sintética (la miniatura que la llenaba se quitó en v7.3), así que
+    // cada remontaje de celda volvía a pedir la portada desde cero y
+    // tardaba en aparecer. Ahora, tras la primera carga, la portada está
+    // en la caché de memoria bajo baseKey y el placeholder la restaura al
+    // instante sin una segunda petición (la miniatura progresiva de v6 no
+    // vuelve: duplicaba las decodificaciones por tarjeta). Si baseKey es
+    // nulo se usa la clave por defecto de Coil.
     val baseKey = resolveAuroraCoverPlaceholderMemoryCacheKey(data)
     val ultraLightMode = runCatching { Injekt.get<UiPreferences>().ultraLightMode().get() }.getOrDefault(false)
     return ImageRequest.Builder(context)
@@ -85,6 +89,7 @@ fun buildAuroraCoverImageRequest(
         .placeholderMemoryCacheKey(baseKey)
         .apply(configure)
         .apply {
+            if (baseKey != null) memoryCacheKey(baseKey)
             // V6 ultra ligero: fuerza miniaturas en baja resolución en toda la app.
             if (ultraLightMode) size(Size(320, 480))
         }

@@ -24,6 +24,8 @@ import eu.kanade.tachiyomi.data.download.novel.NovelDownloadManager
 import eu.kanade.tachiyomi.data.download.novel.NovelDownloadQueueManager
 import eu.kanade.tachiyomi.data.download.novel.NovelTranslatedDownloadFormat
 import eu.kanade.tachiyomi.data.download.novel.NovelTranslatedDownloadManager
+import eu.kanade.tachiyomi.data.library.LibrarySnapshotStore
+import eu.kanade.tachiyomi.data.library.PagedLibraryEmission
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.novelsource.NovelSource
 import eu.kanade.tachiyomi.novelsource.model.SNovelChapter
@@ -60,9 +62,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
@@ -93,6 +97,7 @@ import tachiyomi.domain.items.novelchapter.repository.NovelChapterRepository
 import tachiyomi.domain.items.novelchapter.service.getNovelChapterSort
 import tachiyomi.domain.library.model.LibraryGroup
 import tachiyomi.domain.library.model.LibraryTrackStatus
+import tachiyomi.domain.library.novel.LibraryNovel
 import tachiyomi.domain.library.novel.model.NovelLibrarySort
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.series.novel.interactor.AddNovelsToSeries
@@ -145,6 +150,7 @@ class NovelLibraryScreenModel(
     private val downloadedIdsFlow: StateFlow<Set<Long>> = downloadCache.downloadedIds,
     private val searchDebounceMillis: Long = SEARCH_DEBOUNCE_MILLIS,
     private val trackerManager: TrackerManager = Injekt.get(),
+    private val application: Application = Injekt.get(),
     private val startActive: Boolean = true,
     private val localNovelBookArtifactBuilderFactory:
     () -> eu.kanade.tachiyomi.data.book.novel.LocalNovelBookArtifactBuilder = {
@@ -211,6 +217,35 @@ class NovelLibraryScreenModel(
             .shareIn(screenModelScope, SharingStarted.Eagerly, replay = 1)
 
     private val libraryPipelineActive = MutableStateFlow(startActive)
+
+    /**
+     * V7.4 (B1/B2): la lista de novelas, sembrada con la instantánea
+     * guardada en disco y compartida con avidez: al abrir la app la
+     * suscripción a la BD ya corre (sin esperar a la primera visita a
+     * Novelas) y, si Android mató el proceso, la lista cacheada se
+     * muestra DE INMEDIATO mientras llega la fresca de la BD. El gate de
+     * libraryPipelineActive sigue controlando solo el recomputado del
+     * combine de la biblioteca. Novelas no usa flujo paginado (la lista
+     * completa ya venía de un solo subscribe), así que aquí no hay
+     * debounce que añadir.
+     */
+    private val novelListFlow: Flow<PagedLibraryEmission<LibraryNovel>> =
+        flow {
+            LibrarySnapshotStore.readNovelSnapshot(application)?.let {
+                emit(PagedLibraryEmission(it, isSnapshot = true))
+            }
+            emitAll(
+                getLibraryNovel.subscribe()
+                    .map { PagedLibraryEmission(it, isSnapshot = false) },
+            )
+        }
+            .onEach { emission ->
+                if (!emission.isSnapshot) {
+                    LibrarySnapshotStore.writeNovelSnapshotIfChanged(application, emission.items)
+                }
+            }
+            .flowOn(libraryDispatcher)
+            .shareIn(screenModelScope, SharingStarted.Eagerly, replay = 1)
 
     fun setLibraryPipelineActive(active: Boolean) {
         libraryPipelineActive.value = active
@@ -1269,9 +1304,10 @@ class NovelLibraryScreenModel(
 
     private fun getLibraryFlow(): Flow<NovelLibraryMap> {
         val libraryNovelsFlow = combine(
-            getLibraryNovel.subscribe(),
+            novelListFlow,
             getLibraryNovelSeries.subscribe(),
-        ) { novels, series ->
+        ) { emission, series ->
+            val novels = emission.items
             // F6: membership ids derived from the already-loaded series entries - the extra
             // getNovelIdsInAnySeries subscription re-queried the same novel_series_entries
             // table on every DB change.
