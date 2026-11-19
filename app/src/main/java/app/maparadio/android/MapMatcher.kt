@@ -125,7 +125,7 @@ object MapMatcher {
     // ------------------------------------------------------------ HMM
 
     data class MatchResult(
-        val snap: RouteEngine.SnapResult,
+        val snap: SnapResult,
         /** 0..1: confianza del segmento elegido. */
         val score: Double,
     )
@@ -160,7 +160,7 @@ object MapMatcher {
         val py = pos.latitude * ky
         val hasBearing = speedMps > 2.0
         var bestScore = -1.0
-        var bestSnap: RouteEngine.SnapResult? = null
+        var bestSnap: SnapResult? = null
         for (i in lo..hi) {
             val a = pts[i]
             val b = pts[i + 1]
@@ -198,7 +198,7 @@ object MapMatcher {
                 bestScore = score
                 val segLen = RouteEngine.metersBetween(a, b)
                 val progress = route.cumulative[i] + t * segLen
-                bestSnap = RouteEngine.SnapResult(
+                bestSnap = SnapResult(
                     index = i,
                     snapped = LatLng(cy / ky, cx / kx),
                     distance = d,
@@ -207,7 +207,7 @@ object MapMatcher {
                 )
             }
         }
-        val fallback = bestSnap ?: RouteEngine.SnapResult(
+        val fallback = bestSnap ?: SnapResult(
             index = fromIndex.coerceIn(0, pts.size - 1),
             snapped = pts[fromIndex.coerceIn(0, pts.size - 1)],
             distance = Double.MAX_VALUE,
