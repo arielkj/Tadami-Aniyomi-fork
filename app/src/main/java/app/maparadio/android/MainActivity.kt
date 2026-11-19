@@ -2295,15 +2295,7 @@ class MainActivity : AppCompatActivity() {
                 getString(R.string.phone_listening, ip, PhoneLinkServer.TCP_PORT)
             else -> getString(R.string.phone_waiting)
         }
-        val btLine = when (BluetoothLinkServer.status()) {
-            BluetoothLinkServer.Status.LISTENING ->
-                getString(R.string.phone_bt_listening)
-            BluetoothLinkServer.Status.OFF -> getString(R.string.phone_bt_off)
-            BluetoothLinkServer.Status.UNAVAILABLE ->
-                getString(R.string.phone_bt_unavailable)
-            BluetoothLinkServer.Status.FAILED -> getString(R.string.phone_bt_failed)
-        }
-        phoneStatus.text = getString(R.string.phone_hint) + "\n" + btLine
+        phoneStatus.setText(R.string.phone_hint)
     }
 
     // --------------------------------------------- diagnostico GPS (v1.3)
@@ -2372,10 +2364,6 @@ class MainActivity : AppCompatActivity() {
         // Enlace con el telefono (v1.6): escucha en la red local
         // mientras la app esta abierta.
         PhoneLinkServer.start(phoneLinkListener)
-        // Enlace por Bluetooth (v1.0.4): respaldo cuando no hay hotspot.
-        BluetoothLinkServer.start(this) { name, lat, lng ->
-            runOnUiThread { onPhoneDestination(name, lat, lng) }
-        }
         refreshPhoneStatus()
     }
 
@@ -2387,7 +2375,6 @@ class MainActivity : AppCompatActivity() {
         deadReckonJob?.cancel()
         deadReckonJob = null
         PhoneLinkServer.stop()
-        BluetoothLinkServer.stop()
         mapView.onPause()
     }
 
@@ -2404,7 +2391,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         PhoneLinkServer.stop()
-        BluetoothLinkServer.stop()
         try {
             fusedCallback?.let { fusedClient?.removeLocationUpdates(it) }
         } catch (_: Exception) {

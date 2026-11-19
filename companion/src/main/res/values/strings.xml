@@ -14,18 +14,9 @@
     <string name="no_dest">Sin destino todavía</string>
     <string name="send_to_radio">Enviar al radio</string>
     <string name="sent">Enviado al radio</string>
-    <string name="sent_wifi">Enviado al radio por WiFi</string>
-    <string name="sent_bt">Enviado al radio por Bluetooth</string>
-    <string name="send_failed">No se pudo enviar — revisa que el radio esté conectado al hotspot o emparejado por Bluetooth</string>
+    <string name="send_failed">No se pudo enviar — revisa que el radio esté conectado al hotspot</string>
     <string name="no_dest_yet">Elige un destino primero</string>
     <string name="no_radio_yet">Radio no encontrado todavía</string>
-    <string name="no_radio_bt">Radio no encontrado por WiFi — elige el radio Bluetooth abajo</string>
-    <string name="bt_choose">Elegir radio Bluetooth</string>
-    <string name="bt_none">Bluetooth: sin elegir</string>
-    <string name="bt_chosen">Bluetooth: %1$s</string>
-    <string name="bt_pick_title">Elige el radio</string>
-    <string name="bt_no_devices">No hay dispositivos emparejados — empareja el teléfono con el radio en Ajustes de Bluetooth</string>
-    <string name="bt_permission_needed">Permite el acceso a Bluetooth para elegir el radio</string>
     <string name="search_title">Buscar destino</string>
     <string name="search_hint">Buscar lugar, calle o negocio…</string>
     <string name="no_results">Sin resultados</string>
@@ -33,5 +24,5 @@
     <string name="share_unreadable_title">No se pudo leer la ubicación</string>
     <string name="share_received">Recibido: %1$s</string>
     <string name="outside_dr">Esa ubicación está fuera de República Dominicana</string>
-    <string name="how_to">Cómo se usa: busca en Google Maps, dale a Compartir y elige “Mapa Radio Móvil”. O busca aquí arriba. Luego toca “Enviar al radio” y la ruta sale sola en el radio. Sin hotspot también funciona por Bluetooth: empareja el teléfono con el radio una vez y elige el radio en “Elegir radio Bluetooth”.</string>
+    <string name="how_to">Cómo se usa: busca en Google Maps, dale a Compartir y elige “Mapa Radio Móvil”. O busca aquí arriba. Luego toca “Enviar al radio” y la ruta sale sola en el radio.</string>
 </resources>

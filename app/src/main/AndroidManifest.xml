@@ -7,11 +7,6 @@
     <!-- Enlace con el telefono (v1.6): leer la IP WiFi del radio. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Enlace con el telefono por Bluetooth (v1.0.4): RFCOMM clasico.
-         En API 27 son permisos de instalacion, no hace falta pedirlos. -->
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
