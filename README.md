@@ -130,3 +130,23 @@ encima de la anterior.
   controladas escribe la traza en filesDir/crash.log (version, fecha,
   modelo, hilo) y Ajustes -> Registro de errores la muestra y la
   comparte (ACTION_SEND con el texto). Sin internet ni dependencias.
+
+## v1.0.2 Final (arreglo REAL del cierre al cargar el mapa)
+- La v1.0.1 NO arreglo el cierre. El registro de errores del usuario
+  (19 nov 10:35:33, v1.0.1, API 27, hilo gh-init) lo dejo claro:
+  `java.lang.VerifyError: Verifier rejected class
+  com.graphhopper.storage.RAMDataAccess` — GraphHopper 10.0 usa
+  VarHandle (byteArrayViewVarHandle) en RAMDataAccess y el
+  verificador DEX de API 27 rechaza ese bytecode. El arreglo R8 de
+  la v1.0.1 era real en el dex pero irrelevante para este cierre.
+- Arreglo: el grafo se abre con DAType MMAP (`gh.init(config)` con
+  `graph.dataaccess=MMAP`, antes de los setters). Verificado en el
+  jar de GH 10.0: RAMDataAccess es la UNICA clase que referencia
+  VarHandle; MMapDataAccess usa MappedByteBuffer y su unico Unsafe
+  (invokeCleaner) solo corre en close(). El grafo empaquetado no
+  cambia (el formato en disco no depende del DAType).
+- Blindaje: se atrapa Throwable (no solo Exception) alrededor de
+  GraphHopper.load() y de las rutas, con Toast "Rutas sin conexión
+  no disponibles" si falla la carga; un fallo del router nunca
+  vuelve a cerrar la app (respaldo OSRM con internet).
+  versionCode 102, 1.0.2-radio.
