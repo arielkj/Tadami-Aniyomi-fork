@@ -47,6 +47,25 @@
                 android:inputType="text" />
         </FrameLayout>
 
+        <!-- Favoritos (v1.3): tira compacta DEBAJO del buscador, mas
+             angosta que el propio buscador. Chips con scroll horizontal. -->
+        <HorizontalScrollView
+            android:id="@+id/favChips"
+            android:layout_width="260dp"
+            android:layout_height="30dp"
+            android:layout_marginTop="6dp"
+            android:horizontalScrollBarEnabled="false"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/favChipsRow"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:gravity="center_vertical"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
         <!-- Velocidad -->
         <TextView
             android:id="@+id/speedValue"
@@ -115,6 +134,33 @@
                     android:textSize="12sp" />
             </LinearLayout>
         </LinearLayout>
+
+        <!-- Estado (v1.3): antes vivia en la barra inferior, que ya no
+             existe. Texto pequeno bajo el panel de guia. -->
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="320dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/offline_status"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <!-- Cancelar ruta (v1.3): antes estaba en la barra inferior. -->
+        <TextView
+            android:id="@+id/btnCancelRoute"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginTop="2dp"
+            android:background="@drawable/bg_chip"
+            android:gravity="center"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="@string/cancel_route"
+            android:textColor="@color/accent_blue"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
 
         <!-- Resultados de busqueda / guardados (compactos en v1.2) -->
         <ListView
@@ -196,6 +242,19 @@
             android:contentDescription="Alejar"
             android:padding="9dp"
             android:src="@drawable/ic_minus" />
+
+        <!-- Mostrar musica (v1.3): vuelve a abrir la tarjeta cuando se
+             cerro con la X. Solo visible si algo suena. -->
+        <ImageButton
+            android:id="@+id/btnShowMusic"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_round_button"
+            android:contentDescription="@string/music_show"
+            android:padding="9dp"
+            android:src="@drawable/ic_music"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- Panel de Ajustes (overlay, v1.2) -->
@@ -400,6 +459,43 @@
                 android:textColor="@color/text_primary"
                 android:textSize="14sp"
                 android:textStyle="bold" />
+
+            <!-- Senal GPS (v1.3): diagnostico en vivo para ver la calidad
+                 real de la senal. Si la precision es mala, la causa es la
+                 senal, no la app. -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="@string/gps_title"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/gpsStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/gps_no_fix"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/gpsPerm"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/gps_perm_precise"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/gps_hint"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
         </LinearLayout>
     </ScrollView>
 
@@ -409,7 +505,7 @@
         android:layout_width="420dp"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="136dp"
+        android:layout_marginBottom="16dp"
         android:background="@drawable/bg_panel"
         android:orientation="vertical"
         android:padding="14dp"
@@ -462,126 +558,167 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Mini-reproductor de musica (v1.2): solo visible si algo suena -->
-    <LinearLayout
-        android:id="@+id/musicBar"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:layout_gravity="bottom"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="80dp"
+    <!-- Tarjeta de musica (v1.3): estilo Android Auto, a un lado a la
+         derecha debajo de los controles. La portada del album de fondo,
+         titulo, artista, barra de progreso y controles. Solo visible si
+         algo suena; la X la oculta y el boton de musica la trae de vuelta. -->
+    <FrameLayout
+        android:id="@+id/musicCard"
+        android:layout_width="280dp"
+        android:layout_height="240dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="344dp"
+        android:layout_marginEnd="10dp"
         android:background="@drawable/bg_panel"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="10dp"
-        android:paddingEnd="6dp"
         android:visibility="gone">
 
         <ImageView
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:src="@drawable/ic_music" />
-
-        <TextView
-            android:id="@+id/musicPlayerChip"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/bg_chip"
-            android:gravity="center"
-            android:maxLines="1"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:textColor="@color/text_primary"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/musicTitle"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp" />
-
-        <ImageButton
-            android:id="@+id/musicPrev"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Anterior"
-            android:padding="6dp"
-            android:src="@drawable/ic_skip_previous" />
-
-        <ImageButton
-            android:id="@+id/musicPlayPause"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_round_button"
-            android:contentDescription="Pausa o reproducir"
-            android:padding="8dp"
-            android:src="@drawable/ic_pause" />
-
-        <ImageButton
-            android:id="@+id/musicNext"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Siguiente"
-            android:padding="6dp"
-            android:src="@drawable/ic_skip_next" />
-    </LinearLayout>
-
-    <!-- Barra inferior -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:layout_gravity="bottom"
-        android:layout_margin="12dp"
-        android:background="@drawable/bg_panel"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
-
-        <ImageView
-            android:layout_width="22dp"
-            android:layout_height="22dp"
-            android:src="@drawable/ic_star" />
-
-        <TextView
-            android:id="@+id/btnSaved"
-            android:layout_width="wrap_content"
+            android:id="@+id/musicArt"
+            android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:gravity="center_vertical"
-            android:paddingStart="8dp"
-            android:text="@string/saved_places"
-            android:textColor="@color/text_primary"
-            android:textSize="16sp" />
-
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:text="@string/offline_status"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/btnCancelRoute"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:gravity="center_vertical"
-            android:text="@string/cancel_route"
-            android:textColor="@color/accent_blue"
-            android:textSize="16sp"
-            android:textStyle="bold"
+            android:scaleType="centerCrop"
             android:visibility="gone" />
-    </LinearLayout>
+
+        <!-- Velo oscuro sobre la portada para que el texto se lea -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#B3000000" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/musicPlayerChip"
+                    android:layout_width="0dp"
+                    android:layout_height="28dp"
+                    android:layout_weight="1"
+                    android:background="@drawable/bg_chip"
+                    android:ellipsize="end"
+                    android:gravity="center_vertical"
+                    android:maxLines="1"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
+                    android:textColor="@color/text_primary"
+                    android:textSize="12sp" />
+
+                <ImageButton
+                    android:id="@+id/btnCloseMusic"
+                    android:layout_width="28dp"
+                    android:layout_height="28dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/music_hide"
+                    android:padding="5dp"
+                    android:src="@drawable/ic_close" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/musicTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_primary"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/musicArtist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
+            <ProgressBar
+                android:id="@+id/musicProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="4dp"
+                android:layout_marginTop="8dp"
+                android:max="1000"
+                android:progress="0"
+                android:progressTint="@color/text_primary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/musicTimeCur"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp" />
+
+                <View
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:id="@+id/musicTimeTotal"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/musicPrev"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Anterior"
+                    android:padding="7dp"
+                    android:src="@drawable/ic_skip_previous" />
+
+                <ImageButton
+                    android:id="@+id/musicPlayPause"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:layout_marginStart="18dp"
+                    android:layout_marginEnd="18dp"
+                    android:background="@drawable/bg_round_button"
+                    android:contentDescription="Pausa o reproducir"
+                    android:padding="11dp"
+                    android:src="@drawable/ic_pause" />
+
+                <ImageButton
+                    android:id="@+id/musicNext"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Siguiente"
+                    android:padding="7dp"
+                    android:src="@drawable/ic_skip_next" />
+            </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
 
 </FrameLayout>

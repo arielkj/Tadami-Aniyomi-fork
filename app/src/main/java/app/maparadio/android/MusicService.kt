@@ -3,13 +3,17 @@ package app.maparadio.android
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.net.Uri
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import androidx.core.app.NotificationManagerCompat
 import android.media.MediaMetadata
+import android.os.SystemClock
 
 /**
  * Musica (v1.2): lee TODOS los reproductores con sesion activa.
@@ -29,9 +33,27 @@ data class PlayerInfo(
     val artist: String,
     val isPlaying: Boolean,
     val controller: MediaController,
+    /** Portada del album (null si el reproductor no da ninguna). */
+    val albumArt: Bitmap?,
+    /** Duracion de la cancion en ms (0 si se desconoce). */
+    val durationMs: Long,
+    /** Posicion actual en ms (0 si se desconoce). */
+    val positionMs: Long,
 )
 
 object MusicController {
+
+    /**
+     * Cache de portadas por reproductor + cancion (v1.3): la tarjeta de
+     * musica se refresca cada segundo para el progreso, pero la portada
+     * solo se vuelve a leer cuando cambia la cancion. Sin esto, leer la
+     * URI de la portada cada segundo gastaria CPU en el radio.
+     */
+    private val artCache = object : LinkedHashMap<String, Bitmap?>(4) {
+        override fun removeEldestEntry(eldest: Map.Entry<String, Bitmap?>): Boolean {
+            return size > 4
+        }
+    }
 
     fun hasAccess(context: Context): Boolean {
         return NotificationManagerCompat.getEnabledListenerPackages(context)
@@ -84,9 +106,89 @@ object MusicController {
             } catch (_: Exception) {
                 false
             }
-            out.add(PlayerInfo(pkg, appName, title, artist, playing, controller))
+            val state = try {
+                controller.playbackState
+            } catch (_: Exception) {
+                null
+            }
+            val duration = try {
+                md?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+            } catch (_: Exception) {
+                0L
+            }
+            // Posicion en vivo: si suena, se suma lo transcurrido desde
+            // que el reproductor reporto la posicion.
+            val position = try {
+                val base = state?.position ?: 0L
+                if (playing && state != null) {
+                    base + (SystemClock.elapsedRealtime() - state.lastPositionUpdateTime)
+                } else {
+                    base
+                }
+            } catch (_: Exception) {
+                0L
+            }
+            out.add(
+                PlayerInfo(
+                    pkg, appName, title, artist, playing, controller,
+                    cachedAlbumArt(context, md, "$pkg|$title"), duration, position,
+                )
+            )
         }
         return out
+    }
+
+    /** Portada con cache: solo se decodifica cuando cambia la cancion. */
+    private fun cachedAlbumArt(context: Context, md: MediaMetadata?, key: String): Bitmap? {
+        if (artCache.containsKey(key)) return artCache[key]
+        val art = albumArt(context, md)
+        artCache[key] = art
+        return art
+    }
+
+    /**
+     * Portada del album, escalada a 480 px como maximo para no gastar
+     * memoria. Prueba el bitmap directo, luego la URI (content:// del
+     * reproductor). Null si no hay portada o no se puede leer.
+     */
+    private fun albumArt(context: Context, md: MediaMetadata?): Bitmap? {
+        if (md == null) return null
+        val direct = try {
+            md.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                ?: md.getBitmap(MediaMetadata.METADATA_KEY_ART)
+        } catch (_: Exception) {
+            null
+        }
+        if (direct != null) return downscale(direct)
+        val uri = try {
+            md.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+                ?.takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return try {
+            context.contentResolver.openInputStream(Uri.parse(uri))?.use { stream ->
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                val bytes = stream.readBytes()
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                var sample = 1
+                val maxDim = maxOf(bounds.outWidth, bounds.outHeight)
+                while (maxDim / sample > 480) sample *= 2
+                val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun downscale(bmp: Bitmap): Bitmap {
+        val maxDim = maxOf(bmp.width, bmp.height)
+        if (maxDim <= 480) return bmp
+        val scale = 480f / maxDim
+        return Bitmap.createScaledBitmap(
+            bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true
+        )
     }
 
     fun togglePlayPause(player: PlayerInfo) {

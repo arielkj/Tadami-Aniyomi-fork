@@ -19,6 +19,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.text.Editable
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.View
 import android.view.ViewGroup
@@ -26,6 +27,8 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.BaseAdapter
 import android.widget.EditText
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -115,6 +118,15 @@ class MainActivity : AppCompatActivity() {
         private const val LAST_KNOWN_MAX_AGE_MS = 120_000L
         private const val MAX_JUMP_M = 150.0
         private const val CENTER_TIMEOUT_MS = 8_000L
+        // Solo Republica Dominicana (v1.3): la camara no puede salir de
+        // este cuadro ni alejarse tanto que se vean otros paises.
+        private val DR_BOUNDS = com.mapbox.mapboxsdk.geometry.LatLngBounds.Builder()
+            .include(LatLng(20.0, -68.5)) // noreste
+            .include(LatLng(17.4, -72.1)) // suroeste
+            .build()
+        private const val DR_MIN_ZOOM = 8.5
+        // Pegado a la calle (v1.3): OSRM Match como mucho cada 5 s.
+        private const val OSRM_MATCH_MIN_INTERVAL_MS = 5_000L
     }
 
     private lateinit var mapView: MapView
@@ -149,14 +161,47 @@ class MainActivity : AppCompatActivity() {
     private lateinit var musicPermStatus: TextView
     private lateinit var btnMusicPerm: TextView
 
-    // Musica (v1.2)
-    private lateinit var musicBar: LinearLayout
+    // Musica (v1.3): tarjeta lateral estilo Android Auto con la
+    // portada de fondo, titulo, artista, progreso y controles.
+    private lateinit var musicCard: FrameLayout
+    private lateinit var musicArt: ImageView
     private lateinit var musicPlayerChip: TextView
     private lateinit var musicTitle: TextView
+    private lateinit var musicArtist: TextView
+    private lateinit var musicProgress: ProgressBar
+    private lateinit var musicTimeCur: TextView
+    private lateinit var musicTimeTotal: TextView
     private lateinit var musicPlayPause: ImageButton
+    private lateinit var btnShowMusic: ImageButton
+    private var musicHiddenByUser = false
     private var currentPlayer: PlayerInfo? = null
     private var selectedPlayerPkg: String? = null
     private var musicJob: Job? = null
+    private var lastMusicArtKey: String? = null
+
+    // Favoritos en tira bajo el buscador (v1.3).
+    private lateinit var favChips: HorizontalScrollView
+    private lateinit var favChipsRow: LinearLayout
+
+    // Diagnostico GPS en vivo (v1.3).
+    private lateinit var gpsStatus: TextView
+    private lateinit var gpsPerm: TextView
+    private var lastFixAccuracy = -1f
+    private var lastFixTimeMs = 0L
+    private var lastFixProvider = ""
+    private var gpsJob: Job? = null
+
+    // Matcher reforzado (v1.3): Kalman + HMM + dead reckoning.
+    private val kalman = MapMatcher.Kalman2D()
+    private var lastMatchedIndex = 0
+    private var lastProgressMeters = 0.0
+    private var lastFixElapsedMs = 0L
+    private var deadReckonJob: Job? = null
+    private var recentPoints = ArrayDeque<Pair<LatLng, Float>>()
+    private var lastOsrmMatchAt = 0L
+    private var lastOsrmMatched: LatLng? = null
+    private var lastOsrmMatchedAt = 0L
+    private var deadReckonMeters = 0.0
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var searchJob: Job? = null
@@ -244,10 +289,21 @@ class MainActivity : AppCompatActivity() {
         musicPermStatus = findViewById(R.id.musicPermStatus)
         btnMusicPerm = findViewById(R.id.btnMusicPerm)
 
-        musicBar = findViewById(R.id.musicBar)
+        musicCard = findViewById(R.id.musicCard)
+        musicArt = findViewById(R.id.musicArt)
         musicPlayerChip = findViewById(R.id.musicPlayerChip)
         musicTitle = findViewById(R.id.musicTitle)
+        musicArtist = findViewById(R.id.musicArtist)
+        musicProgress = findViewById(R.id.musicProgress)
+        musicTimeCur = findViewById(R.id.musicTimeCur)
+        musicTimeTotal = findViewById(R.id.musicTimeTotal)
         musicPlayPause = findViewById(R.id.musicPlayPause)
+        btnShowMusic = findViewById(R.id.btnShowMusic)
+
+        favChips = findViewById(R.id.favChips)
+        favChipsRow = findViewById(R.id.favChipsRow)
+        gpsStatus = findViewById(R.id.gpsStatus)
+        gpsPerm = findViewById(R.id.gpsPerm)
 
         findViewById<ImageButton>(R.id.btnSettings).setOnClickListener { toggleSettings() }
         findViewById<ImageButton>(R.id.btnCloseSettings).setOnClickListener { hideSettings() }
@@ -256,7 +312,6 @@ class MainActivity : AppCompatActivity() {
         btnDayNight.setOnClickListener { onDayNight() }
         findViewById<ImageButton>(R.id.btnZoomIn).setOnClickListener { onZoomButton(1.0) }
         findViewById<ImageButton>(R.id.btnZoomOut).setOnClickListener { onZoomButton(-1.0) }
-        findViewById<TextView>(R.id.btnSaved).setOnClickListener { showFavorites() }
         btnCancelRoute.setOnClickListener { cancelRoute() }
         findViewById<TextView>(R.id.btnGo).setOnClickListener { onGoToPoint() }
         findViewById<TextView>(R.id.btnSavePoint).setOnClickListener { onSavePoint() }
@@ -273,6 +328,16 @@ class MainActivity : AppCompatActivity() {
         musicPlayPause.setOnClickListener { currentPlayer?.let { MusicController.togglePlayPause(it) }; refreshMusic() }
         findViewById<ImageButton>(R.id.musicPrev).setOnClickListener { currentPlayer?.let { MusicController.skipPrevious(it) }; refreshMusic() }
         findViewById<ImageButton>(R.id.musicNext).setOnClickListener { currentPlayer?.let { MusicController.skipNext(it) }; refreshMusic() }
+        findViewById<ImageButton>(R.id.btnCloseMusic).setOnClickListener {
+            musicHiddenByUser = true
+            musicCard.visibility = View.GONE
+            if (currentPlayer != null) btnShowMusic.visibility = View.VISIBLE
+        }
+        btnShowMusic.setOnClickListener {
+            musicHiddenByUser = false
+            btnShowMusic.visibility = View.GONE
+            refreshMusic()
+        }
 
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -301,6 +366,10 @@ class MainActivity : AppCompatActivity() {
                 isRotateGesturesEnabled = true
                 isTiltGesturesEnabled = false
             }
+            // Solo Republica Dominicana (v1.3): la camara no puede salir
+            // del cuadro del pais ni alejarse tanto que se vean otros.
+            mapLibreMap.setLatLngBoundsForCameraTarget(DR_BOUNDS)
+            mapLibreMap.setMinZoomPreference(DR_MIN_ZOOM)
             mapLibreMap.addOnMapClickListener { hideOverlays(); true }
             mapLibreMap.addOnMapLongClickListener { latLng -> onMapLongPress(latLng); true }
             mapLibreMap.addOnCameraMoveStartedListener { reason ->
@@ -333,6 +402,7 @@ class MainActivity : AppCompatActivity() {
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         ensureLocationPermission()
+        refreshFavoriteChips()
     }
 
     private fun loadStyle(url: String) {
@@ -604,6 +674,13 @@ class MainActivity : AppCompatActivity() {
             hasGoodFix = true
         }
 
+        // Diagnostico en vivo (v1.3): se muestra en Ajustes.
+        lastFixAccuracy = acc
+        lastFixTimeMs = location.time
+        lastFixProvider = location.provider ?: ""
+        lastFixElapsedMs = SystemClock.elapsedRealtime()
+        deadReckonMeters = 0.0 // volvio la senal: se acabo la estimacion
+
         // Si se esta centrando, este fix bueno es el que manda.
         if (centering && acc <= CENTER_ACCURACY_M) {
             centerTimeoutJob?.cancel()
@@ -611,7 +688,11 @@ class MainActivity : AppCompatActivity() {
             centerOn(location)
         }
 
-        val pos = LatLng(location.latitude, location.longitude)
+        // 1) Kalman: suaviza el fix crudo segun su precision.
+        val pos = kalman.update(location.latitude, location.longitude, acc, location.time)
+        recentPoints.addLast(pos to acc)
+        while (recentPoints.size > 5) recentPoints.removeFirst()
+
         val prev = lastLocation
         val speedMps = when {
             location.hasSpeed() -> location.speed.toDouble()
@@ -633,8 +714,18 @@ class MainActivity : AppCompatActivity() {
 
         val r = route
         if (r != null) {
-            val snap = RouteEngine.snapToRoute(r, pos, routeIndex)
-            if (snap.distance > OFF_ROUTE_METERS) {
+            // 2) HMM: el mejor segmento por distancia + rumbo +
+            // continuidad, no simplemente el mas cercano.
+            val gpsBearing = if (location.hasBearing()) {
+                location.bearing.toDouble()
+            } else {
+                lastBearing
+            }
+            val match = MapMatcher.matchToRoute(
+                r, pos, gpsBearing, speedMps, routeIndex, lastMatchedIndex, acc
+            )
+            lastMatchedIndex = match.snap.index
+            if (match.snap.distance > OFF_ROUTE_METERS || match.score < 0.15) {
                 offRouteCount++
                 if (offRouteCount >= 3) {
                     offRouteCount = 0
@@ -644,36 +735,122 @@ class MainActivity : AppCompatActivity() {
                 }
             } else {
                 offRouteCount = 0
-                routeIndex = snap.index
-                lastCarPos = snap.snapped
-                lastBearing = snap.bearing
+                routeIndex = match.snap.index
+                lastCarPos = match.snap.snapped
+                lastBearing = match.snap.bearing
+                lastProgressMeters = match.snap.progressMeters
                 updateCarMarker()
-                updateGuidance(snap.progressMeters)
-                if (snap.progressMeters > r.totalDistance - 20) {
+                updateGuidance(match.snap.progressMeters)
+                if (match.snap.progressMeters > r.totalDistance - 20) {
                     // Llegada.
                     Toast.makeText(this, R.string.arrived, Toast.LENGTH_LONG).show()
                     cancelRoute()
                     return
                 }
             }
-            if (followMode) applyAutoZoom(snap.progressMeters)
-            if (followMode) moveCamera(lastCarPos!!, lastBearing)
+            if (followMode) applyAutoZoom(lastProgressMeters)
+            lastCarPos?.let { if (followMode) moveCamera(it, lastBearing) }
         } else {
+            // Sin ruta: OSRM Match (cada 5 s, solo en movimiento) pega
+            // el carro a la calle mas cercana; si no hay internet o
+            // falla, se usa el punto filtrado por Kalman.
+            maybeOsrmMatch()
+            val osrm = lastOsrmMatched
+            val useOsrm = osrm != null &&
+                SystemClock.elapsedRealtime() - lastOsrmMatchedAt < 6_000 &&
+                RouteEngine.metersBetween(pos, osrm) < 100.0
+            val displayPos = if (useOsrm) osrm else pos
             if (lastCarPos != null) {
-                lastBearing = RouteEngine.bearingBetween(lastCarPos!!, pos)
+                lastBearing = RouteEngine.bearingBetween(lastCarPos!!, displayPos)
             }
-            lastCarPos = pos
+            lastCarPos = displayPos
             updateCarMarker()
             if (followMode) {
                 map?.animateCamera(
                     CameraUpdateFactory.newCameraPosition(
                         com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
-                            .target(pos).zoom(15.0).tilt(45.0)
+                            .target(displayPos).zoom(15.0).tilt(45.0)
                             .bearing(if (headingUp) lastBearing else 0.0).build()
                     ),
                     700,
                 )
             }
+        }
+    }
+
+    /**
+     * OSRM Match throttled (v1.3): como mucho una llamada cada 5 s y
+     * solo en movimiento, con los ultimos 5 puntos filtrados. El
+     * resultado se guarda y lo usa el siguiente fix sin ruta.
+     */
+    private fun maybeOsrmMatch() {
+        if (route != null) return
+        if (lastSpeedMps < 3.0) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastOsrmMatchAt < OSRM_MATCH_MIN_INTERVAL_MS) return
+        if (recentPoints.size < 3) return
+        lastOsrmMatchAt = now
+        val pts = recentPoints.map { it.first }
+        val rads = recentPoints.map { it.second }
+        scope.launch {
+            val matched = withContext(Dispatchers.IO) {
+                RouteEngine.matchPoints(pts, rads)
+            }
+            if (!matched.isNullOrEmpty()) {
+                val last = matched.last()
+                val cur = lastCarPos
+                if (cur == null || RouteEngine.metersBetween(cur, last) < 100.0) {
+                    lastOsrmMatched = last
+                    lastOsrmMatchedAt = SystemClock.elapsedRealtime()
+                }
+            }
+        }
+    }
+
+    /**
+     * Dead reckoning (v1.3): si el GPS se pierde mas de 3 s (tunel,
+     * parqueo techado), el carro sigue avanzando por la calle con la
+     * ultima velocidad y rumbo. Se detiene a los 30 s sin senal o en
+     * cuanto vuelve un fix.
+     */
+    private fun startDeadReckoning() {
+        deadReckonJob?.cancel()
+        deadReckonJob = scope.launch {
+            while (isActive) {
+                delay(1000)
+                tickDeadReckoning()
+            }
+        }
+    }
+
+    private fun tickDeadReckoning() {
+        if (lastFixElapsedMs == 0L) return
+        val sinceFix = SystemClock.elapsedRealtime() - lastFixElapsedMs
+        if (sinceFix < 3_000 || sinceFix > 30_000) return
+        if (lastSpeedMps < 1.0 || lastCarPos == null) return
+        // Sin senal el carro no puede avanzar para siempre: maximo 500 m
+        // estimados (tuneles cortos). Mas alla, se queda donde estaba.
+        if (deadReckonMeters >= 500.0) return
+        deadReckonMeters += lastSpeedMps
+        val r = route
+        if (r != null) {
+            val newProgress = (lastProgressMeters + lastSpeedMps)
+                .coerceAtMost(r.totalDistance)
+            val point = MapMatcher.pointAlongRoute(r, newProgress)
+            lastProgressMeters = newProgress
+            lastCarPos = point
+            lastBearing = MapMatcher.bearingAlongRoute(r, newProgress)
+            updateCarMarker()
+            updateGuidance(newProgress)
+            if (followMode) {
+                applyAutoZoom(newProgress)
+                moveCamera(point, lastBearing)
+            }
+        } else {
+            val next = MapMatcher.advanceFree(lastCarPos!!, lastBearing, lastSpeedMps)
+            lastCarPos = next
+            updateCarMarker()
+            if (followMode) moveCamera(next, lastBearing)
         }
     }
 
@@ -875,6 +1052,8 @@ class MainActivity : AppCompatActivity() {
             }
             route = newRoute
             routeIndex = 0
+            lastMatchedIndex = 0
+            lastProgressMeters = 0.0
             offRouteCount = 0
             lastZoomBand = -1
             followMode = true
@@ -907,6 +1086,8 @@ class MainActivity : AppCompatActivity() {
         destination = null
         destinationName = null
         routeIndex = 0
+        lastMatchedIndex = 0
+        lastProgressMeters = 0.0
         btnCancelRoute.visibility = View.GONE
         guidanceCard.visibility = View.GONE
         setSimplified(false)
@@ -985,6 +1166,7 @@ class MainActivity : AppCompatActivity() {
                 Favorite(name, pointSub.text.toString(), p.latitude, p.longitude),
             )
             Toast.makeText(this@MainActivity, R.string.saved, Toast.LENGTH_SHORT).show()
+            refreshFavoriteChips()
         }
         pointCard.visibility = View.GONE
     }
@@ -1124,7 +1306,9 @@ class MainActivity : AppCompatActivity() {
         val players = MusicController.activePlayers(this)
         if (players.isEmpty()) {
             currentPlayer = null
-            musicBar.visibility = View.GONE
+            lastMusicArtKey = null
+            musicCard.visibility = View.GONE
+            btnShowMusic.visibility = View.GONE
             return
         }
         val current = players.find { it.packageName == selectedPlayerPkg } ?: players.first()
@@ -1132,16 +1316,50 @@ class MainActivity : AppCompatActivity() {
             selectedPlayerPkg = current.packageName
         }
         currentPlayer = current
-        musicBar.visibility = View.VISIBLE
+        if (musicHiddenByUser) {
+            musicCard.visibility = View.GONE
+            btnShowMusic.visibility = View.VISIBLE
+            return
+        }
+        musicCard.visibility = View.VISIBLE
+        btnShowMusic.visibility = View.GONE
         musicPlayerChip.text = current.appName + " ▾"
-        musicTitle.text = if (current.title == getString(R.string.music_no_player)) {
-            current.title
+        musicTitle.text = current.title
+        musicArtist.text = current.artist
+        // La portada solo se recarga si cambio la cancion o el reproductor.
+        val artKey = current.packageName + "|" + current.title
+        if (artKey != lastMusicArtKey) {
+            lastMusicArtKey = artKey
+            val art = current.albumArt
+            if (art != null) {
+                musicArt.setImageBitmap(art)
+                musicArt.visibility = View.VISIBLE
+            } else {
+                musicArt.setImageBitmap(null)
+                musicArt.visibility = View.GONE
+            }
+        }
+        // Progreso de la cancion.
+        val dur = current.durationMs
+        if (dur > 0) {
+            val pos = current.positionMs.coerceIn(0L, dur)
+            musicProgress.max = 1000
+            musicProgress.progress = ((pos * 1000L) / dur).toInt()
+            musicTimeCur.text = formatMusicTime(pos)
+            musicTimeTotal.text = formatMusicTime(dur)
         } else {
-            current.title + " — " + current.artist
+            musicProgress.progress = 0
+            musicTimeCur.text = ""
+            musicTimeTotal.text = ""
         }
         musicPlayPause.setImageResource(
             if (current.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
         )
+    }
+
+    private fun formatMusicTime(ms: Long): String {
+        val totalSec = (ms / 1000).toInt()
+        return "%d:%02d".format(totalSec / 60, totalSec % 60)
     }
 
     private fun showPlayerSwitcher() {
@@ -1172,7 +1390,7 @@ class MainActivity : AppCompatActivity() {
         musicJob = scope.launch {
             while (isActive) {
                 refreshMusic()
-                delay(2000)
+                delay(1000) // progreso de la cancion en vivo
             }
         }
     }
@@ -1266,6 +1484,7 @@ class MainActivity : AppCompatActivity() {
                     scope.launch {
                         FavoritesStore.remove(this@MainActivity, fav)
                         Toast.makeText(this@MainActivity, R.string.removed, Toast.LENGTH_SHORT).show()
+                        refreshFavoriteChips()
                         showFavorites()
                     }
                 }
@@ -1273,6 +1492,94 @@ class MainActivity : AppCompatActivity() {
             }
         }
         searchResults.setOnItemClickListener { _, _, position, _ -> onPick(rows[position]) }
+    }
+
+    // ------------------------------------------------- favoritos (tira)
+
+    /**
+     * Tira compacta de favoritos DEBAJO del buscador (v1.3), mas angosta
+     * que el propio buscador. Tocar un chip traza la ruta; mantenerlo
+     * presionado lo elimina.
+     */
+    private fun refreshFavoriteChips() {
+        scope.launch {
+            val favs = FavoritesStore.load(this@MainActivity)
+            favChipsRow.removeAllViews()
+            if (favs.isEmpty()) {
+                favChips.visibility = View.GONE
+                return@launch
+            }
+            favChips.visibility = View.VISIBLE
+            val density = resources.displayMetrics.density
+            for (fav in favs) {
+                val chip = TextView(this@MainActivity).apply {
+                    text = fav.name
+                    textSize = 12f
+                    maxLines = 1
+                    ellipsize = TextUtils.TruncateAt.END
+                    setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                    setBackgroundResource(R.drawable.bg_chip)
+                    setPadding(
+                        (10 * density).toInt(), (5 * density).toInt(),
+                        (10 * density).toInt(), (5 * density).toInt(),
+                    )
+                }
+                chip.setOnClickListener {
+                    hideOverlays()
+                    hideKeyboard()
+                    searchInput.clearFocus()
+                    routeTo(LatLng(fav.lat, fav.lon), fav.name)
+                }
+                chip.setOnLongClickListener {
+                    scope.launch {
+                        FavoritesStore.remove(this@MainActivity, fav)
+                        Toast.makeText(
+                            this@MainActivity, R.string.removed, Toast.LENGTH_SHORT
+                        ).show()
+                        refreshFavoriteChips()
+                    }
+                    true
+                }
+                val lp = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                )
+                lp.marginEnd = (6 * density).toInt()
+                favChipsRow.addView(chip, lp)
+            }
+        }
+    }
+
+    // --------------------------------------------- diagnostico GPS (v1.3)
+
+    /** Texto en vivo de la calidad de la senal, en Ajustes. */
+    private fun updateGpsStatusText() {
+        if (!::gpsStatus.isInitialized) return
+        if (settingsPanel.visibility != View.VISIBLE) return
+        gpsPerm.text = getString(
+            if (hasLocationPermission()) R.string.gps_perm_precise
+            else R.string.gps_perm_missing
+        )
+        if (lastFixTimeMs == 0L) {
+            gpsStatus.setText(R.string.gps_no_fix)
+            return
+        }
+        val ageSec = ((System.currentTimeMillis() - lastFixTimeMs) / 1000).toInt()
+        val acc = if (lastFixAccuracy > 0) "±${lastFixAccuracy.toInt()} m" else "sin precisión"
+        gpsStatus.text = getString(
+            R.string.gps_fix_format, acc, ageSec,
+            lastFixProvider.ifEmpty { "?" },
+        )
+    }
+
+    private fun startGpsStatusUpdates() {
+        gpsJob?.cancel()
+        gpsJob = scope.launch {
+            while (isActive) {
+                updateGpsStatusText()
+                delay(2000)
+            }
+        }
     }
 
     private fun hideOverlays() {
@@ -1301,12 +1608,19 @@ class MainActivity : AppCompatActivity() {
             startLocation()
         }
         refreshOfflineStatusText()
+        refreshFavoriteChips()
         startMusicUpdates()
+        startGpsStatusUpdates()
+        startDeadReckoning()
     }
 
     override fun onPause() {
         super.onPause()
         stopMusicUpdates()
+        gpsJob?.cancel()
+        gpsJob = null
+        deadReckonJob?.cancel()
+        deadReckonJob = null
         mapView.onPause()
     }
 

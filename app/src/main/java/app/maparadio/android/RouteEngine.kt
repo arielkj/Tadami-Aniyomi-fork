@@ -68,6 +68,44 @@ object RouteEngine {
         }
     }
 
+    /**
+     * Pegado a la calle SIN ruta (v1.3): OSRM Match devuelve la traza
+     * pegada a la calle mas cercana para una lista de puntos GPS.
+     * Se llama como mucho cada 5 s y solo en movimiento; si falla o no
+     * hay internet, el llamador usa el punto filtrado por Kalman.
+     * [radiuses] es la precision (m) de cada punto.
+     */
+    fun matchPoints(points: List<LatLng>, radiuses: List<Float>): List<LatLng>? {
+        if (points.isEmpty() || points.size != radiuses.size) return null
+        val coords = points.joinToString(";") { "${it.longitude},${it.latitude}" }
+        val rad = radiuses.joinToString(";") { it.coerceIn(5f, 100f).toInt().toString() }
+        val url = "https://router.project-osrm.org/match/v1/driving/$coords" +
+            "?radiuses=$rad&overview=full&geometries=geojson"
+        val req = Request.Builder().url(url)
+            .header("User-Agent", "MapaRadio/1.3-test")
+            .build()
+        return try {
+            http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val body = resp.body?.string() ?: return null
+                val json = JSONObject(body)
+                if (json.optString("code") != "Ok") return null
+                val matchings = json.optJSONArray("matchings") ?: return null
+                if (matchings.length() == 0) return null
+                val coordsArr = matchings.optJSONObject(0)
+                    ?.optJSONObject("geometry")?.optJSONArray("coordinates") ?: return null
+                val out = ArrayList<LatLng>(coordsArr.length())
+                for (i in 0 until coordsArr.length()) {
+                    val c = coordsArr.optJSONArray(i) ?: continue
+                    out.add(LatLng(c.optDouble(1), c.optDouble(0)))
+                }
+                if (out.isEmpty()) null else out
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun parseRoute(json: JSONObject): Route? {
         if (json.optString("code") != "Ok") return null
         val routeJson = json.optJSONArray("routes")?.optJSONObject(0) ?: return null

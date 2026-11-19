@@ -2,7 +2,6 @@
 <resources>
     <string name="app_name">Mapa Radio</string>
     <string name="search_hint">Buscar lugar, calle o negocio…</string>
-    <string name="saved_places">Lugares guardados</string>
     <string name="cancel_route">Cancelar ruta</string>
     <string name="go">Ir</string>
     <string name="save">Guardar</string>
@@ -68,4 +67,12 @@
     <string name="location_perm_needed">Activa el permiso de ubicación para que el mapa te siga</string>
     <string name="location_perm_settings">El permiso de ubicación está desactivado. Actívalo en Ajustes de la app.</string>
     <string name="unknown_artist">Artista desconocido</string>
+    <string name="gps_title">Señal GPS</string>
+    <string name="gps_no_fix">Sin señal todavía — sal al aire libre para un fix bueno</string>
+    <string name="gps_fix_format">Señal: %1$s • hace %2$d s • %3$s</string>
+    <string name="gps_perm_precise">Permiso: ubicación precisa ✓</string>
+    <string name="gps_perm_missing">Permiso: SIN ubicación precisa — actívalo en Ajustes</string>
+    <string name="gps_hint">Si la precisión es mala (±30 m o más), la causa es la señal del GPS (interiores o edificios altos), no la app.</string>
+    <string name="music_hide">Ocultar música</string>
+    <string name="music_show">Mostrar música</string>
 </resources>
