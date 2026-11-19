@@ -11,15 +11,13 @@ import com.graphhopper.GraphHopperConfig
 import com.graphhopper.ResponsePath
 import com.graphhopper.config.CHProfile
 import com.graphhopper.config.Profile
-import com.graphhopper.json.Statement
-import com.graphhopper.util.CustomModel
 import com.graphhopper.util.Instruction
 import com.graphhopper.util.Parameters
 import com.mapbox.mapboxsdk.geometry.LatLng
 import java.io.File
 
 /**
- * Rutas 100% sin internet (GraphHopper 9.1) para la version final
+ * Rutas 100% sin internet (GraphHopper 7.0) para la version final
  * del radio. El grafo de RD va empaquetado en el APK (assets/
  * graphhopper) y en el primer arranque se copia al almacenamiento
  * interno, porque GraphHopper lo lee y no puede leerlo comprimido
@@ -34,7 +32,7 @@ import java.io.File
  * un giro que en la calle esta prohibido; OSRM (con internet) si
  * los respeta. Mejora pendiente, no un bloqueo para la v1.0.
  *
- * IMPORTANTE (v1.0.5): GraphHopper 10.0 NO sirve en este radio,
+ * IMPORTANTE (v1.0.7): GraphHopper 10.0 NO sirve en este radio,
  * por DOS metodos que le faltan a su framework ALPS (dice API 27
  * pero su core-oj.jar esta recortado):
  *  1. RAMDataAccess usa VarHandle (MethodHandles
@@ -50,20 +48,35 @@ import java.io.File
  *     Ljava/nio/ByteBuffer" y "grafo offline no cargó" — con MMAP
  *     el grafo nunca llego a cargar y la app caia al OSRM en linea,
  *     que ese dia tampoco tenia internet real (DNS sin respuesta).
- * Arreglo: bajar a GraphHopper 9.1 y abrir el grafo con DAType
- * RAM_STORE. Verificado en los jars (19 nov): en 9.1 NINGUNA clase
- * referencia VarHandle; RAMDataAccess es Java puro sobre byte[]
- * (sin Unsafe, sin VarHandle, sin ByteBuffer en todo el jar) y el
- * unico que usa el bulk ByteBuffer.get es MMapDataAccess, que con
- * RAM_STORE nunca se carga. La API que usa la app (GHRequest,
- * ResponsePath, Instruction, Parameters, CustomModel, CHProfile,
- * Profile, load()/init()/route()) es identica en 9.1. El grafo se
- * reconstruye en CI con la misma version 9.1 (:tools) y el id del
- * grafo cambia a gh91-dr-v1 para que el radio vuelva a copiarlo en
- * el primer arranque de la v1.0.5 (el formato del grafo depende de
- * la version: el grafo gh10 NO lo abre GH 9.1). RAM_STORE mete el
- * grafo de 82 MB en el heap (4 GB de RAM en el radio, cabe), en
- * vez de paginarlo como MMAP.
+ * La v1.0.5 bajo a GraphHopper 9.1 + DAType RAM_STORE (RAMDataAccess
+ * Java puro, sin VarHandle, sin ByteBuffer) pero el grafo no cabia
+ * en el heap de 48 MB (OOM, registro 19 nov ~18:04). La v1.0.6
+ * anadio largeHeap y el grafo YA CARGO (registro 19 nov 17:42:18),
+ * pero el perfil "car" con CustomModel NO se pudo crear:
+ * GraphHopper compila el modelo a medida con Janino y Janino
+ * genera .class de JVM, que ART no puede cargar en Android
+ * ("Cannot compile expression: can't load this type of class
+ * file"). El modelo a medida NUNCA va a funcionar en este radio.
+ * Arreglo (v1.0.7): bajar a GraphHopper 7.0 y usar el ponderado
+ * "fastest" de serie (Java puro, 0 referencias a Janino).
+ * "fastest" NO existe en 8.0/9.1 (su DefaultWeightingFactory solo
+ * acepta "custom") y SI existe en 7.0 (FastestWeighting). La API
+ * que usa la app (GHRequest, ResponsePath, Instruction,
+ * Parameters, CHProfile, Profile, load()/init()/route()) es
+ * identica en 7.0. Verificado con una prueba local en JVM antes de
+ * decidir (grafo sintetico de Santo Domingo: 16 nodos, 8 vias, CH
+ * preparado, rutas por ALT_ROUTE y por CH sin errores). El grafo
+ * se reconstruye en CI con la misma version 7.0 (:tools) y el id
+ * del grafo cambia a gh70-dr-v1 para que el radio vuelva a
+ * copiarlo en el primer arranque de la v1.0.7 (el formato del
+ * grafo depende de la version: el grafo gh91 NO lo abre GH 7.0).
+ *
+ * Detalle de 7.0: los valores codificados del vehiculo NO se ponen
+ * en setEncodedValuesString (su fabrica no conoce "car_access"); se
+ * crean con setVehiclesString("car") y en el string van solo los
+ * genericos que "fastest" necesita ("road_access": el ponderado
+ * rapido lo exige). import.osm.ignored_highways SE MANTIENE: 7.0
+ * lo exige (tira IllegalArgumentException si falta).
  */
 /** Estado de la carga del grafo offline (v1.0.3): la UI lo usa para
     saber si vale la pena esperar a que este listo en vez de fallar. */
@@ -77,7 +90,7 @@ enum class GhStatus {
 object GraphHopperRouter {
     private const val TAG = "MapaRadioGH"
     /** Cambiar cuando se reconstruya el grafo: fuerza volver a copiarlo. */
-    private const val GRAPH_VERSION = "gh91-dr-v1"
+    private const val GRAPH_VERSION = "gh70-dr-v1"
     private const val GRAPH_ASSET_DIR = "graphhopper"
     private const val PROFILE = "car"
 
@@ -110,7 +123,7 @@ object GraphHopperRouter {
                     copyGraphFromAssets(appContext, dir)
                 }
                 val gh = GraphHopper()
-                // RAM_STORE en vez de MMAP (v1.0.5): en GH 9.1 el
+                // RAM_STORE en vez de MMAP (v1.0.5): en GH 7.0 el
                 // RAMDataAccess es Java puro sobre byte[] y carga en
                 // API 27; MMAP quedo descartado porque su
                 // MMapDataAccess usa ByteBuffer.get(int, byte[], int,
@@ -120,13 +133,18 @@ object GraphHopperRouter {
                 // recomienda el javadoc de GraphHopper; graph.location
                 // va en el config porque init() lo sobrescribe, y
                 // import.osm.ignored_highways es obligatorio en
-                // init() aunque solo se cargue el grafo.
+                // init() aunque solo se cargue el grafo (7.0 lo
+                // exige: sin el, tira IllegalArgumentException).
+                // En 7.0 los valores codificados del vehiculo van en
+                // setVehiclesString("car") y en el string solo
+                // "road_access", que exige el ponderado "fastest".
                 val config = GraphHopperConfig()
                 config.putObject("graph.location", dir.absolutePath)
                 config.putObject("graph.dataaccess", "RAM_STORE")
                 config.putObject("import.osm.ignored_highways", "")
                 gh.init(config)
-                gh.setEncodedValuesString("car_access, car_average_speed")
+                gh.setVehiclesString("car")
+                gh.setEncodedValuesString("road_access")
                 gh.setProfiles(carProfile())
                 gh.chPreparationHandler.setCHProfiles(CHProfile(PROFILE))
                 try {
@@ -167,13 +185,13 @@ object GraphHopperRouter {
         }, "gh-init").start()
     }
 
-    /** Perfil "car" de GraphHopper 9.1 (igual que car.json del jar). */
+    /** Perfil "car" de GraphHopper 7.0: ponderado "fastest" de serie
+        (Java puro, sin Janino, sin CustomModel). El modelo a medida
+        de 9.1/10.0 NUNCA funciono en este radio: Janino genera
+        .class de JVM que ART no puede cargar (registro del usuario
+        19 nov 17:42:18, v1.0.6). "fastest" NO existe en 8.0/9.1. */
     private fun carProfile(): Profile {
-        val model = CustomModel()
-        model.setDistanceInfluence(90.0)
-        model.addToPriority(Statement.If("!car_access", Statement.Op.MULTIPLY, "0"))
-        model.addToSpeed(Statement.If("true", Statement.Op.LIMIT, "car_average_speed"))
-        return Profile(PROFILE).setWeighting("custom").setCustomModel(model)
+        return Profile(PROFILE).setVehicle("car").setWeighting("fastest")
     }
 
     /** Rutas sin internet primero; si no hay grafo, OSRM con internet. */
