@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Capsula de musica (v1.4): fondo plano oscuro, esquinas grandes.
+<!-- Capsula de musica (v1.4, v1.0.3): fondo plano oscuro, esquinas
+     ligeramente redondeadas (14dp, sutil, no muy redonda).
      La portada del album lo cubre cuando hay; sin portada se ve este
      fondo. Sin blur ni sombras. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="@color/panel_bg_solid" />
-    <corners android:radius="24dp" />
+    <corners android:radius="14dp" />
 </shape>

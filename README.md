@@ -180,4 +180,7 @@ encima de la anterior.
   casi un tercio de la pantalla. Ahora se dibuja a ~48dp de ancho
   (48x78 dp, mismo dibujo escalado por el canvas, x densidad para
   que sea nitido); la rotacion y el snap-to-road no cambian.
+- Capsula de musica con bordes un poco redondeados (v1.0.3):
+  bg_capsule_music pasa de 24dp a 14dp de radio (sutil, no muy
+  redonda); mismo tamano, mismo layout, plana, sin blur ni sombras.
   versionCode 103, 1.0.3-radio.
