@@ -128,7 +128,7 @@ object GraphHopperRouter {
 
     /** Convierte una ruta de GraphHopper a la Route que usa la app. */
     private fun toRoute(path: ResponsePath): Route? {
-        val points = ArrayList<LatLng>(path.points.size)
+        val points = ArrayList<LatLng>(path.points.size())
         for (p in path.points) {
             points.add(LatLng(p.lat, p.lon))
         }
@@ -136,7 +136,7 @@ object GraphHopperRouter {
         val steps = ArrayList<RouteStep>()
         var startMeters = 0.0
         val instructions = path.instructions
-        for (i in 0 until instructions.size) {
+        for (i in 0 until instructions.size()) {
             val ins = instructions[i]
             val (type, modifier) = when (ins.sign) {
                 Instruction.TURN_LEFT -> "turn" to "left"

@@ -2,6 +2,8 @@
 // final del radio. Modulo Java puro: usa la MISMA version de
 // GraphHopper que la app (10.0) — el formato del grafo depende de
 // la version y el grafo empaquetado en el APK tiene que abrirlo la app.
+import org.gradle.api.tasks.SourceSetContainer
+
 plugins {
     java
 }
@@ -18,11 +20,12 @@ dependencies {
 }
 
 // ./gradlew :tools:buildGraph -Ppbf=<ruta al .osm.pbf> -PgraphDir=<salida>
+val mainSourceSet = extensions.getByType<SourceSetContainer>().getByName("main")
+
 tasks.register<JavaExec>("buildGraph") {
     group = "graphhopper"
     description = "Construye el grafo de RD (perfil carro + CH) desde el extracto OSM."
-    val main = extensions.getByType<SourceSetContainer>().getByName("main")
-    classpath = main.runtimeClasspath
+    classpath = mainSourceSet.runtimeClasspath
     mainClass.set("tools.BuildGraph")
     // El import de Hispaniola cabe de sobra en 2 GB; el runner tiene 7.
     maxHeapSize = "2g"
