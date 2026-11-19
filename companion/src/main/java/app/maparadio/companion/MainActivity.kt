@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Mapa Radio Movil (v1.0-test): la app del telefono que manda destinos
+ * Mapa Radio Movil (v1.0.1-test): la app del telefono que manda destinos
  * al mapa del radio por el hotspot WiFi.
  *
  * Flujo: el usuario busca en Google Maps -> Compartir -> "Mapa Radio
@@ -104,19 +104,29 @@ class MainActivity : AppCompatActivity() {
         }
         if (shared.isNullOrBlank()) return
         scope.launch {
-            val place = withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 try {
                     ShareParser.parse(shared)
                 } catch (_: Exception) {
-                    null
+                    ShareParser.ParseResult.NotFound(shared.take(300))
                 }
             }
-            if (place == null) {
-                Toast.makeText(
-                    this@MainActivity, R.string.share_unreadable, Toast.LENGTH_LONG
-                ).show()
-            } else {
-                setDestination(place)
+            when (result) {
+                is ShareParser.ParseResult.Found -> setDestination(result.place)
+                is ShareParser.ParseResult.NotFound -> {
+                    // Mostrar lo recibido en la tarjeta de Destino para
+                    // diagnosticar que mando Google Maps.
+                    destination = null
+                    destName.setText(R.string.share_unreadable_title)
+                    destCoords.text = if (result.received.isBlank()) {
+                        getString(R.string.share_unreadable)
+                    } else {
+                        getString(R.string.share_received, result.received)
+                    }
+                    Toast.makeText(
+                        this@MainActivity, R.string.share_unreadable, Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }

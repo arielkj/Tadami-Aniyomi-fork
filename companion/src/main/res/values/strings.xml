@@ -21,6 +21,8 @@
     <string name="search_hint">Buscar lugar, calle o negocio…</string>
     <string name="no_results">Sin resultados</string>
     <string name="share_unreadable">No se pudo leer la ubicación compartida — búscala aquí abajo</string>
+    <string name="share_unreadable_title">No se pudo leer la ubicación</string>
+    <string name="share_received">Recibido: %1$s</string>
     <string name="outside_dr">Esa ubicación está fuera de República Dominicana</string>
     <string name="how_to">Cómo se usa: busca en Google Maps, dale a Compartir y elige “Mapa Radio Móvil”. O busca aquí arriba. Luego toca “Enviar al radio” y la ruta sale sola en el radio.</string>
 </resources>

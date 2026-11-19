@@ -30,7 +30,7 @@ object PhotonSearch {
         val q = URLEncoder.encode(query, "UTF-8")
         val url = "$BASE/api/?q=$q&lat=$lat&lon=$lon&limit=$limit&countrycode=DO"
         val req = Request.Builder().url(url)
-            .header("User-Agent", "MapaRadioMovil/1.0-test")
+            .header("User-Agent", "MapaRadioMovil/1.0.1-test")
             .build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return emptyList()
