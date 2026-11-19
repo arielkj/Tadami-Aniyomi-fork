@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "MapaRadio"
 include(":app")
+include(":companion")

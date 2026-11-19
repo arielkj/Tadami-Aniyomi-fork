@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mapa Radio Móvil</string>
+    <string name="subtitle">Manda el destino al mapa del radio</string>
+    <string name="radio_title">Radio</string>
+    <string name="searching_radio">Buscando radio…</string>
+    <string name="radio_found">Radio encontrado: %1$s</string>
+    <string name="radio_not_found">Radio no encontrado — conecta el radio al hotspot de este teléfono y dale a Buscar radio</string>
+    <string name="radio_manual_ok">Radio conectado: %1$s</string>
+    <string name="radio_manual_fail">Esa IP no contesta — revisa la IP en Ajustes del radio</string>
+    <string name="find_radio">Buscar radio</string>
+    <string name="ip_hint">IP del radio</string>
+    <string name="dest_title">Destino</string>
+    <string name="no_dest">Sin destino todavía</string>
+    <string name="send_to_radio">Enviar al radio</string>
+    <string name="sent">Enviado al radio</string>
+    <string name="send_failed">No se pudo enviar — revisa que el radio esté conectado al hotspot</string>
+    <string name="no_dest_yet">Elige un destino primero</string>
+    <string name="no_radio_yet">Radio no encontrado todavía</string>
+    <string name="search_title">Buscar destino</string>
+    <string name="search_hint">Buscar lugar, calle o negocio…</string>
+    <string name="no_results">Sin resultados</string>
+    <string name="share_unreadable">No se pudo leer la ubicación compartida — búscala aquí abajo</string>
+    <string name="outside_dr">Esa ubicación está fuera de República Dominicana</string>
+    <string name="how_to">Cómo se usa: busca en Google Maps, dale a Compartir y elige “Mapa Radio Móvil”. O busca aquí arriba. Luego toca “Enviar al radio” y la ruta sale sola en el radio.</string>
+</resources>

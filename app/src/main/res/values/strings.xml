@@ -75,4 +75,17 @@
     <string name="gps_hint">Si la precisión es mala (±30 m o más), la causa es la señal del GPS (interiores o edificios altos), no la app.</string>
     <string name="music_hide">Ocultar música</string>
     <string name="music_show">Mostrar música</string>
+    <string name="cat_locales">Locales</string>
+    <string name="cat_restaurantes">Restaurantes</string>
+    <string name="cat_favoritos">Favoritos</string>
+    <string name="cat_pick">¿En qué categoría lo guardo?</string>
+    <string name="cat_empty">Sin lugares guardados en %1$s</string>
+    <string name="phone_title">Teléfono</string>
+    <string name="phone_waiting">Esperando teléfono…</string>
+    <string name="phone_listening">Escuchando en %1$s:%2$d — conecta el teléfono al hotspot del radio</string>
+    <string name="phone_received">Recibido del teléfono: %1$s</string>
+    <string name="phone_failed">No se pudo abrir el enlace con el teléfono</string>
+    <string name="phone_hint">La app “Mapa Radio Móvil” del teléfono manda el destino por WiFi (hotspot). Sin internet no hace falta nada más.</string>
+    <string name="route_from_phone">Ruta recibida del teléfono</string>
+    <string name="outside_dr">Fuera de República Dominicana</string>
 </resources>

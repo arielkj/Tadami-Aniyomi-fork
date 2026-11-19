@@ -72,8 +72,78 @@
                         android:inputType="text" />
                 </FrameLayout>
 
-                <!-- Favoritos (v1.3): tira compacta DEBAJO del buscador, mas
-                     angosta que el propio buscador. Chips con scroll horizontal. -->
+                <!-- Categorias (v1.6): capsula DEBAJO del buscador, del
+                     mismo ancho que el (320dp), con tres chips: Locales,
+                     Restaurantes y Favoritos. Icono + texto corto; nada
+                     se sale ni se envuelve. Tocar un chip muestra los
+                     lugares guardados de esa categoria en la tira de
+                     abajo; tocarlo otra vez la esconde. -->
+                <LinearLayout
+                    android:id="@+id/catCapsule"
+                    android:layout_width="320dp"
+                    android:layout_height="34dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_panel"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp">
+
+                    <TextView
+                        android:id="@+id/catLocales"
+                        android:layout_width="0dp"
+                        android:layout_height="26dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_chip"
+                        android:drawableStart="@drawable/ic_store"
+                        android:drawablePadding="4dp"
+                        android:drawableTint="@color/text_primary"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:maxLines="1"
+                        android:text="@string/cat_locales"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/catRestaurantes"
+                        android:layout_width="0dp"
+                        android:layout_height="26dp"
+                        android:layout_marginStart="4dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_chip"
+                        android:drawableStart="@drawable/ic_restaurant"
+                        android:drawablePadding="4dp"
+                        android:drawableTint="@color/text_primary"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:maxLines="1"
+                        android:text="@string/cat_restaurantes"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/catFavoritos"
+                        android:layout_width="0dp"
+                        android:layout_height="26dp"
+                        android:layout_marginStart="4dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_chip"
+                        android:drawableStart="@drawable/ic_star"
+                        android:drawablePadding="4dp"
+                        android:drawableTint="@color/text_primary"
+                        android:ellipsize="end"
+                        android:gravity="center"
+                        android:maxLines="1"
+                        android:text="@string/cat_favoritos"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- Lugares de la categoria elegida (v1.6): la tira
+                     compacta de v1.3, ahora filtrada por categoria.
+                     Tocar un chip traza la ruta; mantenerlo presionado
+                     lo elimina. Solo visible con una categoria elegida. -->
                 <HorizontalScrollView
                     android:id="@+id/favChips"
                     android:layout_width="260dp"
@@ -516,6 +586,36 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
                         android:text="@string/gps_hint"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <!-- Telefono (v1.6): enlace con la app "Mapa Radio
+                         Movil". El radio escucha en la red local (hotspot
+                         del telefono) y muestra aqui su IP y si esta
+                         esperando o ya recibio un destino. -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/phone_title"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/phoneIp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/phone_waiting"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/phoneStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/phone_hint"
                         android:textColor="@color/text_secondary"
                         android:textSize="12sp" />
                 </LinearLayout>

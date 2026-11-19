@@ -40,6 +40,29 @@ APK de prueba general para que el usuario pruebe el diseño en su teléfono
 - v1: solo `arm64-v8a` (teléfono). La versión del radio será
   `armeabi-v7a` con mapa y rutas offline de RD.
 
+## v1.6 (en construcción)
+
+- Lugares guardados por categorías: Locales, Restaurantes y Favoritos.
+  Cápsula de tres chips directamente debajo del buscador (mismo ancho
+  que él); tocar un chip muestra los lugares de esa categoría en la tira
+  de abajo (tocar = ruta, mantener = borrar). Al guardar un punto
+  (long-press -> Guardar) se elige la categoría. Los lugares viejos
+  migran a Favoritos.
+- Enlace con el teléfono: el radio escucha en la red local (hotspot
+  del teléfono, TCP 8080 + descubrimiento UDP 53535) y la app
+  "Mapa Radio Móvil" le manda destinos: el pin aparece y la ruta se
+  traza sola. La IP del radio se ve en Ajustes -> Teléfono.
+
+## App del teléfono: Mapa Radio Móvil
+
+Módulo `companion/` (paquete `app.maparadio.companion`, v1.0-test).
+Sin mapa, ligera y rápida: recibe lo compartido desde Google Maps
+(geo:, enlaces de google.com/maps y maps.app.goo.gl, resolviendo el
+enlace corto), tiene su propio buscador Photon solo de RD, encuentra
+el radio solo por broadcast y lo manda con un botón grande
+"Enviar al radio". Si no lo encuentra, se escribe la IP a mano.
+Compila en CI con `.github/workflows/build-companion.yml`.
+
 ## Compilación
 
 GitHub Actions (`.github/workflows/build-mapa.yml`): push a la rama

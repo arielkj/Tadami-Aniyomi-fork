@@ -1,0 +1,41 @@
+name: Build Mapa Radio Movil debug APK
+
+on:
+  push:
+    branches: [mapa-radio]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout mapa-radio
+        uses: actions/checkout@v4
+        with:
+          ref: mapa-radio
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # El runner ya trae un Android SDK (ANDROID_HOME). No usar
+      # android-actions/setup-android: falla con cmdline-tools 16.0.
+      # sdkmanager no esta en PATH; vive en
+      # $ANDROID_HOME/cmdline-tools/latest/bin.
+      - name: Install Android SDK packages
+        run: |
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          yes | "$SDKMGR" --licenses
+
+      - name: Build debug APK
+        run: ./gradlew :companion:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapa-radio-companion-debug-apk
+          path: companion/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7

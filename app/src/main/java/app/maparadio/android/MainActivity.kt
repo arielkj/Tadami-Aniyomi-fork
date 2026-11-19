@@ -102,6 +102,11 @@ import java.util.Locale
  * controles en una capsula, y se quita el texto de estado del mapa.
  * Optimizacion ante todo: animacion barata, sin blur ni sombras.
  *
+ * v1.6 anade: lugares guardados por categorias (Locales, Restaurantes,
+ * Favoritos) con una capsula de tres chips debajo del buscador, y el
+ * enlace con el telefono: el radio escucha en la red local (hotspot)
+ * y la app "Mapa Radio Movil" le manda destinos (pin + ruta solos).
+ *
  * Pegado a la calle (snap-to-road): con ruta activa el carro se dibuja
  * SOBRE la polilinea de la ruta (el GPS solo mide el avance); sin ruta se
  * usa el GPS suavizado. Estacionado (velocidad ~0) el carro se congela para
@@ -195,9 +200,35 @@ class MainActivity : AppCompatActivity() {
     private var musicJob: Job? = null
     private var lastMusicArtKey: String? = null
 
-    // Favoritos en tira bajo el buscador (v1.3).
+    // Favoritos en tira bajo el buscador (v1.3), filtrada por
+    // categoria en v1.6: la capsula de categorias (Locales,
+    // Restaurantes, Favoritos) esta directamente debajo del buscador.
     private lateinit var favChips: HorizontalScrollView
     private lateinit var favChipsRow: LinearLayout
+    private lateinit var catLocales: TextView
+    private lateinit var catRestaurantes: TextView
+    private lateinit var catFavoritos: TextView
+    private var selectedCategory: String? = null
+
+    // Enlace con el telefono (v1.6): servidor local en la red WiFi.
+    private lateinit var phoneIp: TextView
+    private lateinit var phoneStatus: TextView
+    private var phoneLastReceived: String? = null
+    private val phoneLinkListener = object : PhoneLinkServer.Listener {
+        override fun onDestination(name: String, lat: Double, lng: Double) {
+            runOnUiThread { onPhoneDestination(name, lat, lng) }
+        }
+
+        override fun onStartFailed() {
+            runOnUiThread {
+                phoneLastReceived = null
+                refreshPhoneStatus()
+                Toast.makeText(
+                    this@MainActivity, R.string.phone_failed, Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
 
     // Diagnostico GPS en vivo (v1.3).
     private lateinit var gpsStatus: TextView
@@ -318,6 +349,14 @@ class MainActivity : AppCompatActivity() {
 
         favChips = findViewById(R.id.favChips)
         favChipsRow = findViewById(R.id.favChipsRow)
+        catLocales = findViewById(R.id.catLocales)
+        catRestaurantes = findViewById(R.id.catRestaurantes)
+        catFavoritos = findViewById(R.id.catFavoritos)
+        catLocales.setOnClickListener { onCategoryChip(FavoriteCategory.LOCALES) }
+        catRestaurantes.setOnClickListener { onCategoryChip(FavoriteCategory.RESTAURANTES) }
+        catFavoritos.setOnClickListener { onCategoryChip(FavoriteCategory.FAVORITOS) }
+        phoneIp = findViewById(R.id.phoneIp)
+        phoneStatus = findViewById(R.id.phoneStatus)
         gpsStatus = findViewById(R.id.gpsStatus)
         gpsPerm = findViewById(R.id.gpsPerm)
 
@@ -1167,14 +1206,30 @@ class MainActivity : AppCompatActivity() {
     private fun onSavePoint() {
         val p = pendingPoint ?: return
         val name = pointTitle.text.toString()
-        scope.launch {
-            FavoritesStore.add(
-                this@MainActivity,
-                Favorite(name, pointSub.text.toString(), p.latitude, p.longitude),
-            )
-            Toast.makeText(this@MainActivity, R.string.saved, Toast.LENGTH_SHORT).show()
-            refreshFavoriteChips()
+        val address = pointSub.text.toString()
+        // v1.6: el usuario elige en que categoria lo guarda.
+        val popup = PopupMenu(this, findViewById<TextView>(R.id.btnSavePoint))
+        popup.menu.add(0, 0, 0, R.string.cat_locales)
+        popup.menu.add(0, 1, 0, R.string.cat_restaurantes)
+        popup.menu.add(0, 2, 0, R.string.cat_favoritos)
+        popup.setOnMenuItemClickListener { item ->
+            val category = when (item.itemId) {
+                0 -> FavoriteCategory.LOCALES
+                1 -> FavoriteCategory.RESTAURANTES
+                else -> FavoriteCategory.FAVORITOS
+            }
+            scope.launch {
+                FavoritesStore.add(
+                    this@MainActivity,
+                    Favorite(name, address, p.latitude, p.longitude, category),
+                )
+                Toast.makeText(this@MainActivity, R.string.saved, Toast.LENGTH_SHORT).show()
+                selectedCategory = category
+                refreshFavoriteChips()
+            }
+            true
         }
+        popup.show()
         pointCard.visibility = View.GONE
     }
 
@@ -1205,6 +1260,7 @@ class MainActivity : AppCompatActivity() {
             else R.string.music_perm_allow
         )
         refreshOfflineStatus()
+        refreshPhoneStatus()
     }
 
     private fun refreshOfflineStatus() {
@@ -1554,13 +1610,60 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------- favoritos (tira)
 
     /**
-     * Tira compacta de favoritos DEBAJO del buscador (v1.3), mas angosta
-     * que el propio buscador. Tocar un chip traza la ruta; mantenerlo
-     * presionado lo elimina.
+     * Capsula de categorias (v1.6) directamente debajo del buscador:
+     * Locales, Restaurantes y Favoritos. Tocar un chip muestra los
+     * lugares guardados de esa categoria en la tira de abajo; tocarlo
+     * otra vez la esconde.
+     */
+    private fun onCategoryChip(category: String) {
+        selectedCategory = if (selectedCategory == category) null else category
+        applyCategorySelection()
+        refreshFavoriteChips()
+        if (selectedCategory != null) {
+            scope.launch {
+                val count = FavoritesStore.loadByCategory(this@MainActivity, category).size
+                if (count == 0) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        getString(
+                            R.string.cat_empty,
+                            FavoriteCategory.label(category, this@MainActivity),
+                        ),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private fun applyCategorySelection() {
+        val selected = selectedCategory
+        fun paint(view: TextView, category: String) {
+            view.setBackgroundResource(
+                if (selected == category) R.drawable.bg_chip_selected
+                else R.drawable.bg_chip
+            )
+        }
+        paint(catLocales, FavoriteCategory.LOCALES)
+        paint(catRestaurantes, FavoriteCategory.RESTAURANTES)
+        paint(catFavoritos, FavoriteCategory.FAVORITOS)
+    }
+
+    /**
+     * Tira compacta de lugares guardados DEBAJO de la capsula de
+     * categorias (v1.3, filtrada por categoria en v1.6). Tocar un chip
+     * traza la ruta; mantenerlo presionado lo elimina. Solo visible
+     * con una categoria elegida y con lugares en ella.
      */
     private fun refreshFavoriteChips() {
+        val category = selectedCategory
+        if (category == null) {
+            favChips.visibility = View.GONE
+            favChipsRow.removeAllViews()
+            return
+        }
         scope.launch {
-            val favs = FavoritesStore.load(this@MainActivity)
+            val favs = FavoritesStore.loadByCategory(this@MainActivity, category)
             favChipsRow.removeAllViews()
             if (favs.isEmpty()) {
                 favChips.visibility = View.GONE
@@ -1605,6 +1708,37 @@ class MainActivity : AppCompatActivity() {
                 favChipsRow.addView(chip, lp)
             }
         }
+    }
+
+    // --------------------------------------- enlace con el telefono (v1.6)
+
+    /** Un destino llego desde la app del telefono: pin + ruta, solo. */
+    private fun onPhoneDestination(name: String, lat: Double, lng: Double) {
+        if (lat !in 17.4..20.0 || lng !in -72.1..-68.5) {
+            Toast.makeText(this, R.string.outside_dr, Toast.LENGTH_LONG).show()
+            return
+        }
+        phoneLastReceived = name
+        refreshPhoneStatus()
+        hideOverlays()
+        hideKeyboard()
+        searchInput.clearFocus()
+        routeTo(LatLng(lat, lng), name)
+        Toast.makeText(this, R.string.route_from_phone, Toast.LENGTH_LONG).show()
+    }
+
+    /** IP y estado del enlace, en Ajustes -> Telefono. */
+    private fun refreshPhoneStatus() {
+        if (!::phoneIp.isInitialized) return
+        val ip = PhoneLinkServer.localIp(this)
+        val received = phoneLastReceived
+        phoneIp.text = when {
+            received != null -> getString(R.string.phone_received, received)
+            ip != null && PhoneLinkServer.isRunning() ->
+                getString(R.string.phone_listening, ip, PhoneLinkServer.TCP_PORT)
+            else -> getString(R.string.phone_waiting)
+        }
+        phoneStatus.setText(R.string.phone_hint)
     }
 
     // --------------------------------------------- diagnostico GPS (v1.3)
@@ -1668,6 +1802,10 @@ class MainActivity : AppCompatActivity() {
         startMusicUpdates()
         startGpsStatusUpdates()
         startDeadReckoning()
+        // Enlace con el telefono (v1.6): escucha en la red local
+        // mientras la app esta abierta.
+        PhoneLinkServer.start(phoneLinkListener)
+        refreshPhoneStatus()
     }
 
     override fun onPause() {
@@ -1677,6 +1815,7 @@ class MainActivity : AppCompatActivity() {
         gpsJob = null
         deadReckonJob?.cancel()
         deadReckonJob = null
+        PhoneLinkServer.stop()
         mapView.onPause()
     }
 
@@ -1692,6 +1831,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        PhoneLinkServer.stop()
         try {
             fusedCallback?.let { fusedClient?.removeLocationUpdates(it) }
         } catch (_: Exception) {

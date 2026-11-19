@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="panel_bg">#D91A1F24</color>
+    <color name="panel_bg_solid">#1A1F24</color>
+    <color name="panel_border">#3D4854</color>
+    <color name="text_primary">#FFFFFF</color>
+    <color name="text_secondary">#B9C2CC</color>
+    <color name="accent_blue">#2196F3</color>
+    <color name="route_blue">#2196F3</color>
+    <color name="route_casing">#1565C0</color>
+    <color name="map_bg">#0B0E12</color>
+</resources>
