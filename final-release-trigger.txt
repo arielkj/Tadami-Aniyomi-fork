@@ -3,3 +3,4 @@ Este archivo existe solo para disparar el workflow build-mapa-final.yml:
 al cambiarlo, CI construye la version final. No borrar.
 Reintento 1: flavorDimensions("device") no compila en AGP 9.3.1; cambiado a flavorDimensions += "device".
 Reintento 2: tools/build.gradle.kts usaba extensions dentro del lambda de la tarea (ahi es la tarea, no el proyecto) y GraphHopperRouter.kt usaba .size como propiedad sobre PointList (campo protegido).
+Reintento 3: instructions.size() no vale (InstructionList es List de Kotlin: .size es propiedad); se revierte a .size. PointList.size() si queda como metodo.
