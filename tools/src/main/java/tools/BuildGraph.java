@@ -10,7 +10,7 @@ import com.graphhopper.util.CustomModel;
  * Construye el grafo offline de Republica Dominicana (extracto de
  * Geofabrik de Hispaniola: haiti-and-domrep) para la version final
  * del radio. Perfil carro + CH (rutas rapidas). La app abre este
- * mismo grafo con GraphHopper 10.0 — NO cambiar la version sin
+ * mismo grafo con GraphHopper 9.1 — NO cambiar la version sin
  * reconstruir el grafo.
  *
  * Uso: ./gradlew :tools:buildGraph -Ppbf=<.osm.pbf> -PgraphDir=<salida>

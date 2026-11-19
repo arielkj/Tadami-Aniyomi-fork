@@ -19,11 +19,11 @@ import com.mapbox.mapboxsdk.geometry.LatLng
 import java.io.File
 
 /**
- * Rutas 100% sin internet (GraphHopper 10.0) para la version final
+ * Rutas 100% sin internet (GraphHopper 9.1) para la version final
  * del radio. El grafo de RD va empaquetado en el APK (assets/
  * graphhopper) y en el primer arranque se copia al almacenamiento
- * interno, porque GraphHopper lo lee con memory-mapping y no puede
- * leerlo comprimido desde assets.
+ * interno, porque GraphHopper lo lee y no puede leerlo comprimido
+ * desde assets.
  *
  * Si el grafo no esta listo (primer arranque, o versiones de prueba
  * que no lo traen), devuelve null y el llamador usa OSRM con
@@ -34,22 +34,36 @@ import java.io.File
  * un giro que en la calle esta prohibido; OSRM (con internet) si
  * los respeta. Mejora pendiente, no un bloqueo para la v1.0.
  *
- * IMPORTANTE (v1.0.2): el grafo se abre con DAType MMAP, no con el
- * RAM_STORE por defecto. GraphHopper 10.0 usa VarHandle
- * (MethodHandles.byteArrayViewVarHandle) en RAMDataAccess para
- * leer/escribir enteros sobre byte[], y en API 27 (Android 8.1, el
- * radio) el verificador DEX rechaza ese bytecode (confunde la
- * firma polimorfica VarHandle.get(byte[], int) esperando
- * Object[]) — GraphHopper.load() tiraba VerifyError en el hilo
- * gh-init y la app se cerraba al cargar el mapa (registro del
- * usuario, 19 nov 10:35). Verificado en el jar de GH 10.0:
- * RAMDataAccess es la UNICA clase que referencia VarHandle;
- * MMapDataAccess usa MappedByteBuffer (NIO estandar) y su unico
- * uso de Unsafe (invokeCleaner por reflexion) solo corre en
- * close(), nunca al cargar ni al rutear. MMAP ademas pagina el
- * grafo de 82 MB en vez de meterlo en el heap de 4 GB del radio.
- * El grafo empaquetado no cambia (el formato en disco no depende
- * del DAType), asi que se reutiliza la misma copia.
+ * IMPORTANTE (v1.0.5): GraphHopper 10.0 NO sirve en este radio,
+ * por DOS metodos que le faltan a su framework ALPS (dice API 27
+ * pero su core-oj.jar esta recortado):
+ *  1. RAMDataAccess usa VarHandle (MethodHandles
+ *     .byteArrayViewVarHandle) y el verificador DEX rechaza ese
+ *     bytecode en API 27 (VerifyError, cierre de la v1.0.1, registro
+ *     del usuario 19 nov 10:35). La v1.0.2 lo esquivo con DAType
+ *     MMAP (RAMDataAccess es la UNICA clase de GH 10.0 que
+ *     referencia VarHandle).
+ *  2. MMapDataAccess usa ByteBuffer.get(int, byte[], int, int)
+ *     (bulk absoluto) y ese metodo NO EXISTE en el framework del
+ *     radio: el registro del usuario (19 nov ~14:59, eventos de ruta
+ *     13:42-13:47) dice "No virtual method get(I[BII)
+ *     Ljava/nio/ByteBuffer" y "grafo offline no cargó" — con MMAP
+ *     el grafo nunca llego a cargar y la app caia al OSRM en linea,
+ *     que ese dia tampoco tenia internet real (DNS sin respuesta).
+ * Arreglo: bajar a GraphHopper 9.1 y abrir el grafo con DAType
+ * RAM_STORE. Verificado en los jars (19 nov): en 9.1 NINGUNA clase
+ * referencia VarHandle; RAMDataAccess es Java puro sobre byte[]
+ * (sin Unsafe, sin VarHandle, sin ByteBuffer en todo el jar) y el
+ * unico que usa el bulk ByteBuffer.get es MMapDataAccess, que con
+ * RAM_STORE nunca se carga. La API que usa la app (GHRequest,
+ * ResponsePath, Instruction, Parameters, CustomModel, CHProfile,
+ * Profile, load()/init()/route()) es identica en 9.1. El grafo se
+ * reconstruye en CI con la misma version 9.1 (:tools) y el id del
+ * grafo cambia a gh91-dr-v1 para que el radio vuelva a copiarlo en
+ * el primer arranque de la v1.0.5 (el formato del grafo depende de
+ * la version: el grafo gh10 NO lo abre GH 9.1). RAM_STORE mete el
+ * grafo de 82 MB en el heap (4 GB de RAM en el radio, cabe), en
+ * vez de paginarlo como MMAP.
  */
 /** Estado de la carga del grafo offline (v1.0.3): la UI lo usa para
     saber si vale la pena esperar a que este listo en vez de fallar. */
@@ -63,7 +77,7 @@ enum class GhStatus {
 object GraphHopperRouter {
     private const val TAG = "MapaRadioGH"
     /** Cambiar cuando se reconstruya el grafo: fuerza volver a copiarlo. */
-    private const val GRAPH_VERSION = "gh10-dr-v1"
+    private const val GRAPH_VERSION = "gh91-dr-v1"
     private const val GRAPH_ASSET_DIR = "graphhopper"
     private const val PROFILE = "car"
 
@@ -96,16 +110,20 @@ object GraphHopperRouter {
                     copyGraphFromAssets(appContext, dir)
                 }
                 val gh = GraphHopper()
-                // MMAP en vez del RAM_STORE por defecto: en API 27 el
-                // verificador DEX rechaza el VarHandle de RAMDataAccess
-                // (VerifyError al cargar el mapa). init() ANTES que los
-                // setters, como recomienda el javadoc de GraphHopper;
-                // graph.location va en el config porque init() lo
-                // sobrescribe, y import.osm.ignored_highways es
-                // obligatorio en init() aunque solo se cargue el grafo.
+                // RAM_STORE en vez de MMAP (v1.0.5): en GH 9.1 el
+                // RAMDataAccess es Java puro sobre byte[] y carga en
+                // API 27; MMAP quedo descartado porque su
+                // MMapDataAccess usa ByteBuffer.get(int, byte[], int,
+                // int), metodo que NO EXISTE en el framework de este
+                // radio ALPS (registro 19 nov: "No virtual method
+                // get(I[BII)"). init() ANTES que los setters, como
+                // recomienda el javadoc de GraphHopper; graph.location
+                // va en el config porque init() lo sobrescribe, y
+                // import.osm.ignored_highways es obligatorio en
+                // init() aunque solo se cargue el grafo.
                 val config = GraphHopperConfig()
                 config.putObject("graph.location", dir.absolutePath)
-                config.putObject("graph.dataaccess", "MMAP")
+                config.putObject("graph.dataaccess", "RAM_STORE")
                 config.putObject("import.osm.ignored_highways", "")
                 gh.init(config)
                 gh.setEncodedValuesString("car_access, car_average_speed")
@@ -138,7 +156,7 @@ object GraphHopperRouter {
                 hopper = gh
                 isReady = true
                 loadState = GhStatus.READY
-                Log.i(TAG, "GraphHopper listo (offline, MMAP)")
+                Log.i(TAG, "GraphHopper listo (offline, RAM_STORE)")
             } catch (t: Throwable) {
                 // Sin grafo (versiones de prueba) o grafo danado: se
                 // sigue con OSRM cuando hay internet. No se rompe nada.
@@ -149,7 +167,7 @@ object GraphHopperRouter {
         }, "gh-init").start()
     }
 
-    /** Perfil "car" de GraphHopper 10.0 (igual que car.json del jar). */
+    /** Perfil "car" de GraphHopper 9.1 (igual que car.json del jar). */
     private fun carProfile(): Profile {
         val model = CustomModel()
         model.setDistanceInfluence(90.0)

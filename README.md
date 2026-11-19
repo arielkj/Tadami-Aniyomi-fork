@@ -184,3 +184,103 @@ encima de la anterior.
   bg_capsule_music pasa de 24dp a 14dp de radio (sutil, no muy
   redonda); mismo tamano, mismo layout, plana, sin blur ni sombras.
   versionCode 103, 1.0.3-radio.
+
+## v1.0.4 Final (Bluetooth como segundo camino para mandar destinos)
+- El usuario (19 nov ~13:37 AST) pidio que el destino tambien se
+  pueda mandar por Bluetooth o WiFi Directo, ademas del hotspot.
+  WiFi Directo NO se hizo: es poco confiable en Android 8.1 y
+  mientras esta conectado el radio pierde el internet del hotspot
+  (sin mapa online ni rutas online). Bluetooth clasico RFCOMM si:
+  es el respaldo cuando no hay hotspot; el hotspot sigue siendo el
+  principal (ademas le da internet al radio).
+- UUID (el MISMO en el radio y en el telefono): SPP estandar
+  00001101-0000-1000-8000-00805F9B34FB, servicio "MapaRadio".
+- Radio (BluetoothLinkServer.kt, sin librerias nuevas, hilos propios,
+  onResume/onPause igual que PhoneLinkServer): escucha RFCOMM; el
+  telefono manda UNA linea JSON {"name", "lat", "lng"} y el radio
+  contesta "OK" (vale, dentro de RD) o "BAD" (fuera de RD o JSON
+  invalido). El destino se valida con PhoneLinkServer.parseDestination
+  — la MISMA validacion que el POST /destination — y se maneja igual
+  (pin + vista previa + Toast "Ruta recibida del teléfono"). En API 27
+  BLUETOOTH / BLUETOOTH_ADMIN son de instalacion, no se pide nada.
+- Si el Bluetooth esta apagado o el stack del radio no deja abrir el
+  servidor, NO se cierra la app: queda en CrashLog.logEvent y se ve
+  en Ajustes -> Telefono ("Bluetooth: escuchando / apagado / no
+  disponible en este radio / no se pudo abrir (este radio no lo
+  permite)"); el WiFi sigue funcionando.
+- Telefono (BluetoothLink.kt + MainActivity, v1.0.2-test): "Enviar al
+  radio" prueba WiFi primero y si falla (o no hay radio por WiFi)
+  cae a Bluetooth solo; el radio se elige UNA vez de los dispositivos
+  emparejados ("Elegir radio Bluetooth") y se recuerda
+  (SharedPreferences); no se escanea (evita BLUETOOTH_SCAN). En
+  Android 12+ pide BLUETOOTH_CONNECT en tiempo de ejecucion y si se
+  niega lo dice claro. Toasts distintos por camino ("por WiFi" /
+  "por Bluetooth").
+- Para probarlo: (1) emparejar el telefono con el radio UNA vez en
+  Ajustes de Bluetooth de Android; (2) en la app del telefono, "Elegir
+  radio Bluetooth" y tocar el radio; (3) con el hotspot APAGADO,
+  compartir un lugar desde Google Maps -> "Enviar al radio" (debe
+  llegar por Bluetooth); (4) con el hotspot ENCENDIDO, enviar otra
+  vez (debe llegar por WiFi como siempre).
+- Si el Bluetooth del radio no deja abrir el servidor: en Ajustes ->
+  Telefono saldra "Bluetooth: no se pudo abrir (este radio no lo
+  permite)" y en Ajustes -> Registro de errores quedara el motivo
+  (CrashLog.logEvent); el WiFi sigue siendo el camino. No hay nada
+  que hacer en el telefono en ese caso: el fallo es del stack
+  Bluetooth del radio, y la app lo aguanta sin cerrarse.
+  versionCode 103 -> 104, versionName 1.0.4-radio (radio);
+  companion versionCode 2 -> 3, versionName 1.0.2-test.
+
+## v1.0.5 Final (rutas offline por fin en el radio + capsula de musica redondeada de verdad)
+- Causa REAL de que la ruta no saliera (registro compartido por el
+  usuario 19 nov ~14:59 AST, eventos 13:42-13:47, v1.0.4): "grafo
+  offline no cargó (No virtual method get(I[BII)
+  Ljava/nio/ByteBuffer; in class Ljava/nio/ByteBuffer; or its super
+  classes (declaration of 'java.nio.ByteBuffer' appears in
+  /system/framework/core-oj.jar))" + OSRM_NETWORK (DNS sin respuesta
+  x4 y un "Handshake failed": el hotspot no tenia internet real en
+  ese momento). O sea: las DOS vias fallaron por causas distintas —
+  el offline por un metodo que falta en el framework ALPS, el online
+  por falta de internet real (el icono de WiFi no garantiza
+  internet). El cierre viejo de las 10:35:50 en el mismo registro es
+  historia de la v1.0.1; la v1.0.4 no se ha vuelto a cerrar.
+- La v1.0.2 esquivo el VerifyError de VarHandle con MMAP, pero el
+  MMapDataAccess de GraphHopper 10.0 usa ByteBuffer.get(int, byte[],
+  int, int) (bulk absoluto, de Java 9) y ese metodo NO EXISTE en el
+  framework de este radio (dice API 27 pero su core-oj.jar esta
+  recortado). Con MMAP el grafo nunca llego a cargar.
+- Arreglo: bajar GraphHopper de 10.0 a **9.1** y abrir el grafo con
+  DAType **RAM_STORE**. Verificado en los jars antes de decidir:
+  en 9.1 NINGUNA clase referencia VarHandle; su RAMDataAccess es
+  Java puro sobre byte[] (sin Unsafe, sin VarHandle, sin ByteBuffer
+  en todo el jar); el unico que usa el bulk ByteBuffer.get es
+  MMapDataAccess, que con RAM_STORE nunca se carga (la verificacion
+  DEX solo rechaza la clase que se carga, y el NoSuchMethodError del
+  bulk solo salta al llamarlo). La API que usa la app es identica
+  en 9.1 (GHRequest, ResponsePath, Instruction, Parameters,
+  CustomModel, CHProfile, Profile, load()/init()/route()). El
+  String.isBlank() que usa GraphHopper al parsear los encoded
+  values SI existe en este radio (la v1.0.4 llego hasta el load()).
+  El grafo se reconstruye en CI con la misma 9.1 (:tools) y el id
+  cambia a gh91-dr-v1 para que el radio lo vuelva a copiar en el
+  primer arranque (el formato del grafo depende de la version: el
+  grafo gh10 NO lo abre GH 9.1). RAM_STORE mete los 82 MB en el
+  heap (4 GB de RAM, cabe) en vez de paginarlos como MMAP.
+- Capsula de musica (foto del usuario 19 nov 2:03 p. m., v1.0.4):
+  seguia con esquinas CUADRADAS aunque bg_capsule_music ya era de
+  14dp. Causa: la portada llena la capsula de borde a borde y el
+  clipToOutline del XML (con el outline que sale del fondo
+  redondeado) no la recortaba en este radio — verificado en el APK
+  de la 1.0.4: el layout trae clipToOutline=true y el fondo 14dp,
+  y aun asi se veia cuadrada. Arreglo: outline EXPLICITO en codigo
+  (MainActivity, al enlazar las vistas): ViewOutlineProvider con
+  setRoundRect(0, 0, width, height, 14dp) en musicCard Y en
+  musicArt, con clipToOutline=true en las dos — el arte queda
+  redondeado aunque falle el recorte del contenedor; getOutline se
+  llama en cada layout, asi que la animacion de peso vuelve a
+  recortar en cada frame. Mismo radio 14dp, plano, sin blur ni
+  sombras; la capsula del mapa (24dp) no se toca.
+- Todo lo de la v1.0.4 se mantiene: Bluetooth RFCOMM, chips solo
+  icono, carro ~48dp, registro de errores con motivo de ruta, OSRM
+  con espejo, espera al grafo y al GPS.
+  versionCode 104 -> 105, versionName 1.0.5-radio.

@@ -44,8 +44,8 @@ jobs:
           test $(stat -c%s haiti-and-domrep-latest.osm.pbf) -gt 10000000
 
       # El grafo se construye con la MISMA version de GraphHopper que
-      # usa la app (10.0, modulo :tools) y se empaqueta en assets.
-      - name: Build offline graph (GraphHopper 10.0)
+      # usa la app (9.1, modulo :tools) y se empaqueta en assets.
+      - name: Build offline graph (GraphHopper 9.1)
         run: |
           ./gradlew :tools:buildGraph \
             -Ppbf=$PWD/haiti-and-domrep-latest.osm.pbf \

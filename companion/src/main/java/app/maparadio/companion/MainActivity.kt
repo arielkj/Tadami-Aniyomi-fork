@@ -1,6 +1,10 @@
 package app.maparadio.companion
 
+import android.Manifest
+import android.bluetooth.BluetoothDevice
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -13,7 +17,9 @@ import android.widget.EditText
 import android.widget.ListView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,9 +52,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchInput: EditText
     private lateinit var searchResults: ListView
     private lateinit var ipInput: EditText
+    private lateinit var btStatus: TextView
+
+    // Bluetooth (v1.0.2-test): accion pendiente de conceder el permiso.
+    private var pendingBtAction: (() -> Unit)? = null
 
     private var radioIp: String? = null
     private var destination: ShareParser.SharedPlace? = null
+
+    private companion object {
+        private const val REQ_BT_CONNECT = 41
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +77,9 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<TextView>(R.id.btnDiscover).setOnClickListener { discoverRadio() }
         findViewById<TextView>(R.id.btnSend).setOnClickListener { sendToRadio() }
+        btStatus = findViewById(R.id.btStatus)
+        findViewById<TextView>(R.id.btnBluetooth).setOnClickListener { pickBluetoothRadio() }
+        refreshBtStatus()
         ipInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 connectManualIp()
@@ -171,22 +188,114 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Elige el radio de la lista de dispositivos emparejados (una vez;
+     *  se recuerda). Sin escanear: evita el permiso BLUETOOTH_SCAN. */
+    private fun pickBluetoothRadio() {
+        if (!BluetoothLink.hasPermission(this)) {
+            pendingBtAction = { pickBluetoothRadio() }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
+                    REQ_BT_CONNECT
+                )
+            }
+            return
+        }
+        val devices = BluetoothLink.pairedDevices(this)
+        if (devices.isEmpty()) {
+            Toast.makeText(this, R.string.bt_no_devices, Toast.LENGTH_LONG).show()
+            return
+        }
+        val names = devices.map { it.name ?: it.address }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.bt_pick_title)
+            .setItems(names) { _, which ->
+                val device: BluetoothDevice = devices[which]
+                BluetoothLink.rememberDevice(this, device)
+                refreshBtStatus()
+                Toast.makeText(
+                    this,
+                    getString(R.string.bt_chosen, device.name ?: device.address),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun refreshBtStatus() {
+        val name = BluetoothLink.rememberedName(this)
+        btStatus.text = if (name != null) {
+            getString(R.string.bt_chosen, name)
+        } else {
+            getString(R.string.bt_none)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQ_BT_CONNECT) {
+            if (grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            ) {
+                pendingBtAction?.invoke()
+            } else {
+                Toast.makeText(
+                    this, R.string.bt_permission_needed, Toast.LENGTH_LONG
+                ).show()
+            }
+            pendingBtAction = null
+        }
+    }
+
     private fun sendToRadio() {
         val dest = destination
         if (dest == null) {
             Toast.makeText(this, R.string.no_dest_yet, Toast.LENGTH_SHORT).show()
             return
         }
-        val ip = radioIp
-        if (ip == null) {
-            Toast.makeText(this, R.string.no_radio_yet, Toast.LENGTH_LONG).show()
-            return
-        }
         scope.launch {
-            val ok = RadioLink.sendDestination(ip, dest.name, dest.lat, dest.lng)
+            // 1) WiFi primero: el camino principal (hotspot).
+            val ip = radioIp
+            if (ip != null) {
+                if (RadioLink.sendDestination(ip, dest.name, dest.lat, dest.lng)) {
+                    Toast.makeText(
+                        this@MainActivity, R.string.sent_wifi, Toast.LENGTH_LONG
+                    ).show()
+                    return@launch
+                }
+            }
+            // 2) Bluetooth de respaldo, cuando no hay hotspot.
+            if (!BluetoothLink.hasPermission(this@MainActivity)) {
+                pendingBtAction = { sendToRadio() }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    ActivityCompat.requestPermissions(
+                        this@MainActivity,
+                        arrayOf(Manifest.permission.BLUETOOTH_CONNECT),
+                        REQ_BT_CONNECT
+                    )
+                }
+                return@launch
+            }
+            val device = BluetoothLink.rememberedDevice(this@MainActivity)
+            if (device == null) {
+                Toast.makeText(
+                    this@MainActivity, R.string.no_radio_bt, Toast.LENGTH_LONG
+                ).show()
+                pickBluetoothRadio()
+                return@launch
+            }
+            val ok = BluetoothLink.sendDestination(
+                device, dest.name, dest.lat, dest.lng
+            )
             Toast.makeText(
                 this@MainActivity,
-                if (ok) R.string.sent else R.string.send_failed,
+                if (ok) R.string.sent_bt else R.string.send_failed,
                 Toast.LENGTH_LONG,
             ).show()
         }

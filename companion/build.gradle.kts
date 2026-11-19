@@ -11,8 +11,8 @@ android {
         applicationId = "app.maparadio.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1-test"
+        versionCode = 3
+        versionName = "1.0.2-test"
 
         // Solo el telefono del usuario (arm64). La app del radio
         // seguira siendo la que corre en el radio (armeabi-v7a).
