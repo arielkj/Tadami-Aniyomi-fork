@@ -1,116 +1,540 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- v1.4: pantalla partida estilo Android Auto. Tres capsulas:
+     el mapa (la mas grande, a la izquierda), el reproductor de musica
+     (la mediana, a la derecha, con la portada de fondo) y la capsula de
+     controles (la mas pequena, dentro del mapa, a su derecha). Sin
+     musica, el mapa vuelve a pantalla completa. Sin blur ni sombras:
+     fondos planos, nada animado salvo el ancho del split (250 ms).
+     El MapView va en modo TextureView para que clipToOutline pueda
+     redondear las esquinas de la capsula del mapa. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/map_bg">
 
-    <com.mapbox.mapboxsdk.maps.MapView
-        android:id="@+id/mapView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-
-    <!-- Columna izquierda: busqueda, velocidad, panel de guia -->
     <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|start"
-        android:layout_marginStart="12dp"
-        android:layout_marginTop="12dp"
-        android:orientation="vertical">
+        android:id="@+id/splitRoot"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="horizontal">
 
-        <!-- Busqueda: ARRIBA de la velocidad (mockup v2), mas fina en v1.2 -->
+        <!-- Capsula del mapa: la mas grande. Sin musica ocupa toda la
+             pantalla; con musica se achica (margenes + esquinas
+             redondeadas, se aplican en codigo). -->
         <FrameLayout
-            android:layout_width="320dp"
-            android:layout_height="44dp"
-            android:background="@drawable/bg_panel"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp">
+            android:id="@+id/mapCapsule"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
 
-            <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_gravity="center_vertical"
-                android:src="@drawable/ic_search" />
-
-            <EditText
-                android:id="@+id/searchInput"
+            <com.mapbox.mapboxsdk.maps.MapView
+                android:id="@+id/mapView"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_marginStart="28dp"
-                android:background="@android:color/transparent"
-                android:hint="@string/search_hint"
-                android:textColor="@color/text_primary"
-                android:textColorHint="@color/text_secondary"
-                android:textSize="15sp"
-                android:singleLine="true"
-                android:imeOptions="actionSearch"
-                android:inputType="text" />
-        </FrameLayout>
+                app:maplibre_renderTextureMode="true" />
 
-        <!-- Favoritos (v1.3): tira compacta DEBAJO del buscador, mas
-             angosta que el propio buscador. Chips con scroll horizontal. -->
-        <HorizontalScrollView
-            android:id="@+id/favChips"
-            android:layout_width="260dp"
-            android:layout_height="30dp"
-            android:layout_marginTop="6dp"
-            android:scrollbars="none"
-            android:visibility="gone">
-
+            <!-- Columna izquierda: busqueda, velocidad, panel de guia -->
             <LinearLayout
-                android:id="@+id/favChipsRow"
                 android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:gravity="center_vertical"
-                android:orientation="horizontal" />
-        </HorizontalScrollView>
-
-        <!-- Velocidad -->
-        <TextView
-            android:id="@+id/speedValue"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="0"
-            android:textColor="@color/text_primary"
-            android:textSize="64sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="-10dp"
-            android:text="@string/mph"
-            android:textColor="@color/text_secondary"
-            android:textSize="16sp" />
-
-        <!-- Panel de guia: compacto en recto, crece cerca del giro -->
-        <LinearLayout
-            android:id="@+id/guidanceCard"
-            android:layout_width="320dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_panel"
-            android:orientation="horizontal"
-            android:padding="10dp"
-            android:visibility="gone">
-
-            <ImageView
-                android:id="@+id/maneuverArrow"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_gravity="center_vertical"
-                android:src="@drawable/ic_arrow_up" />
-
-            <LinearLayout
-                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:layout_weight="1"
+                android:layout_gravity="top|start"
+                android:layout_marginStart="12dp"
+                android:layout_marginTop="12dp"
                 android:orientation="vertical">
 
+                <!-- Busqueda: ARRIBA de la velocidad (mockup v2), mas fina en v1.2 -->
+                <FrameLayout
+                    android:layout_width="320dp"
+                    android:layout_height="44dp"
+                    android:background="@drawable/bg_panel"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_gravity="center_vertical"
+                        android:src="@drawable/ic_search" />
+
+                    <EditText
+                        android:id="@+id/searchInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:layout_marginStart="28dp"
+                        android:background="@android:color/transparent"
+                        android:hint="@string/search_hint"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_secondary"
+                        android:textSize="15sp"
+                        android:singleLine="true"
+                        android:imeOptions="actionSearch"
+                        android:inputType="text" />
+                </FrameLayout>
+
+                <!-- Favoritos (v1.3): tira compacta DEBAJO del buscador, mas
+                     angosta que el propio buscador. Chips con scroll horizontal. -->
+                <HorizontalScrollView
+                    android:id="@+id/favChips"
+                    android:layout_width="260dp"
+                    android:layout_height="30dp"
+                    android:layout_marginTop="6dp"
+                    android:scrollbars="none"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:id="@+id/favChipsRow"
+                        android:layout_width="wrap_content"
+                        android:layout_height="match_parent"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
+
+                <!-- Velocidad -->
                 <TextView
-                    android:id="@+id/maneuverTitle"
+                    android:id="@+id/speedValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="0"
+                    android:textColor="@color/text_primary"
+                    android:textSize="64sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="-10dp"
+                    android:text="@string/mph"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="16sp" />
+
+                <!-- Panel de guia: compacto en recto, crece cerca del giro -->
+                <LinearLayout
+                    android:id="@+id/guidanceCard"
+                    android:layout_width="320dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_panel"
+                    android:orientation="horizontal"
+                    android:padding="10dp"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:id="@+id/maneuverArrow"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_gravity="center_vertical"
+                        android:src="@drawable/ic_arrow_up" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/maneuverTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/text_primary"
+                            android:textSize="17sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/maneuverStreet"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/maneuverEta"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Cancelar ruta (v1.3): antes estaba en la barra inferior. -->
+                <TextView
+                    android:id="@+id/btnCancelRoute"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginTop="2dp"
+                    android:background="@drawable/bg_chip"
+                    android:gravity="center"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:text="@string/cancel_route"
+                    android:textColor="@color/accent_blue"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+                <!-- Resultados de busqueda / guardados (compactos en v1.2) -->
+                <ListView
+                    android:id="@+id/searchResults"
+                    android:layout_width="320dp"
+                    android:layout_height="240dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_panel"
+                    android:divider="@color/panel_border"
+                    android:dividerHeight="1dp"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- Capsula de controles (v1.4): la mas pequena de las tres.
+                 Dentro del mapa, pegada a su borde derecho, asi sigue a la
+                 capsula del mapa cuando se achica con la musica. Botones
+                 de 36dp: la capsula completa mide 288dp de alto y cabe en
+                 pantallas apaisadas de 320dp. -->
+            <LinearLayout
+                android:id="@+id/controlsPill"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="12dp"
+                android:layout_marginEnd="10dp"
+                android:background="@drawable/bg_controls_pill"
+                android:orientation="vertical"
+                android:paddingStart="5dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="5dp"
+                android:paddingBottom="6dp">
+
+                <ImageButton
+                    android:id="@+id/btnSettings"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/settings"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_settings" />
+
+                <ImageButton
+                    android:id="@+id/btnCompass"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Norte o hacia donde voy"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_compass" />
+
+                <ImageButton
+                    android:id="@+id/btnCenter"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/center"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_target" />
+
+                <ImageButton
+                    android:id="@+id/btnDayNight"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Dia o noche"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_night" />
+
+                <ImageButton
+                    android:id="@+id/btnZoomIn"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Acercar"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_plus" />
+
+                <ImageButton
+                    android:id="@+id/btnZoomOut"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Alejar"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_minus" />
+
+                <!-- Mostrar musica (v1.3): vuelve a abrir la capsula
+                     cuando se cerro con la X. Solo visible si algo suena. -->
+                <ImageButton
+                    android:id="@+id/btnShowMusic"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_marginTop="4dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/music_show"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_music"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- Panel de Ajustes (overlay, v1.2) -->
+            <ScrollView
+                android:id="@+id/settingsPanel"
+                android:layout_width="400dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="12dp"
+                android:layout_marginEnd="60dp"
+                android:layout_marginBottom="132dp"
+                android:background="@drawable/bg_panel"
+                android:padding="14dp"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/settings"
+                            android:textColor="@color/text_primary"
+                            android:textSize="18sp"
+                            android:textStyle="bold" />
+
+                        <ImageButton
+                            android:id="@+id/btnCloseSettings"
+                            android:layout_width="32dp"
+                            android:layout_height="32dp"
+                            android:background="@android:color/transparent"
+                            android:contentDescription="Cerrar"
+                            android:padding="6dp"
+                            android:src="@drawable/ic_close" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="@string/mode"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/modeDark"
+                            android:layout_width="0dp"
+                            android:layout_height="36dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_chip_selected"
+                            android:gravity="center"
+                            android:text="@string/mode_dark"
+                            android:textColor="@color/text_primary"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/modeLight"
+                            android:layout_width="0dp"
+                            android:layout_height="36dp"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_chip"
+                            android:gravity="center"
+                            android:text="@string/mode_light"
+                            android:textColor="@color/text_primary"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/modeAuto"
+                            android:layout_width="0dp"
+                            android:layout_height="36dp"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_chip"
+                            android:gravity="center"
+                            android:text="@string/mode_auto"
+                            android:textColor="@color/text_primary"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/offline_map"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/offlineStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/offline_not_downloaded"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp" />
+
+                    <ProgressBar
+                        android:id="@+id/offlineProgress"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:max="100"
+                        android:visibility="gone" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/btnDownloadMap"
+                            android:layout_width="0dp"
+                            android:layout_height="40dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_chip_selected"
+                            android:gravity="center"
+                            android:text="@string/download_map"
+                            android:textColor="@color/text_primary"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/btnUpdateMap"
+                            android:layout_width="0dp"
+                            android:layout_height="40dp"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_chip"
+                            android:gravity="center"
+                            android:text="@string/update_map"
+                            android:textColor="@color/text_primary"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/btnDeleteMap"
+                            android:layout_width="0dp"
+                            android:layout_height="40dp"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/bg_chip"
+                            android:gravity="center"
+                            android:text="@string/delete_map"
+                            android:textColor="@color/text_primary"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/music_perm_title"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/musicPermStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/music_perm_off"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/musicPermDesc"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/music_perm_desc"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/btnMusicPerm"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/bg_chip_selected"
+                        android:gravity="center"
+                        android:minWidth="180dp"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="@string/music_perm_allow"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <!-- Senal GPS (v1.3): diagnostico en vivo para ver la calidad
+                         real de la senal. Si la precision es mala, la causa es la
+                         senal, no la app. -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/gps_title"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/gpsStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/gps_no_fix"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:id="@+id/gpsPerm"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/gps_perm_precise"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/gps_hint"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </ScrollView>
+
+            <!-- Tarjeta de punto (long-press): ir o guardar -->
+            <LinearLayout
+                android:id="@+id/pointCard"
+                android:layout_width="420dp"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_marginBottom="16dp"
+                android:background="@drawable/bg_panel"
+                android:orientation="vertical"
+                android:padding="14dp"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/pointTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@color/text_primary"
@@ -118,606 +542,207 @@
                     android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/maneuverStreet"
+                    android:id="@+id/pointSub"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@color/text_secondary"
                     android:textSize="14sp" />
 
-                <TextView
-                    android:id="@+id/maneuverEta"
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp" />
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/btnGo"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_panel"
+                        android:gravity="center"
+                        android:text="@string/go"
+                        android:textColor="@color/accent_blue"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/btnSavePoint"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_panel"
+                        android:gravity="center"
+                        android:text="@string/save"
+                        android:textColor="@color/text_primary"
+                        android:textSize="17sp" />
+                </LinearLayout>
             </LinearLayout>
-        </LinearLayout>
+        </FrameLayout>
 
-        <!-- Estado (v1.3): antes vivia en la barra inferior, que ya no
-             existe. Texto pequeno bajo el panel de guia. -->
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="320dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="@string/offline_status"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
+        <!-- Capsula de musica (v1.4): la mediana. Ocupa todo el alto del
+             lado derecho (~35% del ancho). La portada es el FONDO (no una
+             imagen alta), asi el contenido cabe siempre: con una pantalla
+             apaisada de 360dp, la capsula mide ~336dp de alto y el
+             contenido ~180dp. Nada se puede salir por abajo (eso fue el
+             bug de v1.3). Solo visible si algo suena. -->
+        <FrameLayout
+            android:id="@+id/musicCard"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.55"
+            android:background="@drawable/bg_capsule_music"
+            android:clipToOutline="true"
+            android:visibility="gone">
 
-        <!-- Cancelar ruta (v1.3): antes estaba en la barra inferior. -->
-        <TextView
-            android:id="@+id/btnCancelRoute"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_marginTop="2dp"
-            android:background="@drawable/bg_chip"
-            android:gravity="center"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:text="@string/cancel_route"
-            android:textColor="@color/accent_blue"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:visibility="gone" />
-
-        <!-- Resultados de busqueda / guardados (compactos en v1.2) -->
-        <ListView
-            android:id="@+id/searchResults"
-            android:layout_width="320dp"
-            android:layout_height="240dp"
-            android:layout_marginTop="6dp"
-            android:background="@drawable/bg_panel"
-            android:divider="@color/panel_border"
-            android:dividerHeight="1dp"
-            android:visibility="gone" />
-    </LinearLayout>
-
-    <!-- Controles derecha: ajustes, brujula, centrar, dia/noche, zoom.
-         En v1.2 los botones son de 40dp (antes 56dp), mas pequenos. -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="56dp"
-        android:layout_marginEnd="10dp"
-        android:orientation="vertical">
-
-        <ImageButton
-            android:id="@+id/btnSettings"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_round_button"
-            android:contentDescription="@string/settings"
-            android:padding="9dp"
-            android:src="@drawable/ic_settings" />
-
-        <ImageButton
-            android:id="@+id/btnCompass"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_round_button"
-            android:contentDescription="Norte o hacia donde voy"
-            android:padding="9dp"
-            android:src="@drawable/ic_compass" />
-
-        <ImageButton
-            android:id="@+id/btnCenter"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_round_button"
-            android:contentDescription="@string/center"
-            android:padding="9dp"
-            android:src="@drawable/ic_target" />
-
-        <ImageButton
-            android:id="@+id/btnDayNight"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_round_button"
-            android:contentDescription="Dia o noche"
-            android:padding="9dp"
-            android:src="@drawable/ic_night" />
-
-        <ImageButton
-            android:id="@+id/btnZoomIn"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_round_button"
-            android:contentDescription="Acercar"
-            android:padding="9dp"
-            android:src="@drawable/ic_plus" />
-
-        <ImageButton
-            android:id="@+id/btnZoomOut"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_round_button"
-            android:contentDescription="Alejar"
-            android:padding="9dp"
-            android:src="@drawable/ic_minus" />
-
-        <!-- Mostrar musica (v1.3): vuelve a abrir la tarjeta cuando se
-             cerro con la X. Solo visible si algo suena. -->
-        <ImageButton
-            android:id="@+id/btnShowMusic"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_round_button"
-            android:contentDescription="@string/music_show"
-            android:padding="9dp"
-            android:src="@drawable/ic_music"
-            android:visibility="gone" />
-    </LinearLayout>
-
-    <!-- Panel de Ajustes (overlay, v1.2) -->
-    <ScrollView
-        android:id="@+id/settingsPanel"
-        android:layout_width="400dp"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="12dp"
-        android:layout_marginEnd="60dp"
-        android:layout_marginBottom="132dp"
-        android:background="@drawable/bg_panel"
-        android:padding="14dp"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <LinearLayout
+            <ImageView
+                android:id="@+id/musicArt"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/settings"
-                    android:textColor="@color/text_primary"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
-
-                <ImageButton
-                    android:id="@+id/btnCloseSettings"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:background="@android:color/transparent"
-                    android:contentDescription="Cerrar"
-                    android:padding="6dp"
-                    android:src="@drawable/ic_close" />
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:text="@string/mode"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/modeDark"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_chip_selected"
-                    android:gravity="center"
-                    android:text="@string/mode_dark"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/modeLight"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_chip"
-                    android:gravity="center"
-                    android:text="@string/mode_light"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/modeAuto"
-                    android:layout_width="0dp"
-                    android:layout_height="36dp"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_chip"
-                    android:gravity="center"
-                    android:text="@string/mode_auto"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp" />
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/offline_map"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/offlineStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/offline_not_downloaded"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp" />
-
-            <ProgressBar
-                android:id="@+id/offlineProgress"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:max="100"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
                 android:visibility="gone" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/btnDownloadMap"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_chip_selected"
-                    android:gravity="center"
-                    android:text="@string/download_map"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/btnUpdateMap"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_chip"
-                    android:gravity="center"
-                    android:text="@string/update_map"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/btnDeleteMap"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_chip"
-                    android:gravity="center"
-                    android:text="@string/delete_map"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp" />
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/music_perm_title"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/musicPermStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/music_perm_off"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/musicPermDesc"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="@string/music_perm_desc"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/btnMusicPerm"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/bg_chip_selected"
-                android:gravity="center"
-                android:minWidth="180dp"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:text="@string/music_perm_allow"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <!-- Senal GPS (v1.3): diagnostico en vivo para ver la calidad
-                 real de la senal. Si la precision es mala, la causa es la
-                 senal, no la app. -->
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/gps_title"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
-
-            <TextView
-                android:id="@+id/gpsStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/gps_no_fix"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/gpsPerm"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="@string/gps_perm_precise"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="@string/gps_hint"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
-        </LinearLayout>
-    </ScrollView>
-
-    <!-- Tarjeta de punto (long-press): ir o guardar -->
-    <LinearLayout
-        android:id="@+id/pointCard"
-        android:layout_width="420dp"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="16dp"
-        android:background="@drawable/bg_panel"
-        android:orientation="vertical"
-        android:padding="14dp"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/pointTitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_primary"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/pointSub"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="@color/text_secondary"
-            android:textSize="14sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/btnGo"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_panel"
-                android:gravity="center"
-                android:text="@string/go"
-                android:textColor="@color/accent_blue"
-                android:textSize="17sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/btnSavePoint"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_panel"
-                android:gravity="center"
-                android:text="@string/save"
-                android:textColor="@color/text_primary"
-                android:textSize="17sp" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <!-- Tarjeta de musica (v1.3): estilo Android Auto, a un lado a la
-         derecha debajo de los controles. La portada del album de fondo,
-         titulo, artista, barra de progreso y controles. Solo visible si
-         algo suena; la X la oculta y el boton de musica la trae de vuelta. -->
-    <FrameLayout
-        android:id="@+id/musicCard"
-        android:layout_width="280dp"
-        android:layout_height="240dp"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="344dp"
-        android:layout_marginEnd="10dp"
-        android:background="@drawable/bg_panel"
-        android:visibility="gone">
-
-        <ImageView
-            android:id="@+id/musicArt"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scaleType="centerCrop"
-            android:visibility="gone" />
-
-        <!-- Velo oscuro sobre la portada para que el texto se lea -->
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="#B3000000" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:padding="12dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/musicPlayerChip"
-                    android:layout_width="0dp"
-                    android:layout_height="28dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_chip"
-                    android:ellipsize="end"
-                    android:gravity="center_vertical"
-                    android:maxLines="1"
-                    android:paddingStart="10dp"
-                    android:paddingEnd="10dp"
-                    android:textColor="@color/text_primary"
-                    android:textSize="12sp" />
-
-                <ImageButton
-                    android:id="@+id/btnCloseMusic"
-                    android:layout_width="28dp"
-                    android:layout_height="28dp"
-                    android:layout_marginStart="8dp"
-                    android:background="@android:color/transparent"
-                    android:contentDescription="@string/music_hide"
-                    android:padding="5dp"
-                    android:src="@drawable/ic_close" />
-            </LinearLayout>
-
+            <!-- Velo oscuro sobre la portada para que el texto se lea -->
             <View
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
-            <TextView
-                android:id="@+id/musicTitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@color/text_primary"
-                android:textSize="17sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/musicArtist"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
-
-            <ProgressBar
-                android:id="@+id/musicProgress"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="4dp"
-                android:layout_marginTop="8dp"
-                android:max="1000"
-                android:progress="0"
-                android:progressTint="@color/text_primary" />
+                android:layout_height="match_parent"
+                android:background="#B3000000" />
 
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:orientation="horizontal">
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:padding="14dp">
 
-                <TextView
-                    android:id="@+id/musicTimeCur"
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="11sp" />
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/musicPlayerChip"
+                        android:layout_width="0dp"
+                        android:layout_height="28dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/bg_chip"
+                        android:ellipsize="end"
+                        android:gravity="center_vertical"
+                        android:maxLines="1"
+                        android:paddingStart="10dp"
+                        android:paddingEnd="10dp"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp" />
+
+                    <ImageButton
+                        android:id="@+id/btnCloseMusic"
+                        android:layout_width="28dp"
+                        android:layout_height="28dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@android:color/transparent"
+                        android:contentDescription="@string/music_hide"
+                        android:padding="5dp"
+                        android:src="@drawable/ic_close" />
+                </LinearLayout>
 
                 <View
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="0dp"
                     android:layout_weight="1" />
 
                 <TextView
-                    android:id="@+id/musicTimeTotal"
-                    android:layout_width="wrap_content"
+                    android:id="@+id/musicTitle"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/text_primary"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/musicArtist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
                     android:textColor="@color/text_secondary"
-                    android:textSize="11sp" />
+                    android:textSize="13sp" />
+
+                <ProgressBar
+                    android:id="@+id/musicProgress"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="4dp"
+                    android:layout_marginTop="8dp"
+                    android:max="1000"
+                    android:progress="0"
+                    android:progressTint="@color/text_primary" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/musicTimeCur"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp" />
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <TextView
+                        android:id="@+id/musicTimeTotal"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <ImageButton
+                        android:id="@+id/musicPrev"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@android:color/transparent"
+                        android:contentDescription="Anterior"
+                        android:padding="7dp"
+                        android:src="@drawable/ic_skip_previous" />
+
+                    <ImageButton
+                        android:id="@+id/musicPlayPause"
+                        android:layout_width="52dp"
+                        android:layout_height="52dp"
+                        android:layout_marginStart="18dp"
+                        android:layout_marginEnd="18dp"
+                        android:background="@drawable/bg_round_button"
+                        android:contentDescription="Pausa o reproducir"
+                        android:padding="11dp"
+                        android:src="@drawable/ic_pause" />
+
+                    <ImageButton
+                        android:id="@+id/musicNext"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="@android:color/transparent"
+                        android:contentDescription="Siguiente"
+                        android:padding="7dp"
+                        android:src="@drawable/ic_skip_next" />
+                </LinearLayout>
             </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:gravity="center"
-                android:orientation="horizontal">
-
-                <ImageButton
-                    android:id="@+id/musicPrev"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:background="@android:color/transparent"
-                    android:contentDescription="Anterior"
-                    android:padding="7dp"
-                    android:src="@drawable/ic_skip_previous" />
-
-                <ImageButton
-                    android:id="@+id/musicPlayPause"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:layout_marginStart="18dp"
-                    android:layout_marginEnd="18dp"
-                    android:background="@drawable/bg_round_button"
-                    android:contentDescription="Pausa o reproducir"
-                    android:padding="11dp"
-                    android:src="@drawable/ic_pause" />
-
-                <ImageButton
-                    android:id="@+id/musicNext"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:background="@android:color/transparent"
-                    android:contentDescription="Siguiente"
-                    android:padding="7dp"
-                    android:src="@drawable/ic_skip_next" />
-            </LinearLayout>
-        </LinearLayout>
-    </FrameLayout>
-
+        </FrameLayout>
+    </LinearLayout>
 </FrameLayout>

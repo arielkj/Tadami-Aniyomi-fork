@@ -1,6 +1,8 @@
 package app.maparadio.android
 
 import android.Manifest
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -95,6 +97,11 @@ import java.util.Locale
  * TODOS los reproductores con sesion activa, ubicacion precisa con
  * FusedLocationProvider y buscador solo de Republica Dominicana.
  *
+ * v1.4 anade: pantalla partida estilo Android Auto (el mapa se
+ * achica a una capsula y el reproductor ocupa todo el lado derecho),
+ * controles en una capsula, y se quita el texto de estado del mapa.
+ * Optimizacion ante todo: animacion barata, sin blur ni sombras.
+ *
  * Pegado a la calle (snap-to-road): con ruta activa el carro se dibuja
  * SOBRE la polilinea de la ruta (el GPS solo mide el avance); sin ruta se
  * usa el GPS suavizado. Estacionado (velocidad ~0) el carro se congela para
@@ -127,11 +134,19 @@ class MainActivity : AppCompatActivity() {
         private const val DR_MIN_ZOOM = 8.5
         // Pegado a la calle (v1.3): OSRM Match como mucho cada 5 s.
         private const val OSRM_MATCH_MIN_INTERVAL_MS = 5_000L
+        // Pantalla partida (v1.4): peso del reproductor en el split y
+        // duracion de la animacion barata (un solo ValueAnimator).
+        private const val MUSIC_WEIGHT = 0.55f
+        private const val SPLIT_ANIM_MS = 250L
     }
 
     private lateinit var mapView: MapView
     private var map: MapboxMap? = null
     private var style: Style? = null
+    // Pantalla partida (v1.4): capsula del mapa + estado del split.
+    private lateinit var mapCapsule: FrameLayout
+    private var splitAnimator: ValueAnimator? = null
+    private var musicSplitOn = false
 
     private lateinit var searchInput: EditText
     private lateinit var searchResults: ListView
@@ -141,7 +156,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var maneuverTitle: TextView
     private lateinit var maneuverStreet: TextView
     private lateinit var maneuverEta: TextView
-    private lateinit var statusText: TextView
     private lateinit var btnCancelRoute: TextView
     private lateinit var pointCard: View
     private lateinit var pointTitle: TextView
@@ -261,6 +275,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         mapView = findViewById(R.id.mapView)
+        mapCapsule = findViewById(R.id.mapCapsule)
         mapView.onCreate(savedInstanceState)
         searchInput = findViewById(R.id.searchInput)
         searchResults = findViewById(R.id.searchResults)
@@ -270,7 +285,6 @@ class MainActivity : AppCompatActivity() {
         maneuverTitle = findViewById(R.id.maneuverTitle)
         maneuverStreet = findViewById(R.id.maneuverStreet)
         maneuverEta = findViewById(R.id.maneuverEta)
-        statusText = findViewById(R.id.statusText)
         btnCancelRoute = findViewById(R.id.btnCancelRoute)
         pointCard = findViewById(R.id.pointCard)
         pointTitle = findViewById(R.id.pointTitle)
@@ -330,8 +344,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.musicNext).setOnClickListener { currentPlayer?.let { MusicController.skipNext(it) }; refreshMusic() }
         findViewById<ImageButton>(R.id.btnCloseMusic).setOnClickListener {
             musicHiddenByUser = true
-            musicCard.visibility = View.GONE
-            if (currentPlayer != null) btnShowMusic.visibility = View.VISIBLE
+            refreshMusic()
         }
         btnShowMusic.setOnClickListener {
             musicHiddenByUser = false
@@ -729,7 +742,6 @@ class MainActivity : AppCompatActivity() {
                 offRouteCount++
                 if (offRouteCount >= 3) {
                     offRouteCount = 0
-                    statusText.setText(R.string.recalculating)
                     routeTo(destination!!, destinationName, fromRaw = pos)
                     return
                 }
@@ -863,7 +875,6 @@ class MainActivity : AppCompatActivity() {
         }
         centering = true
         followMode = true
-        statusText.setText(R.string.centering)
         // Pedir un fix fresco y preciso; si no llega, lo cubren las
         // actualizaciones continuas y el timeout avisa.
         if (fusedAvailable()) {
@@ -893,7 +904,6 @@ class MainActivity : AppCompatActivity() {
             if (centering) {
                 centering = false
                 Toast.makeText(this@MainActivity, R.string.center_failed, Toast.LENGTH_LONG).show()
-                refreshOfflineStatusText()
             }
         }
     }
@@ -912,7 +922,6 @@ class MainActivity : AppCompatActivity() {
             700,
         )
         Toast.makeText(this, R.string.centered, Toast.LENGTH_SHORT).show()
-        refreshOfflineStatusText()
     }
 
     // ------------------------------------------------------------- guia
@@ -1036,7 +1045,6 @@ class MainActivity : AppCompatActivity() {
             ?: SANTO_DOMINGO
         destination = dest
         destinationName = name
-        statusText.text = getString(R.string.route_to, name ?: "")
         scope.launch {
             val newRoute = withContext(Dispatchers.IO) {
                 try {
@@ -1047,7 +1055,6 @@ class MainActivity : AppCompatActivity() {
             }
             if (newRoute == null) {
                 Toast.makeText(this@MainActivity, R.string.no_route, Toast.LENGTH_LONG).show()
-                refreshOfflineStatusText()
                 return@launch
             }
             route = newRoute
@@ -1063,7 +1070,6 @@ class MainActivity : AppCompatActivity() {
                 Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
             )
             redrawRoute()
-            statusText.text = getString(R.string.route_to, name ?: "")
         }
     }
 
@@ -1093,7 +1099,6 @@ class MainActivity : AppCompatActivity() {
         setSimplified(false)
         destSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         redrawRoute()
-        refreshOfflineStatusText()
     }
 
     // ------------------------------------------------------------- controles
@@ -1222,22 +1227,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Texto de la barra inferior segun si el mapa offline existe. */
-    private fun refreshOfflineStatusText() {
-        if (route != null || centering) return
-        OfflineMapManager.queryStatus(this) { infos ->
-            runOnUiThread {
-                if (infos.size == 2 && infos.all { it.complete }) {
-                    val size = infos.sumOf { it.sizeBytes }
-                    statusText.text = getString(R.string.offline_ready) +
-                        " • " + OfflineMapManager.formatSize(size)
-                } else {
-                    statusText.setText(R.string.offline_status)
-                }
-            }
-        }
-    }
-
     private fun startOfflineDownload() {
         if (offlineDownloading) return
         offlineDownloading = true
@@ -1273,7 +1262,6 @@ class MainActivity : AppCompatActivity() {
                         ).show()
                     }
                     refreshOfflineStatus()
-                    refreshOfflineStatusText()
                 }
             },
         )
@@ -1285,7 +1273,6 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 Toast.makeText(this, R.string.offline_deleted, Toast.LENGTH_SHORT).show()
                 refreshOfflineStatus()
-                refreshOfflineStatusText()
             }
         }
     }
@@ -1302,12 +1289,80 @@ class MainActivity : AppCompatActivity() {
 
     // ------------------------------------------------------------- musica
 
+    /**
+     * Pantalla partida (v1.4): con musica, el mapa se achica a una
+     * capsula a la izquierda y el reproductor ocupa todo el lado
+     * derecho; sin musica, el mapa vuelve a pantalla completa.
+     *
+     * Animacion BARATA, como manda la regla de optimizacion: un solo
+     * ValueAnimator de 250 ms sobre el peso del reproductor, una sola
+     * pasada de layout por frame, sin opacidad, sin blur, sin sombras
+     * ni gradientes. Si algun dia tironea, se quita la animacion y el
+     * cambio es instantaneo.
+     */
+    private fun applySplitLayout(musicOn: Boolean) {
+        if (musicOn == musicSplitOn) return
+        musicSplitOn = musicOn
+        splitAnimator?.cancel()
+        val mapLp = mapCapsule.layoutParams as LinearLayout.LayoutParams
+        val musicLp = musicCard.layoutParams as LinearLayout.LayoutParams
+        val density = resources.displayMetrics.density
+        fun dp(v: Int) = (v * density).toInt()
+        if (musicOn) {
+            // Capsula del mapa: margenes + esquinas redondeadas. El
+            // MapView va en modo TextureView para que clipToOutline
+            // recorte de verdad sus esquinas.
+            mapCapsule.setBackgroundResource(R.drawable.bg_capsule)
+            mapCapsule.clipToOutline = true
+            mapLp.setMargins(dp(12), dp(12), dp(6), dp(12))
+            mapCapsule.layoutParams = mapLp
+            musicLp.setMargins(dp(6), dp(12), dp(12), dp(12))
+            musicLp.weight = 0f
+            musicCard.layoutParams = musicLp
+            musicCard.visibility = View.VISIBLE
+            val anim = ValueAnimator.ofFloat(0f, MUSIC_WEIGHT)
+            anim.duration = SPLIT_ANIM_MS
+            anim.addUpdateListener {
+                musicLp.weight = it.animatedValue as Float
+                musicCard.layoutParams = musicLp
+            }
+            anim.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (splitAnimator == anim) splitAnimator = null
+                }
+            })
+            splitAnimator = anim
+            anim.start()
+        } else {
+            val anim = ValueAnimator.ofFloat(musicLp.weight, 0f)
+            anim.duration = SPLIT_ANIM_MS
+            anim.addUpdateListener {
+                musicLp.weight = it.animatedValue as Float
+                musicCard.layoutParams = musicLp
+            }
+            anim.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (splitAnimator != anim) return
+                    splitAnimator = null
+                    musicCard.visibility = View.GONE
+                    // Mapa a pantalla completa: sin fondo ni recorte.
+                    mapCapsule.background = null
+                    mapCapsule.clipToOutline = false
+                    mapLp.setMargins(0, 0, 0, 0)
+                    mapCapsule.layoutParams = mapLp
+                }
+            })
+            splitAnimator = anim
+            anim.start()
+        }
+    }
+
     private fun refreshMusic() {
         val players = MusicController.activePlayers(this)
         if (players.isEmpty()) {
             currentPlayer = null
             lastMusicArtKey = null
-            musicCard.visibility = View.GONE
+            applySplitLayout(false)
             btnShowMusic.visibility = View.GONE
             return
         }
@@ -1317,11 +1372,11 @@ class MainActivity : AppCompatActivity() {
         }
         currentPlayer = current
         if (musicHiddenByUser) {
-            musicCard.visibility = View.GONE
+            applySplitLayout(false)
             btnShowMusic.visibility = View.VISIBLE
             return
         }
-        musicCard.visibility = View.VISIBLE
+        applySplitLayout(true)
         btnShowMusic.visibility = View.GONE
         musicPlayerChip.text = current.appName + " ▾"
         musicTitle.text = current.title
@@ -1607,7 +1662,6 @@ class MainActivity : AppCompatActivity() {
         if (hasLocationPermission() && !locationStarted) {
             startLocation()
         }
-        refreshOfflineStatusText()
         refreshFavoriteChips()
         startMusicUpdates()
         startGpsStatusUpdates()
