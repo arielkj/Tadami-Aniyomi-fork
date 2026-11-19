@@ -1,6 +1,6 @@
 // Constructor del grafo offline de RD (Hispaniola) para la version
 // final del radio. Modulo Java puro: usa la MISMA version de
-// GraphHopper que la app (9.1) — el formato del grafo depende de
+// GraphHopper que la app (7.0) — el formato del grafo depende de
 // la version y el grafo empaquetado en el APK tiene que abrirlo la app.
 import org.gradle.api.tasks.SourceSetContainer
 
@@ -14,7 +14,7 @@ java {
 }
 
 dependencies {
-    implementation("com.graphhopper:graphhopper-core:9.1")
+    implementation("com.graphhopper:graphhopper-core:7.0")
     // Para ver el progreso del import en los logs de CI.
     runtimeOnly("ch.qos.logback:logback-classic:1.5.8")
 }
