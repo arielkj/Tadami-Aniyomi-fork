@@ -113,3 +113,20 @@ encima de la anterior.
   limites solo RD.
 - Compilacion: `.github/workflows/build-mapa-final.yml` (se dispara
   al cambiar ese workflow o `final-release-trigger.txt`).
+
+## v1.0.1 Final (arreglo del cierre al cargar el mapa)
+- Causa: R8 borro el sistema de modulos de MapLibre. MapLibre carga
+  por reflexion (Class.forName) el cargador de la libreria nativa
+  (LibraryLoaderProviderImpl) y el cliente HTTP (HttpRequestImpl, con
+  OkHttp), y las reglas del AAR no los conservan. En el dex de la
+  v1.0 Final faltaban LibraryLoader, ModuleProviderImpl,
+  HttpRequestImpl y TODO OkHttp (verificado contra el dex de la v1.7
+  debug, donde estan todos). La app abria bien porque
+  Mapbox.getInstance() no toca esos modulos; el cierre llegaba al
+  cargar el mapa (primera llamada nativa / primer fetch del estilo).
+- Arreglo: `-keep class com.mapbox.mapboxsdk.**`, okhttp3, okio y
+  gson en `app/proguard-rules.pro`. versionCode 101, 1.0.1-radio.
+- Nuevo: registro de errores — un manejador de excepciones no
+  controladas escribe la traza en filesDir/crash.log (version, fecha,
+  modelo, hilo) y Ajustes -> Registro de errores la muestra y la
+  comparte (ACTION_SEND con el texto). Sin internet ni dependencias.

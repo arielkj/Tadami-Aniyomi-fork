@@ -1,4 +1,17 @@
-# Reglas R8 para la version final (release) del radio.
+# MapLibre: las reglas de su AAR NO cubren su sistema de modulos.
+# MapLibre carga por reflexion (Class.forName con el nombre de la
+# clase) el cargador de la libreria nativa (LibraryLoaderProviderImpl)
+# y el cliente HTTP (HttpRequestImpl, que usa OkHttp). R8 no ve esas
+# referencias y los borra: en la v1.0 Final faltaban LibraryLoader,
+# ModuleProviderImpl, HttpRequestImpl y TODO OkHttp, y la app se
+# cerraba al cargar el mapa (la primera llamada nativa o el primer
+# fetch del estilo). Se conserva el SDK entero y sus clientes HTTP.
+# (La v1.7 debug no fallaba porque sin R8 nada se borra.)
+-keep class com.mapbox.mapboxsdk.** { *; }
+-keep class com.mapbox.geojson.** { *; }
+-keep class com.google.gson.** { *; }
+-keep class okhttp3.** { *; }
+-keep class okio.** { *; }
 # GraphHopper usa reflexion (Jackson, Janino, encoded values) y sus
 # clases se cargan por nombre: se conserva el paquete entero.
 -keep class com.graphhopper.** { *; }
@@ -24,4 +37,5 @@
 -dontwarn com.ctc.wstx.**
 -dontwarn org.locationtech.jts.**
 # MapLibre, OkHttp y Play Services traen sus propias reglas de
-# consumidor en sus AAR; no hace falta repetirlas aqui.
+# consumidor en sus AAR, pero NO cubren el sistema de modulos de
+# MapLibre (ver los -keep de arriba): no quitarlos.

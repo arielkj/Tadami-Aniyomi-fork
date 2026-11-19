@@ -86,6 +86,11 @@
     <string name="phone_failed">No se pudo abrir el enlace con el teléfono</string>
     <string name="phone_hint">La app “Mapa Radio Móvil” del teléfono manda el destino por WiFi (hotspot). Sin internet no hace falta nada más.</string>
     <string name="route_from_phone">Ruta recibida del teléfono</string>
+    <string name="crash_title">Registro de errores</string>
+    <string name="crash_none">Sin errores registrados</string>
+    <string name="crash_last">Último cierre: %1$s\n%2$s</string>
+    <string name="crash_share">Compartir registro</string>
+    <string name="crash_share_title">Compartir registro de errores</string>
     <string name="outside_dr">Fuera de República Dominicana</string>
     <string name="choose_route">Elige una ruta</string>
     <string name="route_n">Ruta %1$d</string>

@@ -244,6 +244,10 @@ class MainActivity : AppCompatActivity() {
     // Diagnostico GPS en vivo (v1.3).
     private lateinit var gpsStatus: TextView
     private lateinit var gpsPerm: TextView
+
+    // Registro de errores (v1.0.1): ultimo cierre + compartirlo.
+    private lateinit var crashLogStatus: TextView
+    private lateinit var btnShareCrashLog: TextView
     private var lastFixAccuracy = -1f
     private var lastFixTimeMs = 0L
     private var lastFixProvider = ""
@@ -329,6 +333,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Registro de errores (v1.0.1): instalar ANTES de inicializar
+        // el mapa, para que un cierre al cargar el mapa tambien quede
+        // guardado en filesDir/crash.log.
+        CrashLog.install(this)
         // MapLibre 10.x exige el singleton inicializado ANTES de inflar
         // el MapView: su constructor llama a validateMapbox() y sin esto
         // la app se cierra al abrir (MapboxConfigurationException).
@@ -397,6 +405,9 @@ class MainActivity : AppCompatActivity() {
         phoneStatus = findViewById(R.id.phoneStatus)
         gpsStatus = findViewById(R.id.gpsStatus)
         gpsPerm = findViewById(R.id.gpsPerm)
+        crashLogStatus = findViewById(R.id.crashLogStatus)
+        btnShareCrashLog = findViewById(R.id.btnShareCrashLog)
+        btnShareCrashLog.setOnClickListener { shareCrashLog() }
 
         findViewById<ImageButton>(R.id.btnSettings).setOnClickListener { toggleSettings() }
         findViewById<ImageButton>(R.id.btnCloseSettings).setOnClickListener { hideSettings() }
@@ -1652,6 +1663,28 @@ class MainActivity : AppCompatActivity() {
         )
         refreshOfflineStatus()
         refreshPhoneStatus()
+        refreshCrashLogStatus()
+    }
+
+    /** Registro de errores (v1.0.1): ultimo cierre y boton para compartirlo. */
+    private fun refreshCrashLogStatus() {
+        if (!::crashLogStatus.isInitialized) return
+        val info = CrashLog.lastCrashInfo(this)
+        if (info == null) {
+            crashLogStatus.setText(R.string.crash_none)
+            btnShareCrashLog.visibility = View.GONE
+        } else {
+            crashLogStatus.text = getString(R.string.crash_last, info.first, info.second)
+            btnShareCrashLog.visibility = View.VISIBLE
+        }
+    }
+
+    private fun shareCrashLog() {
+        val intent = CrashLog.shareIntent(this) ?: run {
+            Toast.makeText(this, R.string.crash_none, Toast.LENGTH_SHORT).show()
+            return
+        }
+        startActivity(Intent.createChooser(intent, getString(R.string.crash_share_title)))
     }
 
     private fun refreshOfflineStatus() {
