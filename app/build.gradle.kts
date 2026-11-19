@@ -71,6 +71,36 @@ android {
     buildFeatures {
         buildConfig = true
     }
+
+    // GraphHopper 7.0 (v1.0.7) trae dependencias que 9.1 no traia
+    // (jackson-dataformat-xml + woodstox/stax2, xmlgraphics-commons
+    // + commons-io/commons-logging, jakarta.xml.bind-api +
+    // jakarta.activation-api): varios JARs traen los mismos archivos
+    // META-INF con contenido DISTINTO y AGP falla al fusionar los
+    // recursos Java (":app:mergeRadioReleaseJavaResource", CI v1.0.7
+    // run 44633509380: "2 files found with path
+    // 'META-INF/NOTICE.md'"). Verificado jar por jar (md5): chocan
+    // NOTICE.md y LICENSE.md (las dos jakarta), NOTICE (jackson
+    // vs dataformat-xml vs xmlgraphics), LICENSE (jackson vacio vs
+    // stax2 vs woodstox), NOTICE.txt y LICENSE.txt (commons-io vs
+    // commons-logging) y los servicios Jackson JsonFactory y
+    // ObjectCodec (core/databind vs dataformat-xml). Son solo textos
+    // legales y registros ServiceLoader que la app no lee en tiempo
+    // de ejecucion (GraphHopper construye XmlMapper directo): se
+    // excluyen del APK. module-info.class NO se excluye: la v1.0.6
+    // ya lo tenia duplicado (jackson-core + databind) y compilo.
+    packaging {
+        resources {
+            excludes += "META-INF/NOTICE"
+            excludes += "META-INF/NOTICE.md"
+            excludes += "META-INF/NOTICE.txt"
+            excludes += "META-INF/LICENSE"
+            excludes += "META-INF/LICENSE.md"
+            excludes += "META-INF/LICENSE.txt"
+            excludes += "META-INF/services/com.fasterxml.jackson.core.JsonFactory"
+            excludes += "META-INF/services/com.fasterxml.jackson.core.ObjectCodec"
+        }
+    }
 }
 
 dependencies {
