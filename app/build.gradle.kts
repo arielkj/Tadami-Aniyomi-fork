@@ -17,7 +17,7 @@ android {
 
     // Dos variantes: "phone" (pruebas en el telefono, arm64) y
     // "radio" (version final para el radio: 32-bit, release, v1.0).
-    flavorDimensions("device")
+    flavorDimensions += "device"
     productFlavors {
         create("phone") {
             dimension = "device"
