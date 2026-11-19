@@ -99,4 +99,12 @@
     <string name="cancel">Cancelar</string>
     <string name="no_route_preview">No se pudo calcular la ruta</string>
     <string name="no_route_offline">No se pudo calcular la ruta. Puedes guardar el lugar e intentarlo más tarde.</string>
+    <string name="route_preparing">Preparando rutas sin conexión…</string>
+    <string name="route_waiting_gps">Esperando señal GPS…</string>
+    <string name="route_fail_gh_loading">Las rutas sin conexión aún se están preparando. Inténtalo de nuevo en unos segundos.</string>
+    <string name="route_fail_gh_error">No se pudo cargar el mapa de rutas sin conexión.</string>
+    <string name="route_fail_osrm_network">Sin respuesta del servidor de rutas. Revisa la conexión a internet.</string>
+    <string name="route_fail_osrm_http">El servidor de rutas no respondió. Inténtalo de nuevo.</string>
+    <string name="route_fail_osrm_noroute">No hay ruta por carretera hasta ese lugar.</string>
+    <string name="route_fail_hint">Puedes guardar el lugar e intentarlo más tarde.</string>
 </resources>

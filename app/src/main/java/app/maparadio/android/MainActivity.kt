@@ -24,6 +24,7 @@ import android.provider.Settings
 import android.text.Editable
 import android.text.TextUtils
 import android.text.TextWatcher
+import android.util.DisplayMetrics
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -216,9 +217,9 @@ class MainActivity : AppCompatActivity() {
     // Restaurantes, Favoritos) esta directamente debajo del buscador.
     private lateinit var favChips: HorizontalScrollView
     private lateinit var favChipsRow: LinearLayout
-    private lateinit var catLocales: TextView
-    private lateinit var catRestaurantes: TextView
-    private lateinit var catFavoritos: TextView
+    private lateinit var catLocales: ImageView
+    private lateinit var catRestaurantes: ImageView
+    private lateinit var catFavoritos: ImageView
     private var selectedCategory: String? = null
 
     // Enlace con el telefono (v1.6): servidor local en la red WiFi.
@@ -594,10 +595,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun drawCarBitmap(): Bitmap {
-        val w = 110
-        val h = 180
+        // Tamano de marcador de navegacion (v1.0.3): ~48dp de ancho,
+        // como Waze/Tesla. Antes era 110x180 px fijos: en el radio
+        // (160 dpi, DPR 1.0) eso son 110x180 dp, casi un tercio de la
+        // pantalla de 600 px — el carro se veia enorme (foto del
+        // usuario, 19 nov). Se dibuja a 48dp x densidad para que sea
+        // nitido en cualquier pantalla, con el mismo dibujo escalado
+        // por el canvas. La rotacion y el pegado a la calle no cambian.
+        val density = resources.displayMetrics.density
+        val w = (48f * density).roundToInt().coerceAtLeast(1)
+        val h = (78f * density).roundToInt().coerceAtLeast(1)
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        bmp.density = (DisplayMetrics.DENSITY_DEFAULT * density).toInt()
         val c = Canvas(bmp)
+        c.scale(w / 110f, h / 180f)
         val body = Paint().apply { color = Color.WHITE; isAntiAlias = true }
         val glass = Paint().apply { color = Color.parseColor("#1A2530"); isAntiAlias = true }
         val light = Paint().apply { color = Color.parseColor("#FFE082"); isAntiAlias = true }
@@ -1163,22 +1174,31 @@ class MainActivity : AppCompatActivity() {
 
     private fun routeTo(dest: LatLng, name: String?, fromRaw: LatLng? = null) {
         val origin = fromRaw
-            ?: lastCarPos
-            ?: lastLocation?.let { LatLng(it.latitude, it.longitude) }
+            ?: currentOrigin()
             ?: SANTO_DOMINGO
         destination = dest
         destinationName = name
         scope.launch {
-            val newRoute = withContext(Dispatchers.IO) {
+            val result = withContext(Dispatchers.IO) {
                 try {
                     // GraphHopper offline primero, OSRM con internet si no hay grafo.
-                    GraphHopperRouter.fetchRoute(origin, dest)
-                } catch (_: Exception) {
-                    null
+                    GraphHopperRouter.fetchRoutesResult(origin, dest)
+                } catch (t: Throwable) {
+                    RouteResult(
+                        null, RouteFailure.GH_ERROR,
+                        t.message ?: t.javaClass.simpleName,
+                    )
                 }
             }
+            val newRoute = result.routes?.firstOrNull()
             if (newRoute == null) {
-                Toast.makeText(this@MainActivity, R.string.no_route, Toast.LENGTH_LONG).show()
+                // v1.0.3: motivo exacto en vez de un generico, y en el registro.
+                val reason = routeFailureText(result)
+                CrashLog.logEvent(
+                    this@MainActivity,
+                    "Ruta a ${name ?: dest}: ${result.failure} — ${result.detail}",
+                )
+                Toast.makeText(this@MainActivity, reason, Toast.LENGTH_LONG).show()
                 return@launch
             }
             route = newRoute
@@ -1203,6 +1223,12 @@ class MainActivity : AppCompatActivity() {
      * del mapa o telefono). NO arranca la guia de inmediato: pide las
      * rutas posibles a OSRM y las muestra para elegir. Si habia una
      * ruta activa, se cancela primero (el nuevo destino la reemplaza).
+     *
+     * v1.0.3: si el grafo offline aun se esta cargando (copia de 82 MB
+     * en el primer arranque) o no hay fix GPS todavia, NO falla de
+     * inmediato: espera un poco y reintenta. Y si la ruta no se puede
+     * calcular, el panel dice el motivo exacto (no un generico) y el
+     * motivo queda en el registro de errores.
      */
     private fun previewRoutes(dest: LatLng, name: String?) {
         cancelRoute()
@@ -1213,29 +1239,110 @@ class MainActivity : AppCompatActivity() {
         previewDestName = name
         destination = dest
         destinationName = name
-        val origin = lastCarPos
-            ?: lastLocation?.let { LatLng(it.latitude, it.longitude) }
-            ?: SANTO_DOMINGO
         previewJob?.cancel()
         previewJob = scope.launch {
-            val routes = withContext(Dispatchers.IO) {
-                try {
-                    // GraphHopper offline primero, OSRM con internet si no hay grafo.
-                    GraphHopperRouter.fetchRoutes(origin, dest)
-                } catch (_: Exception) {
-                    null
+            // (1) Sin fix GPS todavia: esperar hasta 20 s a que llegue
+            // uno. Si no llega, se sigue con el centro de Santo
+            // Domingo, como siempre (y queda en el registro).
+            var origin = currentOrigin()
+            if (origin == null) {
+                showPreviewMessage(getString(R.string.route_waiting_gps))
+                waitForFix(20_000)
+                origin = currentOrigin()
+                if (origin == null) {
+                    CrashLog.logEvent(
+                        this@MainActivity,
+                        "Ruta a ${name ?: dest}: sin fix GPS, origen Santo Domingo",
+                    )
+                    origin = SANTO_DOMINGO
                 }
             }
-            if (routes.isNullOrEmpty()) {
-                // Sin internet: aviso, el pin queda puesto y el panel
-                // permite guardar el lugar (cambio 2). No se rompe nada.
-                Toast.makeText(
-                    this@MainActivity, R.string.no_route_preview, Toast.LENGTH_LONG
-                ).show()
-                showPreviewOffline()
+            // (2) GraphHopper offline primero, OSRM con internet si no
+            // hay grafo (con espejo y motivo concreto, v1.0.3).
+            var result = withContext(Dispatchers.IO) {
+                try {
+                    GraphHopperRouter.fetchRoutesResult(origin, dest)
+                } catch (t: Throwable) {
+                    RouteResult(
+                        null, RouteFailure.GH_ERROR,
+                        t.message ?: t.javaClass.simpleName,
+                    )
+                }
+            }
+            // (3) Si fallo y el grafo aun se esta cargando, esperar a
+            // que este listo (hasta 45 s) y reintentar solo offline:
+            // en el primer arranque la copia tarda decenas de segundos
+            // en el radio y la ruta no debe fallar por eso.
+            if (result.routes.isNullOrEmpty() &&
+                GraphHopperRouter.loadState == GhStatus.LOADING
+            ) {
+                showPreviewMessage(getString(R.string.route_preparing))
+                if (waitForGraph(45_000)) {
+                    result = withContext(Dispatchers.IO) {
+                        try {
+                            GraphHopperRouter.fetchOfflineResult(origin, dest)
+                        } catch (t: Throwable) {
+                            RouteResult(
+                                null, RouteFailure.GH_ERROR,
+                                t.message ?: t.javaClass.simpleName,
+                            )
+                        }
+                    }
+                }
+            }
+            val routes = result.routes
+            if (!routes.isNullOrEmpty()) {
+                showRoutePreview(routes)
                 return@launch
             }
-            showRoutePreview(routes)
+            // (4) Motivo exacto en el panel y en el registro, no un
+            // generico. El pin queda puesto y el panel permite
+            // guardar el lugar.
+            val reason = routeFailureText(result)
+            CrashLog.logEvent(
+                this@MainActivity,
+                "Ruta a ${name ?: dest}: ${result.failure} — ${result.detail}",
+            )
+            Toast.makeText(this@MainActivity, reason, Toast.LENGTH_LONG).show()
+            showPreviewMessage("$reason\n${getString(R.string.route_fail_hint)}")
+        }
+    }
+
+    /** Origen de la ruta: posicion del carro, ultimo fix, o null si no
+        hay ningun fix todavia. */
+    private fun currentOrigin(): LatLng? =
+        lastCarPos ?: lastLocation?.let { LatLng(it.latitude, it.longitude) }
+
+    /** Espera hasta [timeoutMs] a que llegue un fix GPS (v1.0.3). */
+    private suspend fun waitForFix(timeoutMs: Long): Boolean {
+        val start = SystemClock.uptimeMillis()
+        while (SystemClock.uptimeMillis() - start < timeoutMs) {
+            if (currentOrigin() != null) return true
+            delay(500)
+        }
+        return currentOrigin() != null
+    }
+
+    /** Espera hasta [timeoutMs] a que el grafo offline este listo. */
+    private suspend fun waitForGraph(timeoutMs: Long): Boolean {
+        val start = SystemClock.uptimeMillis()
+        while (SystemClock.uptimeMillis() - start < timeoutMs) {
+            if (GraphHopperRouter.isReady) return true
+            if (GraphHopperRouter.loadState == GhStatus.FAILED) return false
+            delay(500)
+        }
+        return GraphHopperRouter.isReady
+    }
+
+    /** Texto corto en espanol para el motivo del fallo (v1.0.3). */
+    private fun routeFailureText(result: RouteResult): String {
+        return when (result.failure) {
+            RouteFailure.GH_NOT_READY -> getString(R.string.route_fail_gh_loading)
+            RouteFailure.GH_ERROR -> getString(R.string.route_fail_gh_error)
+            RouteFailure.OSRM_NETWORK -> getString(R.string.route_fail_osrm_network)
+            RouteFailure.OSRM_HTTP -> getString(R.string.route_fail_osrm_http)
+            RouteFailure.OSRM_NO_ROUTE -> getString(R.string.route_fail_osrm_noroute)
+            RouteFailure.NONE -> getString(R.string.no_route)
         }
     }
 
@@ -1346,9 +1453,10 @@ class MainActivity : AppCompatActivity() {
         routePreviewPanel.visibility = View.VISIBLE
     }
 
-    /** Sin internet: el panel queda con el aviso y el pin, para que el
-        usuario pueda guardar el lugar (cambio 2). */
-    private fun showPreviewOffline() {
+    /** Panel de previsualizacion con un mensaje (espera o motivo del
+        fallo, v1.0.3): titulo del destino, pin puesto, y el texto.
+        Antes solo habia un aviso generico sin internet. */
+    private fun showPreviewMessage(message: String) {
         previewRoutes = null
         val dest = previewDest ?: return
         destSource?.setGeoJson(
@@ -1357,7 +1465,7 @@ class MainActivity : AppCompatActivity() {
         previewTitle.text = previewDestName ?: getString(R.string.choose_route)
         previewRows.removeAllViews()
         val info = TextView(this).apply {
-            text = getString(R.string.no_route_offline)
+            text = message
             textSize = 14f
             setTextColor(
                 ContextCompat.getColor(this@MainActivity, R.color.text_secondary)
@@ -2086,7 +2194,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyCategorySelection() {
         val selected = selectedCategory
-        fun paint(view: TextView, category: String) {
+        fun paint(view: ImageView, category: String) {
             view.setBackgroundResource(
                 if (selected == category) R.drawable.bg_chip_selected
                 else R.drawable.bg_chip

@@ -150,3 +150,34 @@ encima de la anterior.
   no disponibles" si falla la carga; un fallo del router nunca
   vuelve a cerrar la app (respaldo OSRM con internet).
   versionCode 102, 1.0.2-radio.
+
+## v1.0.3 Final (ruta no se calculaba + chips solo icono + carro enorme)
+- Prueba del usuario (19 nov ~13:20 AST, v1.0.2, directo en el radio):
+  el mapa carga y va fluido (el cierre esta arreglado), pero "Me sale
+  que no se pudo calcular la ruta y tiene Internet". Causa: no se pudo
+  probar en el radio cual capa fallaba, porque TODOS los fallos
+  colapsaban en el mismo Toast generico sin motivo ni registro. Los
+  dos OSRM (project-osrm.org y routing.openstreetmap.de) responden
+  bien desde fuera, asi que el fallo estaba en el camino del radio
+  (hotspot lento/limitado, timeout 10/15 s) y/o en el grafo offline
+  aun copiandose (82 MB, decenas de segundos en el primer arranque).
+- Arreglo de rutas: (1) motivo concreto en la UI y en el registro
+  (CrashLog.logEvent): GH_NOT_READY / GH_ERROR / OSRM_NETWORK /
+  OSRM_HTTP / OSRM_NO_ROUTE, con detalle; (2) si el grafo aun se esta
+  cargando y la ruta online fallo, se espera hasta 45 s a que este
+  listo ("Preparando rutas sin conexión…") y se reintenta offline;
+  (3) si no hay fix GPS, se espera hasta 20 s ("Esperando señal
+  GPS…") y si no llega se sigue con Santo Domingo como siempre;
+  (4) OSRM con espejo: si router.project-osrm.org falla, se prueba
+  routing.openstreetmap.de (misma API); (5) estado de carga del
+  grafo (GhStatus NOT_STARTED/LOADING/READY/FAILED + loadError).
+- Chips de categorias (v1.6) ahora SOLO icono: los tres TextView con
+  texto pasan a ImageView (tienda/campana/estrella), mismo tamano,
+  mismo comportamiento (tocar muestra la categoria, tocar otra vez
+  la esconde); el texto queda solo en contentDescription.
+- Carro enorme (foto del usuario 19 nov 12:24 p. m.): el marcador
+  era un bitmap fijo de 110x180 px = 110x180 dp en el radio (160 dpi),
+  casi un tercio de la pantalla. Ahora se dibuja a ~48dp de ancho
+  (48x78 dp, mismo dibujo escalado por el canvas, x densidad para
+  que sea nitido); la rotacion y el snap-to-road no cambian.
+  versionCode 103, 1.0.3-radio.

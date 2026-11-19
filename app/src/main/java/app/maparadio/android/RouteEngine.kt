@@ -2,6 +2,7 @@ package app.maparadio.android
 
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import android.util.Log
 import org.json.JSONObject
 import com.mapbox.mapboxsdk.geometry.LatLng
 import java.util.concurrent.TimeUnit
@@ -16,6 +17,32 @@ import kotlin.math.sqrt
  * GraphHopper offline; la interfaz aqui es la misma idea: una ruta es una
  * polilinea con pasos (maniobras) y distancias acumuladas.
  */
+/** Motivo concreto de que una ruta no se pudo calcular (v1.0.3):
+    en vez de un "no se pudo" generico, la UI muestra el motivo y
+    queda en el registro de errores. */
+enum class RouteFailure {
+    NONE,
+    /** El grafo offline aun se esta copiando/cargando. */
+    GH_NOT_READY,
+    /** El grafo offline fallo al cargar o al rutear. */
+    GH_ERROR,
+    /** Sin respuesta del servidor de rutas (red, timeout, DNS). */
+    OSRM_NETWORK,
+    /** El servidor de rutas respondio con un HTTP de error. */
+    OSRM_HTTP,
+    /** El servidor respondio pero no hay ruta por carretera. */
+    OSRM_NO_ROUTE,
+}
+
+/** Rutas calculadas (o null) + motivo del fallo, si lo hubo. */
+data class RouteResult(
+    val routes: List<Route>?,
+    val failure: RouteFailure,
+    val detail: String = "",
+)
+
+private class OsrmFailure(val failure: RouteFailure, message: String) : Exception(message)
+
 data class RouteStep(
     val type: String,
     val modifier: String?,
@@ -66,18 +93,60 @@ object RouteEngine {
      * mismo destino (alternatives=true). La primera es la mas rapida
      * (la que devolvia fetchRoute). Si no hay internet o OSRM falla,
      * devuelve null y el llamador muestra el aviso sin romper nada.
+     *
+     * v1.0.3: dos servidores espejo (project-osrm.org y
+     * routing.openstreetmap.de, misma API) y motivo concreto del
+     * fallo. El servidor demo de OSRM puede tardar o limitar por IP
+     * en el hotspot del telefono; el espejo es el respaldo.
      */
     fun fetchRoutes(from: LatLng, to: LatLng): List<Route>? {
-        val url = "https://router.project-osrm.org/route/v1/driving/" +
+        return fetchRoutesResult(from, to).routes
+    }
+
+    /** Lo mismo que fetchRoutes, pero con el motivo del fallo (v1.0.3). */
+    fun fetchRoutesResult(from: LatLng, to: LatLng): RouteResult {
+        val hosts = listOf(
+            "https://router.project-osrm.org",
+            "https://routing.openstreetmap.de/routed-car",
+        )
+        var lastFailure = RouteFailure.OSRM_NETWORK
+        var lastDetail = ""
+        for (host in hosts) {
+            try {
+                return RouteResult(fetchFromHost(host, from, to), RouteFailure.NONE)
+            } catch (e: OsrmFailure) {
+                lastFailure = e.failure
+                lastDetail = e.message ?: ""
+                Log.w("MapaRadioOSRM", "OSRM $host fallo: ${e.failure} ${e.message}")
+            }
+        }
+        return RouteResult(null, lastFailure, lastDetail)
+    }
+
+    private fun fetchFromHost(host: String, from: LatLng, to: LatLng): List<Route> {
+        val url = "$host/route/v1/driving/" +
             "${from.longitude},${from.latitude};${to.longitude},${to.latitude}" +
             "?overview=full&geometries=geojson&steps=true&alternatives=true"
         val req = Request.Builder().url(url)
             .header("User-Agent", "MapaRadio/1.0-radio")
             .build()
-        http.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) return null
-            val body = resp.body?.string() ?: return null
-            return parseRoutes(JSONObject(body))
+        try {
+            http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    throw OsrmFailure(RouteFailure.OSRM_HTTP, "HTTP ${resp.code}")
+                }
+                val body = resp.body?.string()
+                    ?: throw OsrmFailure(RouteFailure.OSRM_NETWORK, "respuesta vacia")
+                return parseRoutes(JSONObject(body))
+                    ?: throw OsrmFailure(RouteFailure.OSRM_NO_ROUTE, "OSRM sin ruta")
+            }
+        } catch (e: OsrmFailure) {
+            throw e
+        } catch (e: Exception) {
+            throw OsrmFailure(
+                RouteFailure.OSRM_NETWORK,
+                e.message ?: e.javaClass.simpleName,
+            )
         }
     }
 

@@ -75,6 +75,26 @@ object CrashLog {
         Log.e(TAG, "Crash guardado en ${file.absolutePath}")
     }
 
+    /**
+     * Añade una linea de evento con fecha al mismo registro (v1.0.3):
+     * para fallos que NO cierran la app, como una ruta que no se pudo
+     * calcular. Asi el proximo reporte trae el motivo exacto y no hay
+     * que adivinar. El archivo se recorta si crece demasiado.
+     */
+    fun logEvent(context: Context, message: String) {
+        try {
+            val file = File(context.filesDir, FILE_NAME)
+            if (file.exists() && file.length() > 128 * 1024) {
+                val lines = file.readLines()
+                file.writeText(lines.takeLast(200).joinToString("\n") + "\n")
+            }
+            val date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+            file.appendText("Evento: $date — $message\n")
+        } catch (_: Exception) {
+            // El registro nunca debe romper la app.
+        }
+    }
+
     /** (fecha, primera linea de la excepcion) del ultimo cierre, o null. */
     fun lastCrashInfo(context: Context): Pair<String, String>? {
         val file = File(context.filesDir, FILE_NAME)

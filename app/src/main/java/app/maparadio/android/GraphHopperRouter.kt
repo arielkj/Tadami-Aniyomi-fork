@@ -51,6 +51,15 @@ import java.io.File
  * El grafo empaquetado no cambia (el formato en disco no depende
  * del DAType), asi que se reutiliza la misma copia.
  */
+/** Estado de la carga del grafo offline (v1.0.3): la UI lo usa para
+    saber si vale la pena esperar a que este listo en vez de fallar. */
+enum class GhStatus {
+    NOT_STARTED,
+    LOADING,
+    READY,
+    FAILED,
+}
+
 object GraphHopperRouter {
     private const val TAG = "MapaRadioGH"
     /** Cambiar cuando se reconstruya el grafo: fuerza volver a copiarlo. */
@@ -65,9 +74,20 @@ object GraphHopperRouter {
     var isReady = false
         private set
 
+    /** Estado de la carga (v1.0.3) y motivo si fallo. */
+    @Volatile
+    var loadState = GhStatus.NOT_STARTED
+        private set
+
+    @Volatile
+    var loadError: String? = null
+        private set
+
     /** Copia el grafo (si hace falta) y lo abre, en segundo plano. */
     fun initAsync(context: Context) {
         if (isReady || hopper != null) return
+        loadState = GhStatus.LOADING
+        loadError = null
         Thread({
             try {
                 val appContext = context.applicationContext
@@ -93,6 +113,8 @@ object GraphHopperRouter {
                 gh.chPreparationHandler.setCHProfiles(CHProfile(PROFILE))
                 try {
                     if (!gh.load()) {
+                        loadState = GhStatus.FAILED
+                        loadError = "load() devolvió false"
                         Log.w(TAG, "GraphHopper.load() devolvio false")
                         return@Thread
                     }
@@ -101,6 +123,8 @@ object GraphHopperRouter {
                     // sin rutas offline esta sesion, OSRM con internet
                     // de respaldo. VerifyError es un Error, no una
                     // Exception: por eso se atrapa Throwable.
+                    loadState = GhStatus.FAILED
+                    loadError = t.message ?: t.javaClass.simpleName
                     Log.e(TAG, "GraphHopper.load() fallo", t)
                     Handler(Looper.getMainLooper()).post {
                         Toast.makeText(
@@ -113,10 +137,13 @@ object GraphHopperRouter {
                 }
                 hopper = gh
                 isReady = true
+                loadState = GhStatus.READY
                 Log.i(TAG, "GraphHopper listo (offline, MMAP)")
             } catch (t: Throwable) {
                 // Sin grafo (versiones de prueba) o grafo danado: se
                 // sigue con OSRM cuando hay internet. No se rompe nada.
+                loadState = GhStatus.FAILED
+                loadError = t.message ?: t.javaClass.simpleName
                 Log.w(TAG, "GraphHopper no disponible: ${t.message}")
             }
         }, "gh-init").start()
@@ -133,17 +160,42 @@ object GraphHopperRouter {
 
     /** Rutas sin internet primero; si no hay grafo, OSRM con internet. */
     fun fetchRoutes(from: LatLng, to: LatLng): List<Route>? {
-        fetchOfflineRoutes(from, to)?.let { if (it.isNotEmpty()) return it }
-        return RouteEngine.fetchRoutes(from, to)
+        return fetchRoutesResult(from, to).routes
     }
 
     fun fetchRoute(from: LatLng, to: LatLng): Route? {
         return fetchRoutes(from, to)?.firstOrNull()
     }
 
-    private fun fetchOfflineRoutes(from: LatLng, to: LatLng): List<Route>? {
-        val gh = hopper ?: return null
-        if (!isReady) return null
+    /**
+     * Lo mismo que fetchRoutes, pero con el motivo del fallo (v1.0.3):
+     * si el grafo offline no pudo, el motivo que se muestra es el del
+     * intento en vivo (OSRM) y el estado del grafo va en el detalle
+     * para el registro de errores.
+     */
+    fun fetchRoutesResult(from: LatLng, to: LatLng): RouteResult {
+        val offline = fetchOfflineResult(from, to)
+        if (offline.routes != null) return offline
+        val osrm = RouteEngine.fetchRoutesResult(from, to)
+        if (osrm.routes != null) return osrm
+        val ghDetail = when (loadState) {
+            GhStatus.FAILED -> "grafo offline no cargó (${loadError ?: "?"})"
+            GhStatus.LOADING -> "grafo offline aún cargando"
+            else -> "grafo offline no listo"
+        }
+        val detail = if (osrm.detail.isNotEmpty()) "${osrm.detail}; $ghDetail" else ghDetail
+        return RouteResult(null, osrm.failure, detail)
+    }
+
+    /** Solo el grafo offline, con motivo (v1.0.3). */
+    fun fetchOfflineResult(from: LatLng, to: LatLng): RouteResult {
+        val gh = hopper ?: return RouteResult(
+            null,
+            if (loadState == GhStatus.FAILED) RouteFailure.GH_ERROR
+            else RouteFailure.GH_NOT_READY,
+            loadError ?: "",
+        )
+        if (!isReady) return RouteResult(null, RouteFailure.GH_NOT_READY, "")
         return try {
             // 1) Alternativas (hasta 3) sin CH: es el algoritmo que
             // mas alternativas da. Si no sale ninguna, 2) ruta unica
@@ -160,7 +212,11 @@ object GraphHopperRouter {
                 val req = GHRequest(from.latitude, from.longitude, to.latitude, to.longitude)
                     .setProfile(PROFILE)
                 val resp = gh.route(req)
-                if (resp.hasErrors()) return null
+                if (resp.hasErrors()) {
+                    return RouteResult(
+                        null, RouteFailure.GH_ERROR, "ruta CH con errores",
+                    )
+                }
                 resp.all
             }
             val out = ArrayList<Route>()
@@ -168,12 +224,19 @@ object GraphHopperRouter {
                 if (p.errors.isNotEmpty()) continue
                 toRoute(p)?.let { out.add(it) }
             }
-            if (out.isEmpty()) null else out
-        } catch (_: Throwable) {
+            if (out.isEmpty()) {
+                RouteResult(null, RouteFailure.GH_ERROR, "sin rutas")
+            } else {
+                RouteResult(out, RouteFailure.NONE)
+            }
+        } catch (t: Throwable) {
             // Un fallo del router (incluido un Error como VerifyError)
-            // nunca cierra la app: se devuelve null y el llamador usa
-            // OSRM con internet.
-            null
+            // nunca cierra la app: se devuelve el motivo y el llamador
+            // usa OSRM con internet.
+            RouteResult(
+                null, RouteFailure.GH_ERROR,
+                t.message ?: t.javaClass.simpleName,
+            )
         }
     }
 
