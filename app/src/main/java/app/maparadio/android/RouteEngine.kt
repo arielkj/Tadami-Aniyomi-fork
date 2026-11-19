@@ -33,6 +33,9 @@ data class Route(
     val totalDuration: Double,
     /** Distancia acumulada (m) en cada punto de la polilinea. */
     val cumulative: DoubleArray,
+    /** Calle principal de la ruta (el paso con nombre mas largo), para
+        mostrarla en la previsualizacion. Vacio si no hay nombre. */
+    val viaName: String = "",
 )
 
 data class SnapResult(
@@ -55,16 +58,26 @@ object RouteEngine {
         .build()
 
     fun fetchRoute(from: LatLng, to: LatLng): Route? {
+        return fetchRoutes(from, to)?.firstOrNull()
+    }
+
+    /**
+     * Rutas ALTERNATIVAS (v1.7): OSRM devuelve hasta 3 rutas para el
+     * mismo destino (alternatives=true). La primera es la mas rapida
+     * (la que devolvia fetchRoute). Si no hay internet o OSRM falla,
+     * devuelve null y el llamador muestra el aviso sin romper nada.
+     */
+    fun fetchRoutes(from: LatLng, to: LatLng): List<Route>? {
         val url = "https://router.project-osrm.org/route/v1/driving/" +
             "${from.longitude},${from.latitude};${to.longitude},${to.latitude}" +
-            "?overview=full&geometries=geojson&steps=true"
+            "?overview=full&geometries=geojson&steps=true&alternatives=true"
         val req = Request.Builder().url(url)
-            .header("User-Agent", "MapaRadio/1.0-test")
+            .header("User-Agent", "MapaRadio/1.7-test")
             .build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return null
             val body = resp.body?.string() ?: return null
-            return parseRoute(JSONObject(body))
+            return parseRoutes(JSONObject(body))
         }
     }
 
@@ -106,9 +119,19 @@ object RouteEngine {
         }
     }
 
-    private fun parseRoute(json: JSONObject): Route? {
+    /** Todas las rutas del JSON de OSRM (hasta 3 con alternatives=true). */
+    private fun parseRoutes(json: JSONObject): List<Route>? {
         if (json.optString("code") != "Ok") return null
-        val routeJson = json.optJSONArray("routes")?.optJSONObject(0) ?: return null
+        val routesJson = json.optJSONArray("routes") ?: return null
+        val out = ArrayList<Route>()
+        for (ri in 0 until minOf(routesJson.length(), 3)) {
+            parseOneRoute(routesJson.optJSONObject(ri))?.let { out.add(it) }
+        }
+        return if (out.isEmpty()) null else out
+    }
+
+    private fun parseOneRoute(routeJson: JSONObject?): Route? {
+        if (routeJson == null) return null
         val coords = routeJson.optJSONObject("geometry")?.optJSONArray("coordinates")
             ?: return null
         val points = ArrayList<LatLng>(coords.length())
@@ -147,12 +170,17 @@ object RouteEngine {
             total += metersBetween(points[i - 1], points[i])
             cumulative[i] = total
         }
+        // Calle principal: el paso con nombre mas largo (sin contar la salida).
+        val viaName = steps
+            .filter { it.name.isNotEmpty() && it.type != "depart" }
+            .maxByOrNull { it.distance }?.name ?: ""
         return Route(
             points = points,
             steps = steps,
             totalDistance = routeJson.optDouble("distance"),
             totalDuration = routeJson.optDouble("duration"),
             cumulative = cumulative,
+            viaName = viaName,
         )
     }
 

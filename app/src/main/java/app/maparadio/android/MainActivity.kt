@@ -12,6 +12,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -63,6 +64,7 @@ import kotlinx.coroutines.withContext
 import com.mapbox.mapboxsdk.Mapbox
 import com.mapbox.mapboxsdk.WellKnownTileServer
 import com.mapbox.mapboxsdk.geometry.LatLng
+import com.mapbox.mapboxsdk.geometry.LatLngBounds
 import com.mapbox.mapboxsdk.camera.CameraUpdateFactory
 import com.mapbox.mapboxsdk.maps.MapboxMap
 import com.mapbox.mapboxsdk.maps.MapView
@@ -81,6 +83,7 @@ import android.media.session.MediaSessionManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * Mapa Radio v1.2 (prueba en el telefono).
@@ -106,6 +109,14 @@ import java.util.Locale
  * Favoritos) con una capsula de tres chips debajo del buscador, y el
  * enlace con el telefono: el radio escucha en la red local (hotspot)
  * y la app "Mapa Radio Movil" le manda destinos (pin + ruta solos).
+ *
+ * v1.7 anade: previsualizacion de rutas — al elegir un destino no
+ * arranca la guia de inmediato: OSRM devuelve hasta 3 rutas, se
+ * dibujan todas (la mas rapida en azul, las demas en gris) y el
+ * usuario toca una para ir (o su linea en el mapa). Sin internet se
+ * avisa y el pin queda para guardar el lugar. Tambien se puede
+ * guardar en favoritos cualquier lugar buscado: estrella en cada
+ * resultado y boton "Guardar en favoritos" en el panel de vista previa.
  *
  * Pegado a la calle (snap-to-road): con ruta activa el carro se dibuja
  * SOBRE la polilinea de la ruta (el GPS solo mide el avance); sin ruta se
@@ -286,6 +297,23 @@ class MainActivity : AppCompatActivity() {
     private var carLayer: SymbolLayer? = null
     private var destSource: GeoJsonSource? = null
 
+    // Previsualizacion de rutas (v1.7): al elegir un destino no se
+    // arranca la guia de inmediato; se muestran las rutas posibles
+    // (la mas rapida en azul, las demas en gris) y el usuario toca
+    // una para ir. altRouteSource dibuja las grises.
+    private var altRouteSource: GeoJsonSource? = null
+    private var previewRoutes: List<Route>? = null
+    private var previewDest: LatLng? = null
+    private var previewDestName: String? = null
+    private var previewSelected = 0
+    private var previewJob: Job? = null
+    private var followBeforePreview = true
+    private lateinit var routePreviewPanel: View
+    private lateinit var previewTitle: TextView
+    private lateinit var previewRows: LinearLayout
+    private lateinit var previewSave: TextView
+    private lateinit var previewCancel: TextView
+
     private var pendingPoint: LatLng? = null
 
     private val locationListener = object : LocationListener {
@@ -322,6 +350,11 @@ class MainActivity : AppCompatActivity() {
         pointCard = findViewById(R.id.pointCard)
         pointTitle = findViewById(R.id.pointTitle)
         pointSub = findViewById(R.id.pointSub)
+        routePreviewPanel = findViewById(R.id.routePreviewPanel)
+        previewTitle = findViewById(R.id.previewTitle)
+        previewRows = findViewById(R.id.previewRows)
+        previewSave = findViewById(R.id.previewSave)
+        previewCancel = findViewById(R.id.previewCancel)
         btnDayNight = findViewById(R.id.btnDayNight)
 
         settingsPanel = findViewById(R.id.settingsPanel)
@@ -370,6 +403,8 @@ class MainActivity : AppCompatActivity() {
         btnCancelRoute.setOnClickListener { cancelRoute() }
         findViewById<TextView>(R.id.btnGo).setOnClickListener { onGoToPoint() }
         findViewById<TextView>(R.id.btnSavePoint).setOnClickListener { onSavePoint() }
+        previewSave.setOnClickListener { onPreviewSave() }
+        previewCancel.setOnClickListener { onPreviewCancel() }
 
         modeDark.setOnClickListener { setMode(AppPrefs.MODE_DARK) }
         modeLight.setOnClickListener { setMode(AppPrefs.MODE_LIGHT) }
@@ -424,7 +459,16 @@ class MainActivity : AppCompatActivity() {
             // del cuadro del pais ni alejarse tanto que se vean otros.
             mapLibreMap.setLatLngBoundsForCameraTarget(DR_BOUNDS)
             mapLibreMap.setMinZoomPreference(DR_MIN_ZOOM)
-            mapLibreMap.addOnMapClickListener { hideOverlays(); true }
+            mapLibreMap.addOnMapClickListener { latLng ->
+                // Con la previsualizacion abierta, tocar una linea gris
+                // arranca la guia con esa ruta; tocar fuera la cancela.
+                if (previewRoutes != null && tryPreviewMapTap(latLng)) {
+                    true
+                } else {
+                    hideOverlays()
+                    true
+                }
+            }
             mapLibreMap.addOnMapLongClickListener { latLng -> onMapLongPress(latLng); true }
             mapLibreMap.addOnCameraMoveStartedListener { reason ->
                 if (reason == MapboxMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
@@ -464,12 +508,34 @@ class MainActivity : AppCompatActivity() {
             style = loaded
             setupLayers(loaded)
             redrawRoute()
+            // Si habia una previsualizacion abierta al cambiar de estilo,
+            // las capas se recrearon: volver a dibujar sus lineas.
+            if (previewRoutes != null) drawPreviewLines()
             updateCarMarker()
             setSimplified(simplified)
         }
     }
 
     private fun setupLayers(style: Style) {
+        // Rutas alternativas (v1.7): las grises van DEBAJO de la azul.
+        altRouteSource = GeoJsonSource("alt-src", FeatureCollection.fromFeatures(emptyList()))
+        style.addSource(altRouteSource!!)
+        style.addLayer(
+            LineLayer("alt-casing", "alt-src").withProperties(
+                PropertyFactory.lineColor("#424242"),
+                PropertyFactory.lineWidth(10f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        )
+        style.addLayer(
+            LineLayer("alt-line", "alt-src").withProperties(
+                PropertyFactory.lineColor("#8A8A8A"),
+                PropertyFactory.lineWidth(6f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        )
         routeSource = GeoJsonSource("route-src", FeatureCollection.fromFeatures(emptyList()))
         style.addSource(routeSource!!)
         style.addLayer(
@@ -1114,6 +1180,315 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Previsualizacion de rutas (v1.7): entrada UNICA para cualquier
+     * destino que elige el usuario (busqueda, lugar guardado, punto
+     * del mapa o telefono). NO arranca la guia de inmediato: pide las
+     * rutas posibles a OSRM y las muestra para elegir. Si habia una
+     * ruta activa, se cancela primero (el nuevo destino la reemplaza).
+     */
+    private fun previewRoutes(dest: LatLng, name: String?) {
+        cancelRoute()
+        hideOverlays()
+        hideKeyboard()
+        searchInput.clearFocus()
+        previewDest = dest
+        previewDestName = name
+        destination = dest
+        destinationName = name
+        val origin = lastCarPos
+            ?: lastLocation?.let { LatLng(it.latitude, it.longitude) }
+            ?: SANTO_DOMINGO
+        previewJob?.cancel()
+        previewJob = scope.launch {
+            val routes = withContext(Dispatchers.IO) {
+                try {
+                    RouteEngine.fetchRoutes(origin, dest)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            if (routes.isNullOrEmpty()) {
+                // Sin internet: aviso, el pin queda puesto y el panel
+                // permite guardar el lugar (cambio 2). No se rompe nada.
+                Toast.makeText(
+                    this@MainActivity, R.string.no_route_preview, Toast.LENGTH_LONG
+                ).show()
+                showPreviewOffline()
+                return@launch
+            }
+            showRoutePreview(routes)
+        }
+    }
+
+    /** Dibuja las rutas de la previsualizacion: la elegida en azul,
+        las demas en gris (cada una con su indice para tocarla). */
+    private fun drawPreviewLines() {
+        val routes = previewRoutes ?: return
+        val sel = routes.getOrNull(previewSelected) ?: return
+        val pts = sel.points.map { Point.fromLngLat(it.longitude, it.latitude) }
+        routeSource?.setGeoJson(
+            FeatureCollection.fromFeatures(
+                listOf(Feature.fromGeometry(LineString.fromLngLats(pts)))
+            )
+        )
+        val feats = ArrayList<Feature>()
+        for ((i, r) in routes.withIndex()) {
+            if (i == previewSelected) continue
+            val f = Feature.fromGeometry(
+                LineString.fromLngLats(
+                    r.points.map { Point.fromLngLat(it.longitude, it.latitude) }
+                )
+            )
+            f.addNumberProperty("idx", i)
+            feats.add(f)
+        }
+        altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(feats))
+    }
+
+    /** Muestra el panel con las rutas: nombre (calle principal o
+        "Ruta N"), distancia y tiempo. Tocar una fila arranca la guia
+        con ella. Si solo hay una, igual se muestra para confirmar. */
+    private fun showRoutePreview(routes: List<Route>) {
+        previewRoutes = routes
+        previewSelected = 0
+        val dest = previewDest ?: return
+        destSource?.setGeoJson(
+            Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
+        )
+        drawPreviewLines()
+        fitCameraToRoutes(routes)
+        // Durante la vista previa el mapa no sigue al carro, para que
+        // el encuadre de las rutas se quede quieto.
+        followBeforePreview = followMode
+        followMode = false
+        previewTitle.text = previewDestName ?: getString(R.string.choose_route)
+        previewRows.removeAllViews()
+        val density = resources.displayMetrics.density
+        for ((i, r) in routes.withIndex()) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setBackgroundResource(R.drawable.bg_chip)
+                setPadding(
+                    (12 * density).toInt(), (10 * density).toInt(),
+                    (12 * density).toInt(), (10 * density).toInt(),
+                )
+            }
+            val texts = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                )
+            }
+            val title = TextView(this).apply {
+                text = if (r.viaName.isNotEmpty()) r.viaName
+                    else getString(R.string.route_n, i + 1)
+                textSize = 15f
+                setTypeface(null, Typeface.BOLD)
+                maxLines = 1
+                ellipsize = TextUtils.TruncateAt.END
+                setTextColor(
+                    ContextCompat.getColor(this@MainActivity, R.color.text_primary)
+                )
+            }
+            val sub = TextView(this).apply {
+                text = getString(
+                    R.string.route_summary,
+                    RouteEngine.formatDistance(r.totalDistance, this@MainActivity),
+                    (r.totalDuration / 60).roundToInt().coerceAtLeast(1),
+                )
+                textSize = 13f
+                maxLines = 1
+                setTextColor(
+                    ContextCompat.getColor(this@MainActivity, R.color.text_secondary)
+                )
+            }
+            texts.addView(title)
+            texts.addView(sub)
+            val go = TextView(this).apply {
+                text = getString(R.string.go)
+                textSize = 15f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(
+                    ContextCompat.getColor(this@MainActivity, R.color.accent_blue)
+                )
+                setPadding((10 * density).toInt(), 0, 0, 0)
+            }
+            row.addView(texts)
+            row.addView(go)
+            row.setOnClickListener { startPreviewRoute(i) }
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            )
+            lp.topMargin = (6 * density).toInt()
+            previewRows.addView(row, lp)
+        }
+        routePreviewPanel.visibility = View.VISIBLE
+    }
+
+    /** Sin internet: el panel queda con el aviso y el pin, para que el
+        usuario pueda guardar el lugar (cambio 2). */
+    private fun showPreviewOffline() {
+        previewRoutes = null
+        val dest = previewDest ?: return
+        destSource?.setGeoJson(
+            Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
+        )
+        previewTitle.text = previewDestName ?: getString(R.string.choose_route)
+        previewRows.removeAllViews()
+        val info = TextView(this).apply {
+            text = getString(R.string.no_route_offline)
+            textSize = 14f
+            setTextColor(
+                ContextCompat.getColor(this@MainActivity, R.color.text_secondary)
+            )
+            setPadding(0, (6 * resources.displayMetrics.density).toInt(), 0, 0)
+        }
+        previewRows.addView(info)
+        routePreviewPanel.visibility = View.VISIBLE
+    }
+
+    /** Encuadra todas las rutas en pantalla, con margen para la
+        columna izquierda y el panel de abajo. */
+    private fun fitCameraToRoutes(routes: List<Route>) {
+        val m = map ?: return
+        val w = mapView.width
+        val h = mapView.height
+        if (w <= 0 || h <= 0) return
+        var minLat = 90.0
+        var maxLat = -90.0
+        var minLng = 180.0
+        var maxLng = -180.0
+        for (r in routes) {
+            for (p in r.points) {
+                if (p.latitude < minLat) minLat = p.latitude
+                if (p.latitude > maxLat) maxLat = p.latitude
+                if (p.longitude < minLng) minLng = p.longitude
+                if (p.longitude > maxLng) maxLng = p.longitude
+            }
+        }
+        if (maxLat - minLat < 0.002 && maxLng - minLng < 0.002) {
+            // Ruta muy corta: centrar en el destino con zoom normal.
+            val dest = previewDest ?: return
+            m.animateCamera(
+                CameraUpdateFactory.newCameraPosition(
+                    com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
+                        .target(dest).zoom(15.0).tilt(0.0).bearing(0.0).build()
+                ),
+                700,
+            )
+            return
+        }
+        val density = resources.displayMetrics.density
+        val left = minOf((360 * density).toInt(), (w * 0.4).toInt())
+        val right = minOf((60 * density).toInt(), (w * 0.1).toInt())
+        val top = minOf((40 * density).toInt(), (h * 0.15).toInt())
+        val bottom = minOf((220 * density).toInt(), (h * 0.5).toInt())
+        val bounds = LatLngBounds.Builder()
+            .include(LatLng(maxLat, maxLng))
+            .include(LatLng(minLat, minLng))
+            .build()
+        try {
+            m.animateCamera(
+                CameraUpdateFactory.newLatLngBounds(bounds, left, top, right, bottom),
+                700,
+            )
+        } catch (_: Exception) {
+            // Si el encuadre no cabe (pantalla muy chica), no romper.
+        }
+    }
+
+    /** Tocar una linea gris en el mapa arranca la guia con esa ruta. */
+    private fun tryPreviewMapTap(latLng: LatLng): Boolean {
+        val m = map ?: return false
+        val screen = m.projection.toScreenLocation(latLng)
+        val tol = 20 * resources.displayMetrics.density
+        val rect = RectF(
+            screen.x - tol, screen.y - tol, screen.x + tol, screen.y + tol
+        )
+        val feats = try {
+            m.queryRenderedFeatures(rect, "alt-line")
+        } catch (_: Exception) {
+            emptyList()
+        }
+        val first = feats.firstOrNull() ?: return false
+        val idx = first.getNumberProperty("idx")?.toInt() ?: return false
+        startPreviewRoute(idx)
+        return true
+    }
+
+    /** El usuario eligio una ruta de la previsualizacion: arranca la guia. */
+    private fun startPreviewRoute(index: Int) {
+        val routes = previewRoutes ?: return
+        if (index !in routes.indices) return
+        activateRoute(routes[index])
+    }
+
+    /** Activa una ruta ya calculada (lo mismo que hacia routeTo al
+        recibirla): pin, guia, seguimiento y camara. */
+    private fun activateRoute(selected: Route) {
+        val dest = previewDest ?: destination ?: return
+        val name = previewDestName ?: destinationName
+        cancelPreview()
+        route = selected
+        routeIndex = 0
+        lastMatchedIndex = 0
+        lastProgressMeters = 0.0
+        offRouteCount = 0
+        lastZoomBand = -1
+        followMode = true
+        btnCancelRoute.visibility = View.VISIBLE
+        guidanceCard.visibility = View.VISIBLE
+        destination = dest
+        destinationName = name
+        destSource?.setGeoJson(
+            Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
+        )
+        redrawRoute()
+    }
+
+    /** Cierra la previsualizacion sin arrancar ninguna ruta. */
+    private fun cancelPreview() {
+        previewJob?.cancel()
+        previewJob = null
+        previewRoutes = null
+        previewDest = null
+        previewDestName = null
+        previewSelected = 0
+        routePreviewPanel.visibility = View.GONE
+        previewRows.removeAllViews()
+        altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+    }
+
+    /** "Cancelar" del panel: cierra la vista previa y quita el pin. */
+    private fun onPreviewCancel() {
+        cancelPreview()
+        destSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        destination = null
+        destinationName = null
+        followMode = followBeforePreview
+    }
+
+    /** "Guardar en favoritos" del panel: el destino de la vista previa,
+        con el mismo selector de categoria que el long-press. */
+    private fun onPreviewSave() {
+        val dest = previewDest ?: return
+        val name = previewDestName ?: getString(R.string.point_on_map)
+        showCategoryPicker(previewSave) { category ->
+            scope.launch {
+                FavoritesStore.add(
+                    this@MainActivity,
+                    Favorite(name, "", dest.latitude, dest.longitude, category),
+                )
+                Toast.makeText(this@MainActivity, R.string.saved, Toast.LENGTH_SHORT).show()
+                selectedCategory = category
+                refreshFavoriteChips()
+            }
+        }
+    }
+
     private fun redrawRoute() {
         val r = route
         if (r == null) {
@@ -1129,6 +1504,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun cancelRoute() {
+        cancelPreview()
         route = null
         destination = null
         destinationName = null
@@ -1198,17 +1574,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun onGoToPoint() {
         val p = pendingPoint ?: return
-        pointCard.visibility = View.GONE
-        hideKeyboard()
-        routeTo(p, pointTitle.text.toString())
+        // v1.7: no arranca la guia directo; muestra las rutas posibles.
+        previewRoutes(p, pointTitle.text.toString())
     }
 
-    private fun onSavePoint() {
-        val p = pendingPoint ?: return
-        val name = pointTitle.text.toString()
-        val address = pointSub.text.toString()
-        // v1.6: el usuario elige en que categoria lo guarda.
-        val popup = PopupMenu(this, findViewById<TextView>(R.id.btnSavePoint))
+    /** Selector de categoria (v1.6, reutilizado en v1.7): Locales,
+        Restaurantes o Favoritos. Lo usan el long-press, la estrella
+        de los resultados y el panel de vista previa. */
+    private fun showCategoryPicker(anchor: View, onPick: (String) -> Unit) {
+        val popup = PopupMenu(this, anchor)
         popup.menu.add(0, 0, 0, R.string.cat_locales)
         popup.menu.add(0, 1, 0, R.string.cat_restaurantes)
         popup.menu.add(0, 2, 0, R.string.cat_favoritos)
@@ -1218,6 +1592,18 @@ class MainActivity : AppCompatActivity() {
                 1 -> FavoriteCategory.RESTAURANTES
                 else -> FavoriteCategory.FAVORITOS
             }
+            onPick(category)
+            true
+        }
+        popup.show()
+    }
+
+    private fun onSavePoint() {
+        val p = pendingPoint ?: return
+        val name = pointTitle.text.toString()
+        val address = pointSub.text.toString()
+        // v1.6: el usuario elige en que categoria lo guarda.
+        showCategoryPicker(findViewById<TextView>(R.id.btnSavePoint)) { category ->
             scope.launch {
                 FavoritesStore.add(
                     this@MainActivity,
@@ -1227,9 +1613,7 @@ class MainActivity : AppCompatActivity() {
                 selectedCategory = category
                 refreshFavoriteChips()
             }
-            true
         }
-        popup.show()
         pointCard.visibility = View.GONE
     }
 
@@ -1527,6 +1911,9 @@ class MainActivity : AppCompatActivity() {
         val lon: Double,
         val favorite: Favorite?,
         val deletable: Boolean,
+        /** v1.7: solo los resultados de busqueda se pueden guardar
+            (estrella); los favoritos y "Sin resultados", no. */
+        val savable: Boolean,
     )
 
     private fun onSearchText(query: String) {
@@ -1545,18 +1932,18 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             val rows = results.map {
-                RowItem(it.name, it.detail, it.lat, it.lon, null, false)
+                RowItem(it.name, it.detail, it.lat, it.lon, null, false, true)
             }
             showRows(
                 if (rows.isEmpty()) {
-                    listOf(RowItem(getString(R.string.no_results), "", 0.0, 0.0, null, false))
+                    listOf(RowItem(getString(R.string.no_results), "", 0.0, 0.0, null, false, false))
                 } else rows
             ) { row ->
                 if (row.lat == 0.0 && row.lon == 0.0) return@showRows
                 hideOverlays()
                 hideKeyboard()
                 searchInput.clearFocus()
-                routeTo(LatLng(row.lat, row.lon), row.title)
+                previewRoutes(LatLng(row.lat, row.lon), row.title)
             }
         }
     }
@@ -1565,11 +1952,11 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             val favs = FavoritesStore.load(this@MainActivity)
             val rows = favs.map {
-                RowItem(it.name, it.address, it.lat, it.lon, it, true)
+                RowItem(it.name, it.address, it.lat, it.lon, it, true, false)
             }
             showRows(rows) { row ->
                 hideOverlays()
-                routeTo(LatLng(row.lat, row.lon), row.title)
+                previewRoutes(LatLng(row.lat, row.lon), row.title)
             }
         }
     }
@@ -1590,6 +1977,27 @@ class MainActivity : AppCompatActivity() {
                 val row = rows[position]
                 view.findViewById<TextView>(R.id.rowTitle).text = row.title
                 view.findViewById<TextView>(R.id.rowSub).text = row.sub
+                // Estrella para guardar el lugar buscado (v1.7).
+                val save = view.findViewById<ImageView>(R.id.rowSave)
+                save.visibility = if (row.savable) View.VISIBLE else View.GONE
+                save.setOnClickListener {
+                    showCategoryPicker(save) { category ->
+                        scope.launch {
+                            FavoritesStore.add(
+                                this@MainActivity,
+                                Favorite(
+                                    row.title, row.sub,
+                                    row.lat, row.lon, category,
+                                ),
+                            )
+                            Toast.makeText(
+                                this@MainActivity, R.string.saved, Toast.LENGTH_SHORT
+                            ).show()
+                            selectedCategory = category
+                            refreshFavoriteChips()
+                        }
+                    }
+                }
                 val del = view.findViewById<ImageView>(R.id.rowDelete)
                 del.visibility = if (row.deletable) View.VISIBLE else View.GONE
                 del.setOnClickListener {
@@ -1688,7 +2096,7 @@ class MainActivity : AppCompatActivity() {
                     hideOverlays()
                     hideKeyboard()
                     searchInput.clearFocus()
-                    routeTo(LatLng(fav.lat, fav.lon), fav.name)
+                    previewRoutes(LatLng(fav.lat, fav.lon), fav.name)
                 }
                 chip.setOnLongClickListener {
                     scope.launch {
@@ -1723,7 +2131,8 @@ class MainActivity : AppCompatActivity() {
         hideOverlays()
         hideKeyboard()
         searchInput.clearFocus()
-        routeTo(LatLng(lat, lng), name)
+        // v1.7: el destino del telefono tambien pasa por la vista previa.
+        previewRoutes(LatLng(lat, lng), name)
         Toast.makeText(this, R.string.route_from_phone, Toast.LENGTH_LONG).show()
     }
 
@@ -1776,6 +2185,8 @@ class MainActivity : AppCompatActivity() {
     private fun hideOverlays() {
         searchResults.visibility = View.GONE
         pointCard.visibility = View.GONE
+        // Tocar fuera con la previsualizacion abierta la cancela.
+        cancelPreview()
         hideSettings()
     }
 

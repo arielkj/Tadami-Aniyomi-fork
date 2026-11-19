@@ -35,6 +35,18 @@
             android:textSize="11sp" />
     </LinearLayout>
 
+    <!-- Guardar (v1.7): estrella en cada resultado de busqueda. Solo
+         visible en resultados de busqueda, no en favoritos ni en la
+         fila de "Sin resultados". Tocar abre el selector de categoria. -->
+    <ImageView
+        android:id="@+id/rowSave"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="center_vertical"
+        android:padding="3dp"
+        android:src="@drawable/ic_star"
+        android:visibility="gone" />
+
     <ImageView
         android:id="@+id/rowDelete"
         android:layout_width="24dp"
