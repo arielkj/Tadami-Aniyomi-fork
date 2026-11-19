@@ -12,5 +12,16 @@
 -dontwarn org.openstreetmap.osmosis.**
 -dontwarn com.fasterxml.jackson.**
 -dontwarn org.slf4j.**
+# Dependencias transitivas de GraphHopper que referencian clases de
+# escritorio (java.awt, javax.imageio, javax.xml.stream) que no
+# existen en Android: ese codigo nunca se ejecuta en la app (es de
+# lectura KML/TIFF y de OSGi), asi que solo se silencia el aviso.
+-dontwarn java.awt.**
+-dontwarn javax.imageio.**
+-dontwarn javax.xml.stream.**
+-dontwarn aQute.bnd.annotation.**
+-dontwarn org.apache.xmlgraphics.**
+-dontwarn com.ctc.wstx.**
+-dontwarn org.locationtech.jts.**
 # MapLibre, OkHttp y Play Services traen sus propias reglas de
 # consumidor en sus AAR; no hace falta repetirlas aqui.
