@@ -36,6 +36,13 @@
 -dontwarn org.apache.xmlgraphics.**
 -dontwarn com.ctc.wstx.**
 -dontwarn org.locationtech.jts.**
+# GraphHopper 7.0 (v1.0.7) trae jakarta.activation-api, que es SOLO
+# la API: las clases de implementacion com.sun.activation.registries.*
+# (LogSupport, MailcapFile) no estan en el classpath y R8 las exige
+# ("Missing classes detected", CI v1.0.7 run 44634329988). Nada en la
+# app usa javax.activation en tiempo de ejecucion (es codigo de
+# escritorio para leer archivos mailcap): solo se silencia el aviso.
+-dontwarn com.sun.activation.**
 # MapLibre, OkHttp y Play Services traen sus propias reglas de
 # consumidor en sus AAR, pero NO cubren el sistema de modulos de
 # MapLibre (ver los -keep de arriba): no quitarlos.
