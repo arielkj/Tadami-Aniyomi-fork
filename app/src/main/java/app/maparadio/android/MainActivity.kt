@@ -134,9 +134,11 @@ class MainActivity : AppCompatActivity() {
         private const val DR_MIN_ZOOM = 8.5
         // Pegado a la calle (v1.3): OSRM Match como mucho cada 5 s.
         private const val OSRM_MATCH_MIN_INTERVAL_MS = 5_000L
-        // Pantalla partida (v1.4): peso del reproductor en el split y
+        // Pantalla partida (v1.4, v1.5): peso del reproductor en el split y
         // duracion de la animacion barata (un solo ValueAnimator).
-        private const val MUSIC_WEIGHT = 0.55f
+        // v1.5: 0.39f -> la capsula de musica ocupa ~28% del ancho
+        // (0.39/1.39) y el mapa ~72%, antes 0.55f (~35% / ~65%).
+        private const val MUSIC_WEIGHT = 0.39f
         private const val SPLIT_ANIM_MS = 250L
     }
 

@@ -11,8 +11,8 @@ android {
         applicationId = "app.maparadio.android"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.4-test"
+        versionCode = 6
+        versionName = "1.5-test"
 
         // v1 de prueba: solo arm64 (telefono del usuario). La version del
         // radio usara armeabi-v7a.
