@@ -158,21 +158,31 @@ object PhoneLinkServer {
         out.write(body)
     }
 
-    /** Valida el destino (numeros y dentro de RD) y lo pasa al listener. */
-    private fun handleDestination(body: String): Boolean {
+    /** Valida el destino (numeros y dentro de RD). Null si no vale.
+     *  Lo usa tambien BluetoothLinkServer: un destino vale igual por
+     *  WiFi que por Bluetooth. */
+    data class Destination(val name: String, val lat: Double, val lng: Double)
+
+    fun parseDestination(body: String): Destination? {
         return try {
             val json = JSONObject(body)
             val name = json.optString("name").takeIf { it.isNotEmpty() } ?: "Destino"
             val lat = json.optDouble("lat", Double.NaN)
             val lng = json.optDouble("lng", Double.NaN)
-            if (lat.isNaN() || lng.isNaN()) return false
+            if (lat.isNaN() || lng.isNaN()) return null
             // Solo Republica Dominicana: fuera del cuadro se ignora.
-            if (lat !in 17.4..20.0 || lng !in -72.1..-68.5) return false
-            listener?.onDestination(name, lat, lng)
-            true
+            if (lat !in 17.4..20.0 || lng !in -72.1..-68.5) return null
+            Destination(name, lat, lng)
         } catch (_: Exception) {
-            false
+            null
         }
+    }
+
+    /** Valida el destino (numeros y dentro de RD) y lo pasa al listener. */
+    private fun handleDestination(body: String): Boolean {
+        val dest = parseDestination(body) ?: return false
+        listener?.onDestination(dest.name, dest.lat, dest.lng)
+        return true
     }
 
     private fun runUdp() {
