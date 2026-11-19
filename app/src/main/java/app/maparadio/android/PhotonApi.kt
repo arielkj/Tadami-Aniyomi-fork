@@ -32,7 +32,7 @@ object PhotonApi {
         // countrycode=DO: el buscador es SOLO Republica Dominicana (v1.2).
         val url = "$BASE/api/?q=$q&lat=$lat&lon=$lon&limit=$limit&countrycode=DO"
         val req = Request.Builder().url(url)
-            .header("User-Agent", "MapaRadio/1.2-test")
+            .header("User-Agent", "MapaRadio/1.0-radio")
             .build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return emptyList()
@@ -45,7 +45,7 @@ object PhotonApi {
     fun reverse(lat: Double, lon: Double): String? {
         val url = "$BASE/reverse?lat=$lat&lon=$lon"
         val req = Request.Builder().url(url)
-            .header("User-Agent", "MapaRadio/1.0-test")
+            .header("User-Agent", "MapaRadio/1.0-radio")
             .build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return null

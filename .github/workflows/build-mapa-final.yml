@@ -1,0 +1,67 @@
+name: Build Mapa Radio FINAL (release 32-bit + GraphHopper offline)
+
+# Solo se dispara cuando cambia este workflow o el marcador
+# final-release-trigger.txt: la version final se construye a
+# proposito, no en cada push de pruebas.
+on:
+  push:
+    branches: [mapa-radio]
+    paths:
+      - '.github/workflows/build-mapa-final.yml'
+      - 'final-release-trigger.txt'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout mapa-radio
+        uses: actions/checkout@v4
+        with:
+          ref: mapa-radio
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # El runner ya trae un Android SDK (ANDROID_HOME). No usar
+      # android-actions/setup-android: falla con cmdline-tools 16.0.
+      - name: Install Android SDK packages
+        run: |
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          yes | "$SDKMGR" --licenses
+
+      # Extracto de Geofabrik de la isla (Haiti + Republica Dominicana):
+      # no hay extracto solo de RD; el grafo cubre la isla entera y la
+      # app sigue limitada a RD por sus limites de camara.
+      - name: Download Hispaniola OSM extract
+        run: |
+          curl -L --fail -o haiti-and-domrep-latest.osm.pbf \
+            https://download.geofabrik.de/central-america/haiti-and-domrep-latest.osm.pbf
+          ls -lh haiti-and-domrep-latest.osm.pbf
+          test $(stat -c%s haiti-and-domrep-latest.osm.pbf) -gt 10000000
+
+      # El grafo se construye con la MISMA version de GraphHopper que
+      # usa la app (10.0, modulo :tools) y se empaqueta en assets.
+      - name: Build offline graph (GraphHopper 10.0)
+        run: |
+          ./gradlew :tools:buildGraph \
+            -Ppbf=$PWD/haiti-and-domrep-latest.osm.pbf \
+            -PgraphDir=$PWD/app/src/main/assets/graphhopper \
+            --stacktrace
+          echo "--- grafo ---"
+          du -sh app/src/main/assets/graphhopper
+          ls app/src/main/assets/graphhopper
+
+      - name: Build FINAL release APK (radio, 32-bit)
+        run: ./gradlew :app:assembleRadioRelease --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapa-radio-final-apk
+          path: app/build/outputs/apk/radio/release/*.apk
+          if-no-files-found: error
+          retention-days: 7

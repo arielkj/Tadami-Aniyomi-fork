@@ -335,6 +335,11 @@ class MainActivity : AppCompatActivity() {
         Mapbox.getInstance(this, "maparadio-local", WellKnownTileServer.MapLibre)
         setContentView(R.layout.activity_main)
 
+        // Rutas sin internet (version final del radio): copia el grafo
+        // empaquetado y lo abre en segundo plano. Si no hay grafo (o
+        // todavia no esta listo), las rutas usan OSRM con internet.
+        GraphHopperRouter.initAsync(this)
+
         mapView = findViewById(R.id.mapView)
         mapCapsule = findViewById(R.id.mapCapsule)
         mapView.onCreate(savedInstanceState)
@@ -1155,7 +1160,8 @@ class MainActivity : AppCompatActivity() {
         scope.launch {
             val newRoute = withContext(Dispatchers.IO) {
                 try {
-                    RouteEngine.fetchRoute(origin, dest)
+                    // GraphHopper offline primero, OSRM con internet si no hay grafo.
+                    GraphHopperRouter.fetchRoute(origin, dest)
                 } catch (_: Exception) {
                     null
                 }
@@ -1203,7 +1209,8 @@ class MainActivity : AppCompatActivity() {
         previewJob = scope.launch {
             val routes = withContext(Dispatchers.IO) {
                 try {
-                    RouteEngine.fetchRoutes(origin, dest)
+                    // GraphHopper offline primero, OSRM con internet si no hay grafo.
+                    GraphHopperRouter.fetchRoutes(origin, dest)
                 } catch (_: Exception) {
                     null
                 }

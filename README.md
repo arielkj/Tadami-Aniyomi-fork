@@ -93,3 +93,23 @@ encima de la anterior.
   (>30 s) ni peores de 60 m; LocationManager solo de fallback.
 - Búsqueda solo República Dominicana: Photon con countrycode=DO más
   filtro en cliente por cuadro de RD (lat 17.5–19.9, lon -72.0 a -68.6).
+
+## v1.0 Final (radio, no es prueba)
+
+- Build **release** con R8 + shrinkResources (las debug son lo que la
+  hacia lenta), `versionCode 100`, `versionName 1.0-radio`, variante
+  `radio`: **solo `armeabi-v7a`** (32-bit, AC8227L). El APK 32-bit
+  tambien corre en el telefono 64-bit para probarlo antes del radio.
+- Rutas **100% offline con GraphHopper 10.0**: el grafo de RD (extracto
+  Geofabrik de Hispaniola, perfil carro + CH) se construye en CI
+  (modulo `:tools`, misma version que la app) y va empaquetado en el
+  APK (`assets/graphhopper`); en el primer arranque se copia al
+  almacenamiento interno. Previsualizacion con hasta 3 alternativas
+  offline; OSRM queda solo de respaldo con internet.
+- Guia estilo Tesla igual que en v1.7 (panel que crece al girar,
+  auto-zoom, cenital en rectas, carro pegado a la calle). Todo lo de
+  v1.7 se mantiene: previsualizacion, favoritos por categoria,
+  enlace del telefono, musica en 3 capsulas, mapa offline por WiFi,
+  limites solo RD.
+- Compilacion: `.github/workflows/build-mapa-final.yml` (se dispara
+  al cambiar ese workflow o `final-release-trigger.txt`).

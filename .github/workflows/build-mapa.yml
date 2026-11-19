@@ -29,13 +29,15 @@ jobs:
           "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
           yes | "$SDKMGR" --licenses
 
+      # Con flavors, la variante de pruebas es assemblePhoneDebug
+      # (la del radio es assembleRadioRelease, en build-mapa-final.yml).
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assemblePhoneDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: mapa-radio-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/phone/debug/*.apk
           if-no-files-found: error
           retention-days: 7

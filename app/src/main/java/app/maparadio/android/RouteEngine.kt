@@ -72,7 +72,7 @@ object RouteEngine {
             "${from.longitude},${from.latitude};${to.longitude},${to.latitude}" +
             "?overview=full&geometries=geojson&steps=true&alternatives=true"
         val req = Request.Builder().url(url)
-            .header("User-Agent", "MapaRadio/1.7-test")
+            .header("User-Agent", "MapaRadio/1.0-radio")
             .build()
         http.newCall(req).execute().use { resp ->
             if (!resp.isSuccessful) return null
@@ -95,7 +95,7 @@ object RouteEngine {
         val url = "https://router.project-osrm.org/match/v1/driving/$coords" +
             "?radiuses=$rad&overview=full&geometries=geojson"
         val req = Request.Builder().url(url)
-            .header("User-Agent", "MapaRadio/1.3-test")
+            .header("User-Agent", "MapaRadio/1.0-radio")
             .build()
         return try {
             http.newCall(req).execute().use { resp ->

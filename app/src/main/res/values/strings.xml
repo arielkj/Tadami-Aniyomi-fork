@@ -6,10 +6,9 @@
     <string name="go">Ir</string>
     <string name="save">Guardar</string>
     <string name="mph">mph</string>
-    <string name="offline_status">Mapa de República Dominicana • En línea (prueba)</string>
     <string name="need_location">Activa el GPS para que el mapa te siga</string>
     <string name="location_denied">Sin permiso de ubicación el mapa no te puede seguir</string>
-    <string name="no_route">No se pudo trazar la ruta. Revisa el internet.</string>
+    <string name="no_route">No se pudo trazar la ruta.</string>
     <string name="recalculating">Recalculando ruta…</string>
     <string name="arrived">Llegaste a tu destino</string>
     <string name="saved">Guardado en tus lugares</string>
@@ -93,6 +92,6 @@
     <string name="route_summary">%1$s • %2$d min</string>
     <string name="save_favorite">Guardar en favoritos</string>
     <string name="cancel">Cancelar</string>
-    <string name="no_route_preview">Sin internet no se pueden calcular rutas</string>
-    <string name="no_route_offline">Sin conexión — no se pudo calcular la ruta. Puedes guardarla y usarla cuando tengas internet.</string>
+    <string name="no_route_preview">No se pudo calcular la ruta</string>
+    <string name="no_route_offline">No se pudo calcular la ruta. Puedes guardar el lugar e intentarlo más tarde.</string>
 </resources>

@@ -13,11 +13,29 @@ android {
         targetSdk = 36
         versionCode = 8
         versionName = "1.7-test"
+    }
 
-        // v1 de prueba: solo arm64 (telefono del usuario). La version del
-        // radio usara armeabi-v7a.
-        ndk {
-            abiFilters += "arm64-v8a"
+    // Dos variantes: "phone" (pruebas en el telefono, arm64) y
+    // "radio" (version final para el radio: 32-bit, release, v1.0).
+    flavorDimensions("device")
+    productFlavors {
+        create("phone") {
+            dimension = "device"
+            // Version de pruebas: solo arm64 (telefono del usuario).
+            ndk {
+                abiFilters += "arm64-v8a"
+            }
+        }
+        create("radio") {
+            dimension = "device"
+            versionCode = 100
+            versionName = "1.0-radio"
+            // El radio es ARMv7 32-bit (AC8227L): SOLO armeabi-v7a.
+            // El APK 32-bit tambien corre en el telefono 64-bit, asi
+            // que se puede probar en el telefono antes del radio.
+            ndk {
+                abiFilters += "armeabi-v7a"
+            }
         }
     }
 
@@ -26,7 +44,16 @@ android {
             isDebuggable = true
         }
         getByName("release") {
-            isMinifyEnabled = false
+            // Version final: R8 + recursos recortados, no depurable.
+            // Es lo que hace que la app sea fluida en el radio
+            // (las versiones debug son lo que la hacia lenta).
+            isMinifyEnabled = true
+            isShrinkResources = true
+            isDebuggable = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 
@@ -61,4 +88,9 @@ dependencies {
     // Ubicacion precisa: FusedLocationProvider (GPS+WiFi+celda) como
     // fuente principal en v1.2; LocationManager queda de fallback.
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    // GraphHopper 10.0: rutas 100% sin internet con el grafo de RD
+    // empaquetado en el APK (lo construye el modulo :tools con la
+    // MISMA version — el formato del grafo depende de la version, no
+    // cambiarla sin reconstruir el grafo).
+    implementation("com.graphhopper:graphhopper-core:10.0")
 }

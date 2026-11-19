@@ -1,0 +1,3 @@
+Mapa Radio v1.0 Final — version para el radio (release 32-bit + GraphHopper offline).
+Este archivo existe solo para disparar el workflow build-mapa-final.yml:
+al cambiarlo, CI construye la version final. No borrar.
