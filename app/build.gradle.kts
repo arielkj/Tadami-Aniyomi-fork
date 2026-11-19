@@ -28,8 +28,8 @@ android {
         }
         create("radio") {
             dimension = "device"
-            versionCode = 106
-            versionName = "1.0.6-radio"
+            versionCode = 107
+            versionName = "1.0.7-radio"
             // El radio es ARMv7 32-bit (AC8227L): SOLO armeabi-v7a.
             // El APK 32-bit tambien corre en el telefono 64-bit, asi
             // que se puede probar en el telefono antes del radio.
@@ -88,16 +88,26 @@ dependencies {
     // Ubicacion precisa: FusedLocationProvider (GPS+WiFi+celda) como
     // fuente principal en v1.2; LocationManager queda de fallback.
     implementation("com.google.android.gms:play-services-location:21.3.0")
-    // GraphHopper 9.1 (v1.0.5): rutas 100% sin internet con el grafo
+    // GraphHopper 7.0 (v1.0.7): rutas 100% sin internet con el grafo
     // de RD empaquetado en el APK (lo construye el modulo :tools con
     // la MISMA version — el formato del grafo depende de la version,
     // no cambiarla sin reconstruir el grafo). Se bajo de 10.0 a 9.1
-    // porque en 10.0 el RAMDataAccess usa VarHandle (VerifyError en
-    // API 27) y el MMapDataAccess usa ByteBuffer.get(int, byte[],
-    // int, int), metodo que FALTA en el framework de este radio ALPS
-    // (registro del usuario 19 nov: "No virtual method get(I[BII)").
-    // En 9.1 el RAMDataAccess es Java puro sobre byte[] (sin
-    // VarHandle ni ByteBuffer en todo el jar) y se abre con DAType
-    // RAM_STORE, asi que el grafo offline carga en API 27.
-    implementation("com.graphhopper:graphhopper-core:9.1")
+    // (v1.0.5) y de 9.1 a 7.0 (v1.0.7): en 10.0 el RAMDataAccess usa
+    // VarHandle (VerifyError en API 27) y el MMapDataAccess usa
+    // ByteBuffer.get(int, byte[], int, int), metodo que FALTA en el
+    // framework de este radio ALPS (registro del usuario 19 nov:
+    // "No virtual method get(I[BII)"). En 9.1 el RAMDataAccess es
+    // Java puro y el grafo ya cargaba con largeHeap (v1.0.6), pero
+    // el perfil "car" con CustomModel NO se puede crear: GraphHopper
+    // compila el modelo a medida con Janino y Janino genera .class
+    // de JVM, que ART no puede cargar en Android ("Cannot compile
+    // expression: can't load this type of class file", registro del
+    // usuario 19 nov 17:42:18). "fastest" NO existe en 8.0/9.1 (su
+    // fabrica solo acepta "custom") y SI existe en 7.0
+    // (FastestWeighting, Java puro, 0 referencias a Janino).
+    // En 7.0 las clases de ruta (GHRequest, ResponsePath,
+    // Instruction, Parameters) viven en el artefacto web-api, no en
+    // core: se declara explicito.
+    implementation("com.graphhopper:graphhopper-core:7.0")
+    implementation("com.graphhopper:graphhopper-web-api:7.0")
 }
