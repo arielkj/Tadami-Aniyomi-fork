@@ -284,3 +284,57 @@ encima de la anterior.
   icono, carro ~48dp, registro de errores con motivo de ruta, OSRM
   con espejo, espera al grafo y al GPS.
   versionCode 104 -> 105, versionName 1.0.5-radio.
+
+## v1.0.6 Final (largeHeap: el grafo ya carga)
+- Prueba del usuario (19 nov ~18:04 AST, v1.0.5): el grafo 9.1/RAM
+  NO cargaba por FALTA DE MEMORIA — "Failed to allocate a 1048592
+  byte allocation with 617480 free bytes and 603KB until OOM, max
+  allowed footprint 50331648, growth limit 50331648" (eventos
+  16:59-17:01). El radio limita el heap de la app a 48 MB y el
+  grafo necesita ~86 MB en memoria (edges 31 + geometry 21 + nodes
+  7 + location_index 10 + nodes_ch_car 5 + shortcuts_car 10 +
+  edgekv 2 MB). El respaldo OSRM tambien fallaba ("Handshake
+  failed", sin internet real/TLS en este equipo).
+- Arreglo (un solo cambio): android:largeHeap="true" en el
+  <application> del AndroidManifest. Mismo GraphHopper 9.1, mismo
+  DAType RAM_STORE, mismo grafo gh91-dr-v1 (no se reconstruyo).
+  versionCode 105 -> 106, versionName 1.0.6-radio.
+
+## v1.0.7 Final (rutas offline por fin: GraphHopper 7.0 + fastest)
+- Prueba del usuario (19 nov ~17:42 AST, v1.0.6, evento de ruta):
+  largeHeap FUNCIONO — el grafo ya carga (no mas OOM). NUEVO
+  FALLO, el unico que quedaba: "grafo offline no cargó (Could not
+  create weighting for profile: 'car'. ... Error: Cannot compile
+  expression: can't load this type of class file)". Causa: el
+  perfil "car" usaba un CustomModel y GraphHopper compila el modelo
+  a medida con Janino en tiempo de ejecucion; Janino genera .class
+  de JVM, que ART no puede cargar en Android. El modelo a medida
+  NUNCA puede funcionar en este radio.
+- Arreglo: bajar GraphHopper de 9.1 a **7.0** y usar el ponderado
+  **"fastest"** de serie (FastestWeighting, Java puro, 0 referencias
+  a Janino). "fastest" NO existe en 8.0/9.1 (su DefaultWeighting-
+  Factory solo acepta "custom": verificado en el codigo fuente) y
+  SI existe en 7.0 (verificado: la fabrica crea FastestWeighting y
+  el RAMDataAccess de 7.0 tiene 0 referencias a VarHandle). La API
+  que usa la app es identica en 7.0, con una excepcion: en 7.0 las
+  clases de ruta (GHRequest, ResponsePath, Instruction, Parameters)
+  viven en el artefacto graphhopper-web-api, no en core, asi que la
+  app declara graphhopper-web-api:7.0 explicito. Detalle de 7.0: los
+  valores codificados del vehiculo se crean con setVehiclesString
+  ("car") y en setEncodedValuesString solo va "road_access", que
+  exige "fastest" (su fabrica no conoce "car_access"); el perfil
+  lleva setVehicle("car") + setWeighting("fastest").
+  import.osm.ignored_highways SE MANTIENE: 7.0 lo exige (sin el,
+  init() tira IllegalArgumentException).
+- Verificado ANTES de construir (prueba local en JVM con los jars
+  7.0 reales): grafo sintetico de Santo Domingo (16 nodos, 8 vias
+  residenciales, CH preparado, archivos nodes_ch_car +
+  shortcuts_car presentes, properties sin custom_model) carga con
+  RAM_STORE y calcula una ruta de 650 m / 52 s por ALT_ROUTE (sin
+  CH) y por CH, con 2 instrucciones. El grafo de RD se reconstruye
+  en CI con la MISMA 7.0 (:tools) y el id cambia a gh70-dr-v1 (el
+  formato del grafo depende de la version: el grafo gh91 NO lo abre
+  GH 7.0). Todo lo demas se mantiene: largeHeap, RAM_STORE,
+  Bluetooth RFCOMM, chips solo icono, carro ~48dp, capsula de
+  musica 14dp, registro de errores.
+  versionCode 106 -> 107, versionName 1.0.7-radio.
