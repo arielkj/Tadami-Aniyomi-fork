@@ -86,6 +86,7 @@ import android.media.session.MediaSessionManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
@@ -991,8 +992,10 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
             }
-            if (followMode) applyAutoZoom(lastProgressMeters)
-            lastCarPos?.let { if (followMode) moveCamera(it, lastBearing) }
+            if (followMode) {
+                val zt = autoZoomFor(lastProgressMeters)
+                lastCarPos?.let { moveCamera(it, lastBearing, zt?.first, zt?.second) }
+            }
         } else {
             // Sin ruta: OSRM Match (cada 5 s, solo en movimiento) pega
             // el carro a la calle mas cercana; si no hay internet o
@@ -1086,8 +1089,8 @@ class MainActivity : AppCompatActivity() {
             updateCarMarker()
             updateGuidance(newProgress)
             if (followMode) {
-                applyAutoZoom(newProgress)
-                moveCamera(point, lastBearing)
+                val zt = autoZoomFor(newProgress)
+                moveCamera(point, lastBearing, zt?.first, zt?.second)
             }
         } else {
             val next = MapMatcher.advanceFree(lastCarPos!!, lastBearing, lastSpeedMps)
@@ -1169,7 +1172,12 @@ class MainActivity : AppCompatActivity() {
         maneuverArrow.rotation = RouteEngine.maneuverArrowRotation(step)
         maneuverTitle.text = RouteEngine.maneuverText(this, step) +
             " " + RouteEngine.formatDistance(remaining, this)
-        maneuverStreet.text = step.name.ifEmpty { "" }
+        // La linea de la calle muestra la calle por la que se va
+        // cuando el giro esta lejos, y la calle del giro cuando esta
+        // cerca (vista de conduccion, v1.0.9).
+        val current = RouteEngine.currentStep(r, progressMeters)
+        maneuverStreet.text = if (remaining < 600) step.name
+            else (current?.name ?: step.name).ifEmpty { "" }
         val remainDist = (r.totalDistance - progressMeters).coerceAtLeast(0.0)
         val remainDurMin = (r.totalDuration * (remainDist / r.totalDistance.coerceAtLeast(1.0))).toLong()
         val eta = Date(System.currentTimeMillis() + remainDurMin * 1000)
@@ -1222,10 +1230,21 @@ class MainActivity : AppCompatActivity() {
         maneuverArrow.layoutParams = arrowLp
     }
 
-    /** Zoom automatico segun lo que falta para la maniobra. */
-    private fun applyAutoZoom(progressMeters: Double) {
-        val r = route ?: return
-        if (SystemClock.uptimeMillis() < manualZoomUntil) return
+    /**
+     * Zoom automatico segun lo que falta para la maniobra. Devuelve el
+     * (zoom, tilt) de la banda si cambio, o null si sigue en la misma
+     * banda: el llamador mueve la camara UNA sola vez con esos
+     * valores. Antes esta funcion animaba la camara y el llamador
+     * volvia a animarla enseguida con el zoom/tilt viejos (leidos
+     * antes de que la primera animacion surtiera efecto), asi que el
+     * cambio de zoom nunca se aplicaba y la vista se quedaba en la
+     * general de la ruta (v1.0.9). Inclinacion 55 en conduccion (antes
+     * 45), para la vista 3D estilo Tesla; el trayecto largo recto
+     * sigue de arriba (tilt 0) y simplificado, como estaba acordado.
+     */
+    private fun autoZoomFor(progressMeters: Double): Pair<Double, Double>? {
+        val r = route ?: return null
+        if (SystemClock.uptimeMillis() < manualZoomUntil) return null
         val next = RouteEngine.nextStep(r, progressMeters)
         val remaining = next?.second ?: Double.MAX_VALUE
         val band = when {
@@ -1234,16 +1253,16 @@ class MainActivity : AppCompatActivity() {
             remaining > 1500 && RouteEngine.isStraightAhead(r, progressMeters, 1500.0) -> 0
             else -> 1 // recto normal
         }
-        if (band == lastZoomBand) return
+        if (band == lastZoomBand) return null
         lastZoomBand = band
         val (zoom, tilt, simple) = when (band) {
-            3 -> Triple(17.5, 45.0, false)
-            2 -> Triple(16.5, 45.0, false)
+            3 -> Triple(17.5, 55.0, false)
+            2 -> Triple(16.5, 55.0, false)
             0 -> Triple(14.0, 0.0, true) // trayecto largo recto: de arriba, simple
-            else -> Triple(15.5, 45.0, false)
+            else -> Triple(15.5, 55.0, false)
         }
         setSimplified(simple)
-        moveCamera(lastCarPos ?: return, lastBearing, zoom, tilt)
+        return zoom to tilt
     }
 
     /**
@@ -1269,20 +1288,57 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun moveCamera(target: LatLng, bearing: Double, zoom: Double? = null, tilt: Double? = null) {
+    private fun moveCamera(
+        target: LatLng, bearing: Double, zoom: Double? = null, tilt: Double? = null,
+        durationMs: Int = 700,
+    ) {
         val m = map ?: return
         val cur = m.cameraPosition
+        val newZoom = zoom ?: cur.zoom
+        val newTilt = tilt ?: cur.tilt
+        val newBearing = if (headingUp) bearing else 0.0
+        // En el radio debil, no re-animar si la camara ya esta ahi:
+        // evita encadenar animaciones que se cancelan entre si.
+        val bearingDiff = abs((newBearing - cur.bearing + 540.0) % 360.0 - 180.0)
+        if (RouteEngine.metersBetween(cur.target, target) < 2.0 &&
+            bearingDiff < 2.0 &&
+            abs(newZoom - cur.zoom) < 0.05 && abs(newTilt - cur.tilt) < 0.5
+        ) return
         m.animateCamera(
             CameraUpdateFactory.newCameraPosition(
                 com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
                     .target(target)
-                    .zoom(zoom ?: cur.zoom)
-                    .tilt(tilt ?: cur.tilt)
-                    .bearing(if (headingUp) bearing else 0.0)
+                    .zoom(newZoom)
+                    .tilt(newTilt)
+                    .bearing(newBearing)
                     .build()
             ),
-            700,
+            durationMs,
         )
+    }
+
+    /**
+     * Vista de conduccion estilo Tesla (v1.0.9): al arrancar la guia,
+     * la camara baja al vehiculo en 3D — centrada en el carro, cerca,
+     * inclinada 55 y con el rumbo arriba — en vez de quedarse en la
+     * vista general de toda la ruta. El auto-zoom toma el relevo en el
+     * siguiente fix (banda 2 = "acercandose", mismo zoom/tilt, asi que
+     * no re-anima).
+     */
+    private fun enterDrivingView() {
+        val target = lastCarPos ?: currentOrigin() ?: return
+        lastZoomBand = 2
+        moveCamera(target, lastBearing, 16.5, 55.0, 900)
+    }
+
+    /**
+     * Al terminar o cancelar la ruta, volver a la vista general:
+     * centrada en el carro, de arriba y con el norte arriba.
+     */
+    private fun exitDrivingView() {
+        val target = lastCarPos ?: currentOrigin() ?: return
+        lastZoomBand = -1
+        moveCamera(target, 0.0, 15.0, 0.0, 900)
     }
 
     private fun updateCarMarker() {
@@ -1343,6 +1399,9 @@ class MainActivity : AppCompatActivity() {
                 Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
             )
             redrawRoute()
+            // Recalculo en marcha: volver a centrar en el vehiculo
+            // en 3D (vista de conduccion, v1.0.9).
+            enterDrivingView()
         }
     }
 
@@ -1720,6 +1779,9 @@ class MainActivity : AppCompatActivity() {
             Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
         )
         redrawRoute()
+        // Vista de conduccion (v1.0.9): centrar en el vehiculo en 3D
+        // al arrancar, no quedarse en la vista general de la ruta.
+        enterDrivingView()
     }
 
     /** Cierra la previsualizacion sin arrancar ninguna ruta. */
@@ -1792,6 +1854,8 @@ class MainActivity : AppCompatActivity() {
         setSimplified(false)
         destSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         redrawRoute()
+        // Al terminar o cancelar, volver a la vista general.
+        exitDrivingView()
     }
 
     // ------------------------------------------------------------- controles
