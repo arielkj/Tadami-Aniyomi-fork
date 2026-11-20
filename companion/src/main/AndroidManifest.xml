@@ -17,7 +17,17 @@
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/Theme.MapaRadioMovil">
+        android:theme="@style/Theme.MapaRadioMovil"
+        android:usesCleartextTraffic="true">
+        <!-- usesCleartextTraffic (v1.0.5-test): el radio sirve HTTP
+             plano (http://192.168.x.x:8080). Sin esto, Android 9+
+             bloquea el trafico claro en apps con targetSdk 28+ y
+             OkHttp fallaba con "CLEARTEXT not permitted": el ping
+             y los envios por WiFi nunca llegaban, aunque el
+             navegador del telefono si abria el /ping. El unico
+             destino en claro es el radio en la red local (la IP la
+             escribe el usuario); internet sigue siendo HTTPS
+             (OSRM, Photon) con sus propios clientes. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"

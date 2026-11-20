@@ -9,7 +9,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.NetworkInterface
+import java.net.Proxy
 import java.util.concurrent.TimeUnit
 
 /**
@@ -36,9 +39,45 @@ object RadioLink {
     private val http = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
+        // Sin proxy (v1.0.5-test): este cliente solo habla con el
+        // radio en la red local. Con el ProxySelector del sistema,
+        // un proxy de WiFi o de VPN mandaria la IP del radio al
+        // proxy y fallaria; directo no hay intermediarios.
+        .proxy(Proxy.NO_PROXY)
         .build()
 
     private val JSON = "application/json; charset=utf-8".toMediaType()
+
+    /**
+     * Broadcast de la red local activa (v1.0.5-test): la interfaz
+     * WiFi (wlan*) con su direccion de broadcast de subred
+     * (ej. 192.168.0.255 en casa, 192.168.43.255 en el hotspot).
+     * El 255.255.255.255 de antes salia por la interfaz que el
+     * sistema elegia: con datos moviles, VPN o hotspot activos
+     * podia irse por otra interfaz y el radio nunca lo veia.
+     * Null si no hay interfaz LAN: el llamador cae al broadcast
+     * general como antes.
+     */
+    private fun lanBroadcast(): Pair<NetworkInterface, InetAddress>? {
+        return try {
+            val ifaces = NetworkInterface.getNetworkInterfaces()
+                ?.toList().orEmpty()
+            val candidates = ifaces.filter { it.isUp && !it.isLoopback }
+                .mapNotNull { nif ->
+                    val ia = nif.interfaceAddresses.firstOrNull {
+                        it.address is Inet4Address &&
+                            it.address.isSiteLocalAddress &&
+                            it.broadcast != null
+                    } ?: return@mapNotNull null
+                    nif to ia.broadcast
+                }
+            // WiFi primero; si no, cualquier otra interfaz LAN.
+            candidates.firstOrNull { it.first.name.startsWith("wlan") }
+                ?: candidates.firstOrNull()
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     /**
      * Busca el radio por broadcast en la red local. Devuelve su IP o
@@ -50,9 +89,21 @@ object RadioLink {
             socket.broadcast = true
             socket.soTimeout = timeoutMs
             val msg = DISCOVER_MSG.toByteArray(Charsets.UTF_8)
+            // Broadcast de la subred WiFi, con el socket atado a
+            // esa interfaz; si no hay interfaz LAN, el broadcast
+            // general de antes.
+            val lan = lanBroadcast()
+            val target = lan?.second
+                ?: InetAddress.getByName("255.255.255.255")
+            if (lan != null) {
+                try {
+                    socket.networkInterface = lan.first
+                } catch (_: Exception) {
+                }
+            }
             val packet = DatagramPacket(
                 msg, msg.size,
-                InetAddress.getByName("255.255.255.255"), UDP_PORT
+                target, UDP_PORT
             )
             socket.send(packet)
             val buf = ByteArray(256)
