@@ -333,6 +333,17 @@ object RouteEngine {
         return null
     }
 
+    /** Paso en el que va el carro ahora (la calle por la que va), o
+        null si el progreso no cae dentro de ningun paso. */
+    fun currentStep(route: Route, progressMeters: Double): RouteStep? {
+        for (step in route.steps) {
+            if (progressMeters >= step.startMeters - 10.0 &&
+                progressMeters < step.startMeters + step.distance
+            ) return step
+        }
+        return null
+    }
+
     /** Texto en espanol para la maniobra. */
     fun maneuverText(context: android.content.Context, step: RouteStep): String {
         val res = context.resources
