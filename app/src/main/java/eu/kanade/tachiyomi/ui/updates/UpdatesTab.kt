@@ -539,9 +539,14 @@ private fun AuroraUpdatesPinnedHeader(
     // "Más" ya no está en la barra inferior Aurora: vive en este menú ⋮.
     // v7.9.2 (mismo crash que Historial): si esta cabecera se dibuja sin
     // TabNavigator ancestro, LocalTabNavigator.current lanzaba
-    // IllegalStateException. Se lee de forma segura y "Más" cae al
-    // Navigator raíz cuando no hay TabNavigator.
-    val tabNavigator = runCatching { LocalTabNavigator.current }.getOrNull()
+    // IllegalStateException. Se lee con try/catch (no con runCatching: el
+    // compilador de Compose no permite llamadas @Composable dentro de
+    // runCatching) y "Más" cae al Navigator raíz cuando no hay TabNavigator.
+    val tabNavigator = try {
+        LocalTabNavigator.current
+    } catch (e: IllegalStateException) {
+        null
+    }
     val rootNavigator = LocalNavigator.currentOrThrow
 
     // PERF: la transición infinita mantenía el reloj de frames corriendo

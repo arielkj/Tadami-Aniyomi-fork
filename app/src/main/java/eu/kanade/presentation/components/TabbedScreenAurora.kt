@@ -470,10 +470,16 @@ private fun AuroraTabHeader(
     // v7.9.2 (crash Historial, 20 Nov): HistoriesTab se abre como pantalla
     // normal sobre el Navigator raíz, sin TabNavigator ancestro, y
     // LocalTabNavigator.current lanzaba IllegalStateException
-    // ("TabNavigator not initialized"). Se lee de forma segura: si no hay
-    // TabNavigator, "Más" se abre empujando MoreTab en el Navigator raíz,
-    // igual que el resto de la navegación sin Inicio.
-    val tabNavigator = runCatching { LocalTabNavigator.current }.getOrNull()
+    // ("TabNavigator not initialized"). Se lee con try/catch (no con
+    // runCatching: el compilador de Compose no permite llamadas
+    // @Composable dentro de runCatching): si no hay TabNavigator, "Más"
+    // se abre empujando MoreTab en el Navigator raíz, igual que el resto
+    // de la navegación sin Inicio.
+    val tabNavigator = try {
+        LocalTabNavigator.current
+    } catch (e: IllegalStateException) {
+        null
+    }
     val rootNavigator = LocalNavigator.currentOrThrow
     var showOverflowMenu by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
