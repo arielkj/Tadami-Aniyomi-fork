@@ -14,6 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -30,6 +31,8 @@ fun CalendarDay(
     events: Int,
     onDayClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // v7.9.2: fechas puestas a mano por el usuario (puntos ámbar).
+    customEvents: Int = 0,
 ) {
     val today = remember { LocalDate.now() }
 
@@ -71,6 +74,17 @@ fun CalendarDay(
                     index = index,
                     size = 56.dp,
                     color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            // Fechas manuales: puntos ámbar, distintos de los de emisión.
+            // (El índice reinicia: la fila ya ordena los puntos; el índice
+            // solo controla la opacidad progresiva del indicador.)
+            val customSize = customEvents.coerceAtMost(MAX_EVENTS - size)
+            for (index in 0 until customSize) {
+                CalendarIndicator(
+                    index = index,
+                    size = 56.dp,
+                    color = Color(0xFFFFA726),
                 )
             }
         }

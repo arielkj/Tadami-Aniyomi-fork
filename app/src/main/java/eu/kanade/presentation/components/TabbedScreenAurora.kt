@@ -98,6 +98,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
 import cafe.adriel.voyager.navigator.tab.LocalTabNavigator
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.domain.ui.UiPreferences
@@ -465,7 +467,14 @@ private fun AuroraTabHeader(
     val overflowActions = actions.filterIsInstance<AppBar.OverflowAction>()
     // "Más" ya no está en la barra inferior Aurora: vive unido al botón ⋮
     // de arriba. Cambiar de pestaña es lo mismo que tocaba el botón "Más".
-    val tabNavigator = LocalTabNavigator.current
+    // v7.9.2 (crash Historial, 20 Nov): HistoriesTab se abre como pantalla
+    // normal sobre el Navigator raíz, sin TabNavigator ancestro, y
+    // LocalTabNavigator.current lanzaba IllegalStateException
+    // ("TabNavigator not initialized"). Se lee de forma segura: si no hay
+    // TabNavigator, "Más" se abre empujando MoreTab en el Navigator raíz,
+    // igual que el resto de la navegación sin Inicio.
+    val tabNavigator = runCatching { LocalTabNavigator.current }.getOrNull()
+    val rootNavigator = LocalNavigator.currentOrThrow
     var showOverflowMenu by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -636,7 +645,8 @@ private fun AuroraTabHeader(
                             leadingIcon = Icons.Filled.MoreHoriz,
                             onClick = {
                                 showOverflowMenu = false
-                                tabNavigator.current = MoreTab
+                                tabNavigator?.let { it.current = MoreTab }
+                                    ?: rootNavigator.push(MoreTab)
                             },
                         )
                     }

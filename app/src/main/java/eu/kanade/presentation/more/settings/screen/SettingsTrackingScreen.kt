@@ -55,6 +55,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.domain.track.model.AutoTrackState
 import eu.kanade.domain.track.service.TrackPreferences
+import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.components.AuroraFrostCancel
 import eu.kanade.presentation.components.AuroraFrostConfirm
 import eu.kanade.presentation.components.AuroraFrostDialog
@@ -134,6 +135,7 @@ object SettingsTrackingScreen : SearchableSettings {
         val scope = rememberCoroutineScope()
         val trackPreferences = remember { Injekt.get<TrackPreferences>() }
         val trackerManager = remember { Injekt.get<TrackerManager>() }
+        val uiPreferences = remember { Injekt.get<UiPreferences>() }
         val mangaSourceManager = remember { Injekt.get<MangaSourceManager>() }
         val animeSourceManager = remember { Injekt.get<AnimeSourceManager>() }
         val discordPreferences = remember { Injekt.get<DiscordPreferences>() }
@@ -434,6 +436,21 @@ object SettingsTrackingScreen : SearchableSettings {
                         logout = { dialog = LogoutDialog(trackerManager.tmdb) },
                     ),
                     Preference.PreferenceItem.InfoPreference(stringResource(MR.strings.tracking_info)),
+                ),
+            ),
+            // v7.9.2: clave de TMDB para los carruseles de películas y series
+            // de Actualizaciones. Es la clave gratuita de themoviedb.org; sin
+            // ella esos carruseles muestran el aviso y no llaman a la API.
+            // El subtítulo es fijo (NO "%s"): la clave no se muestra en lista.
+            Preference.PreferenceGroup(
+                title = stringResource(AYMR.strings.aurora_tmdb_key_title),
+                preferenceItems = persistentListOf(
+                    Preference.PreferenceItem.EditTextPreference(
+                        preference = uiPreferences.tmdbApiKey(),
+                        title = stringResource(AYMR.strings.aurora_tmdb_api_key),
+                        subtitle = stringResource(AYMR.strings.aurora_tmdb_api_key_summary),
+                        onValueChanged = { value -> value.trim().length <= 64 },
+                    ),
                 ),
             ),
             Preference.PreferenceGroup(

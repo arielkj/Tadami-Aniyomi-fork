@@ -20,6 +20,7 @@ import androidx.compose.ui.util.fastForEach
 import io.woong.compose.grid.SimpleGridCells
 import io.woong.compose.grid.VerticalGrid
 import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import mihon.core.designsystem.utils.isExpandedWidthWindow
 import mihon.core.designsystem.utils.isMediumWidthWindow
@@ -41,6 +42,9 @@ fun Calendar(
     setSelectedYearMonth: (YearMonth) -> Unit,
     onClickDay: (day: LocalDate) -> Unit,
     modifier: Modifier = Modifier,
+    // v7.9.2: días con fecha puesta a mano por el usuario; se marcan
+    // con puntos ámbar, distintos de los de emisión (color primario).
+    customEvents: ImmutableMap<LocalDate, Int> = persistentMapOf(),
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -59,6 +63,7 @@ fun Calendar(
         CalendarGrid(
             selectedYearMonth = selectedYearMonth,
             events = events,
+            customEvents = customEvents,
             onClickDay = onClickDay,
         )
     }
@@ -69,6 +74,7 @@ private fun CalendarGrid(
     selectedYearMonth: YearMonth,
     events: ImmutableMap<LocalDate, Int>,
     onClickDay: (day: LocalDate) -> Unit,
+    customEvents: ImmutableMap<LocalDate, Int> = persistentMapOf(),
 ) {
     val localeFirstDayOfWeek = WeekFields.of(Locale.getDefault()).firstDayOfWeek.value
     val weekDays = remember {
@@ -106,6 +112,7 @@ private fun CalendarGrid(
                 date = localDate,
                 onDayClick = { onClickDay(localDate) },
                 events = events[localDate] ?: 0,
+                customEvents = customEvents[localDate] ?: 0,
             )
         }
     }

@@ -51,6 +51,46 @@ class TmdbApi(
         }
     }
 
+    suspend fun getUpcomingMovies(language: String? = "es-ES", page: Int = 1): List<TmdbUpcomingItem> {
+        val params = mutableMapOf("page" to page.toString())
+        if (!language.isNullOrBlank()) params["language"] = language
+        val json = executeUrl(buildUrl("3/movie/upcoming", params))
+        return parseUpcomingList(json, "movie")
+    }
+
+    suspend fun getUpcomingTv(language: String? = "es-ES", page: Int = 1): List<TmdbUpcomingItem> {
+        val params = mutableMapOf("page" to page.toString())
+        if (!language.isNullOrBlank()) params["language"] = language
+        val json = executeUrl(buildUrl("3/tv/on_the_air", params))
+        return parseUpcomingList(json, "tv")
+    }
+
+    private fun parseUpcomingList(json: JSONObject, mediaType: String): List<TmdbUpcomingItem> {
+        val results = json.optJSONArray("results") ?: return emptyList()
+        val list = mutableListOf<TmdbUpcomingItem>()
+        for (i in 0 until results.length()) {
+            val item = results.getJSONObject(i)
+            val title = if (mediaType == "tv") item.optString("name") else item.optString("title")
+            if (title.isBlank()) continue
+            val date = if (mediaType == "tv") {
+                item.optString("first_air_date")
+            } else {
+                item.optString("release_date")
+            }
+            list.add(
+                TmdbUpcomingItem(
+                    id = item.optLong("id"),
+                    title = title,
+                    overview = item.optString("overview"),
+                    posterPath = item.optString("poster_path").takeIf { it.isNotBlank() },
+                    date = date.takeIf { it.isNotBlank() },
+                    mediaType = mediaType,
+                ),
+            )
+        }
+        return list
+    }
+
     suspend fun getRequestToken(language: String? = null): JSONObject {
         val params = mutableMapOf("redirect_to" to Tmdb.REDIRECT_URI)
         if (!language.isNullOrBlank()) params["language"] = language
@@ -229,3 +269,18 @@ data class TmdbMovieDetail(
     val posterPath: String?,
     val additional: JSONObject,
 )
+
+// v7.9.2 — un estreno próximo de TMDB (película o serie).
+data class TmdbUpcomingItem(
+    val id: Long,
+    val title: String,
+    val overview: String,
+    val posterPath: String?,
+    // "2026-12-05" o null si TMDB no da fecha.
+    val date: String?,
+    // "movie" o "tv".
+    val mediaType: String,
+) {
+    val posterUrl: String? get() = posterPath?.let { "${TmdbApi.IMAGE_BASE}$it" }
+    val watchlistKey: String get() = "$mediaType:$id"
+}

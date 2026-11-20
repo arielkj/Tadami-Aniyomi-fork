@@ -75,6 +75,8 @@ fun AnimeUpdatesAuroraContent(
     onEpisodeClicked: (Long, Long) -> Unit,
     onRefresh: () -> Unit,
     contentPadding: PaddingValues,
+    // v7.9.2: calendario + 3 carruseles de estrenos, solo en la pestaña Anime.
+    topSection: (@Composable () -> Unit)? = null,
 ) {
     val colors = AuroraTheme.colors
     val context = LocalContext.current
@@ -116,6 +118,13 @@ fun AnimeUpdatesAuroraContent(
                     .fillMaxSize()
                     .auroraCenteredMaxWidth(auroraAdaptiveSpec.updatesMaxWidthDp),
             ) {
+                // v7.9.2: calendario + carruseles de estrenos, antes de la lista.
+                if (topSection != null) {
+                    item(key = "updates-top-section") {
+                        topSection()
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
                 if (items.isEmpty()) {
                     item {
                         EmptyUpdatesState(onRefresh = onRefresh)

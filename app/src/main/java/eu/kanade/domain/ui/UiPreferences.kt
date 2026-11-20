@@ -212,6 +212,22 @@ class UiPreferences(
 
     fun titleScreenAnimation() = preferenceStore.getBoolean("pref_title_screen_animation", true)
 
+    // v7.9.2 — Actualizaciones: estrenos y fechas manuales.
+    // Clave API de TMDB (gratuita, themoviedb.org). Vacía = los carruseles
+    // de películas y series muestran el aviso y no llaman a la API.
+    fun tmdbApiKey() = preferenceStore.getString("pref_tmdb_api_key", "")
+
+    // Fechas de actualización puestas a mano por el usuario, en JSON:
+    // {"al:<id anilist>": {"title": "...", "date": "2026-11-28"},
+    //  "lib:<id anime local>": {...}}. Se muestran en el calendario con
+    // un marcador distinto y tienen prioridad sobre la fecha de AniList.
+    fun animeCustomDates() = preferenceStore.getString("pref_anime_custom_dates", "")
+
+    // Lista local "Por ver" (películas y series de TMDB), en JSON:
+    // {"movie:<id>": {"title": "...", "poster": "https://...",
+    //  "date": "2026-12-05", "watched": false}}. Local, sin cuenta.
+    fun tmdbWatchlist() = preferenceStore.getString("pref_tmdb_watchlist", "")
+
     companion object {
         const val DEFAULT_APP_UI_FONT_ID = ""
         const val DEFAULT_COVER_TITLE_FONT_ID = ""

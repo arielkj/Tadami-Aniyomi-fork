@@ -68,9 +68,11 @@ import eu.kanade.presentation.components.TabbedScreenAurora
 import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenu
 import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenuItem
 import eu.kanade.presentation.more.settings.screen.LibraryUpdatePacingScreen
+import eu.kanade.presentation.more.settings.screen.SettingsTrackingScreen
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.auroraHeaderIconSurface
 import eu.kanade.presentation.updates.anime.AnimeUpdatesAuroraContent
+import eu.kanade.presentation.updates.anime.UpdatesTopSection
 import eu.kanade.presentation.updates.manga.MangaUpdatesAuroraContent
 import eu.kanade.presentation.updates.novel.NovelUpdatesAuroraContent
 import eu.kanade.presentation.util.Tab
@@ -83,6 +85,9 @@ import eu.kanade.tachiyomi.ui.more.MoreTab
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
 import eu.kanade.tachiyomi.ui.reader.novel.NovelReaderScreen
+import eu.kanade.tachiyomi.ui.browse.anime.source.globalsearch.GlobalAnimeSearchScreen
+import eu.kanade.tachiyomi.ui.updates.TmdbUpcomingScreen
+import eu.kanade.tachiyomi.ui.updates.UpdatesTopSectionScreenModel
 import eu.kanade.tachiyomi.ui.updates.anime.AnimeUpdatesScreenModel
 import eu.kanade.tachiyomi.ui.updates.anime.animeUpdatesTab
 import eu.kanade.tachiyomi.ui.updates.manga.MangaUpdatesScreenModel
@@ -172,6 +177,9 @@ data object UpdatesTab : Tab {
             val novelScreenModel = rememberScreenModel { NovelUpdatesScreenModel() }
             val novelState by novelScreenModel.state.collectAsStateWithLifecycle()
 
+            // v7.9.2: calendario + carruseles de estrenos (solo pestaña Anime).
+            val updatesTopSectionModel = rememberScreenModel { UpdatesTopSectionScreenModel() }
+
             var selectedTab by rememberSaveable { mutableIntStateOf(TAB_ANIME) }
             var refreshingTabId by rememberSaveable { mutableStateOf<Int?>(null) }
 
@@ -229,6 +237,17 @@ data object UpdatesTab : Tab {
                                     contentPadding = PaddingValues(
                                         bottom = contentPadding.calculateBottomPadding(),
                                     ),
+                                    topSection = {
+                                        UpdatesTopSection(
+                                            model = updatesTopSectionModel,
+                                            // Tocar un anime: buscarlo en la app (explorar).
+                                            onAnimeClick = { navigator.push(GlobalAnimeSearchScreen(it.title)) },
+                                            onViewAllAnime = { navigator.push(UpcomingAnimeScreen()) },
+                                            onViewAllMovies = { navigator.push(TmdbUpcomingScreen("movie")) },
+                                            onViewAllSeries = { navigator.push(TmdbUpcomingScreen("tv")) },
+                                            onOpenTmdbSettings = { navigator.push(SettingsTrackingScreen) },
+                                        )
+                                    },
                                 )
                             },
                         ),
@@ -518,7 +537,12 @@ private fun AuroraUpdatesPinnedHeader(
     val selected = selectedIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
     var pacingMenuExpanded by rememberSaveable { mutableStateOf(false) }
     // "Más" ya no está en la barra inferior Aurora: vive en este menú ⋮.
-    val tabNavigator = LocalTabNavigator.current
+    // v7.9.2 (mismo crash que Historial): si esta cabecera se dibuja sin
+    // TabNavigator ancestro, LocalTabNavigator.current lanzaba
+    // IllegalStateException. Se lee de forma segura y "Más" cae al
+    // Navigator raíz cuando no hay TabNavigator.
+    val tabNavigator = runCatching { LocalTabNavigator.current }.getOrNull()
+    val rootNavigator = LocalNavigator.currentOrThrow
 
     // PERF: la transición infinita mantenía el reloj de frames corriendo
     // y recomponía esta cabecera en cada frame aunque nada estuviera
@@ -613,7 +637,8 @@ private fun AuroraUpdatesPinnedHeader(
                             leadingIcon = Icons.Filled.MoreHoriz,
                             onClick = {
                                 pacingMenuExpanded = false
-                                tabNavigator.current = MoreTab
+                                tabNavigator?.let { it.current = MoreTab }
+                                    ?: rootNavigator.push(MoreTab)
                             },
                         )
                     }

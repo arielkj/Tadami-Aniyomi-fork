@@ -553,12 +553,25 @@ object HomeScreen : Screen() {
                                     // solo cambia cómo viaja. El dibujo de la
                                     // píldora ya era un único rectángulo redondeado
                                     // por ítem (drawBehind), así que no se toca.
+                                    // V7.9.2: duración según la distancia — un
+                                    // tween fijo hace que los saltos cortos se
+                                    // arrastren y los largos pasen volando; con
+                                    // velocidad casi constante (200 ms para la
+                                    // pestaña vecina, hasta 260 ms) el viaje se
+                                    // siente igual de suave en cualquier salto.
                                     val slidingPillIndex = remember { Animatable(slidingPillTarget.toFloat()) }
                                     LaunchedEffect(slidingPillTarget) {
+                                        val distance = kotlin.math.abs(
+                                            slidingPillTarget - slidingPillIndex.value,
+                                        )
+                                        val pillDurationMs = (
+                                            AuroraMotionTokens.FAST_MS + 20 +
+                                                30 * distance.toInt()
+                                            ).coerceAtMost(260)
                                         slidingPillIndex.animateTo(
                                             targetValue = slidingPillTarget.toFloat(),
                                             animationSpec = tween(
-                                                durationMillis = AuroraMotionTokens.NORMAL_MS,
+                                                durationMillis = pillDurationMs,
                                                 easing = AuroraMotionTokens.standardEasing,
                                             ),
                                         )
@@ -1457,7 +1470,7 @@ object HomeScreen : Screen() {
      * la lección de v7.3 — el blur sobre la barra difuminaba todo el
      * contenido en cada frame al hacer scroll. El borde fino se mantiene
      * para que la píldora se distinga del cristal de la barra.
-     * La píldora sigue viajando con el tween fijo de 220 ms de v7.7;
+     * La píldora viaja con tween de duración según la distancia (v7.9.2);
      * aquí solo cambia cómo se ve. Cada ítem dibuja la píldora solo
      * mientras su centro está en su zona [index - 0.5, index + 0.5),
      * así que entre vecinos no hay doble dibujo ni huecos.
