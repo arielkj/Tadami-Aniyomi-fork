@@ -338,3 +338,84 @@ encima de la anterior.
   Bluetooth RFCOMM, chips solo icono, carro ~48dp, capsula de
   musica 14dp, registro de errores.
   versionCode 106 -> 107, versionName 1.0.7-radio.
+
+## v1.0.8 Final (la ruta la calcula el telefono y llega entera al radio)
+- Problema: el grafo offline (GraphHopper 7.0, gh70-dr-v1) tarda
+  minutos en cargar en el radio y el primer intento de ruta falla
+  con "grafo offline no listo"; el respaldo OSRM del radio tampoco
+  es fiable porque el hotspot muchas veces no tiene internet real.
+  GraphHopper SE QUEDA como respaldo local, sin tocarlo.
+- Arreglo: el TELEFONO calcula la ruta (tiene internet y GPS) y
+  manda la ruta ENTERA al radio, que solo la dibuja y la guia.
+  Telefono (OsrmRoute.kt, v1.0.3-test): origen = GPS del telefono
+  (Fused lastLocation, si no LocationManager, si no un fix fresco
+  de hasta 12 s; el intento Fused tiene tope de 8 s para no dejar
+  el envio colgado; sin fix, aviso claro y no se manda nada); OSRM
+  con los mismos dos servidores espejo y la misma User-Agent que el
+  radio, primera ruta (la mas rapida); la polilinea se afina con
+  Douglas-Peucker a 10 m (reimplementado en Kotlin; referencia:
+  libs/geometry/simplification.hpp de CoMaps — CoMaps en si NO se
+  usa: su nucleo es C++ con formato .mwm propio y un render que
+  exige OpenGL ES 3.0, que el Mali-450 del radio no tiene). El JSON
+  (PhoneRouteJson.kt, IDENTICO en los dos modulos salvo el paquete)
+  es {"type":"route","name":...,"distance":...,"duration":...,
+  "points":[[lat,lng],...],"steps":[{"t","m","n","d","s"}]} con
+  coordenadas a 5 decimales; SD -> Santiago: 1.958 puntos OSRM,
+  307 tras afinar, 7.803 bytes de JSON. Errores con motivo en la UI: sin
+  internet en el telefono, OSRM sin ruta, sin ubicacion.
+- Transporte: WiFi POST /route (PhoneLinkServer, 200/400) y
+  Bluetooth RFCOMM (misma linea JSON, el radio la lee entera con
+  readLine; el telefono espera hasta 30 s la respuesta). El mensaje
+  de destino solo (sin "type") sigue funcionando igual; si el radio
+  es viejo y contesta 404 a /route (o BAD por Bluetooth), el
+  telefono cae al destino solo y el radio calcula como antes.
+- Radio: la ruta recibida se muestra en el mismo panel de
+  previsualizacion (una sola ruta, sin alternativas) y guia con el
+  mismo panel y el mismo pegado a la calle; queda marcada como ruta
+  del telefono. Desvio: NO falla de inmediato. La ruta sigue
+  dibujada y el panel guia de vuelta al punto mas cercano de la
+  linea (flecha con el rumbo + metros hasta la linea); al volver a
+  caer sobre la linea, la guia sigue sola desde ese punto, sin
+  internet y sin pedir otra ruta. Solo si el usuario se mantiene
+  fuera (~30 s de fixes seguidos, o 10 fixes a mas de 500 m) se
+  pasa al respaldo: con grafo offline listo se recalcula en local;
+  si no, Toast "Te desviaste de la ruta. Pídela de nuevo desde el
+  teléfono.", queda en el registro (CrashLog) y se cancela la guia.
+- Companera v1.0.3-test, arreglo pequeno en la misma version: el
+  titulo "Mapa Radio Movil" quedaba muy arriba y cubria parte de
+  las notificaciones; la pantalla principal ahora baja su padding
+  superior lo que mide la barra de estado (WindowInsets en
+  MainActivity sobre el ScrollView raiz, id rootScroll). Si el
+  telefono ya deja el contenido debajo de la barra, el inset es 0
+  y no cambia nada. Sin tocar nada mas del diseno.
+- Rutas sin conexion (misma v1.0.8, AMBAS opciones funcionando):
+  el acceso al grafo pasa de RAM_STORE a MMAP (GraphHopper 7.0):
+  verificado en el jar 7.0 (javap + escaneo completo del jar) que
+  su MMapDataAccess usa gets RELATIVOS (position() + get(byte[],
+  int, int)), no el get absoluto ByteBuffer.get(int, byte[], int,
+  int) que falta en este radio (ese era de GH 10.0 y mato el MMAP
+  de la v1.0.2). Con MMAP no se meten 81 MB en el heap ni la carga
+  tarda minutos: el SO pagina el archivo bajo demanda. Si MMAP
+  falla en el radio, se reintenta con RAM_STORE y el fallo queda en
+  el registro. SIN PROBAR EN EL RADIO TODAVIA: MMAP es hipotesis
+  verificada en jar y en JVM, no hecho en el aparato. La copia es
+  reanudable (copy-progress.txt: si la app se cierra a mitad, solo
+  se vuelve a copiar el archivo a medias; el marcador se escribe al
+  final). noCompress NO se aplica: el grafo ya viene comprimido al
+  53% en el APK (81 MB -> 42 MB) y descomprimir son segundos, no
+  minutos; sin comprimir el APK crecería ~38 MB sin ganar nada.
+  La espera en previsualizacion sube de 45 s a 180 s con mensaje
+  de progreso ("Preparando rutas sin conexión… (N s)"). Cada fase
+  queda en el registro con su tiempo (copia por archivo grande,
+  load, total; LISTO y FALLO con motivo). El detalle ya no miente:
+  READY y NOT_STARTED tenian el mismo texto "no listo". El grafo
+  NO se reconstruye: sigue gh70-dr-v1. Verificado en JVM con el
+  grafo real extraido del APK v1.0.7 (GhTest, misma config que el
+  radio): MMAP carga en 955 ms, ALT_ROUTE en 1.339 ms y CH en
+  201 ms; RAM_STORE carga en 1.821 ms, ALT_ROUTE en 839 ms y CH en
+  86 ms. Ruta SD -> Santiago en ambos casos: 1 ruta, 151.100 m,
+  6.294 s, 942 puntos, 12 instrucciones. Ademas, escaneo de los
+  jars core y web-api 7.0: CERO referencias al get absoluto
+  (I[BII)Ljava/nio/ByteBuffer ni a VarHandle.
+  versionCode 107 -> 108, versionName 1.0.8-radio (radio);
+  companion versionCode 3 -> 4, versionName 1.0.3-test.

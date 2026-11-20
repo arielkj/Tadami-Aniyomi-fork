@@ -3,6 +3,7 @@
      Retrato, simple y rapido: estado del radio, destino, buscar,
      y un boton grande de enviar. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootScroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/map_bg"

@@ -11,8 +11,8 @@ android {
         applicationId = "app.maparadio.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.0.2-test"
+        versionCode = 4
+        versionName = "1.0.3-test"
 
         // Solo el telefono del usuario (arm64). La app del radio
         // seguira siendo la que corre en el radio (armeabi-v7a).
@@ -47,4 +47,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Ubicacion del telefono (v1.0.3-test): origen de la ruta.
+    // FusedLocationProvider, igual que en el radio.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
 }

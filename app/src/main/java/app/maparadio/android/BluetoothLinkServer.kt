@@ -16,11 +16,15 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Protocolo: RFCOMM clasico (perfil SPP), mismo UUID en la app del
  * telefono (BluetoothLink). El telefono se conecta y manda UNA linea
- * JSON {"name": "...", "lat": 18.48, "lng": -69.93}; el radio contesta
- * "OK" si el destino vale (dentro de RD) o "BAD" si no, y lo maneja
- * EXACTAMENTE igual que el POST /destination de PhoneLinkServer
- * (misma validacion en PhoneLinkServer.parseDestination, mismo pin,
- * misma ruta, mismo Toast "Ruta recibida del teléfono").
+ * JSON: un destino {"name": "...", "lat": 18.48, "lng": -69.93} o
+ * una ruta completa (v1.0.8) {"type":"route","name":...,
+ * "points":[[lat,lng],...],"steps":[...]} — una sola linea, el
+ * radio la lee ENTERA con readLine antes de contestar; el telefono
+ * espera hasta 30 s la respuesta de una ruta (~8 KB tras afinar). El radio contesta
+ * "OK" si el mensaje vale (dentro de RD) o "BAD" si no, y lo maneja
+ * EXACTAMENTE igual que el POST /destination o /route de
+ * PhoneLinkServer (misma validacion, mismo pin, misma ruta, mismo
+ * Toast "Ruta recibida del teléfono").
  *
  * Sin librerias nuevas, hilos propios, nunca el principal. Se arranca
  * en onResume y se para en onPause, igual que PhoneLinkServer.
@@ -46,13 +50,19 @@ object BluetoothLinkServer {
     private var serverSocket: BluetoothServerSocket? = null
     private var appContext: Context? = null
     private var onDestination: ((String, Double, Double) -> Unit)? = null
+    private var onRoute: ((RouteData) -> Unit)? = null
 
     fun status(): Status = status
 
-    fun start(context: Context, onDestination: (String, Double, Double) -> Unit) {
+    fun start(
+        context: Context,
+        onDestination: (String, Double, Double) -> Unit,
+        onRoute: ((RouteData) -> Unit)? = null,
+    ) {
         if (running.get()) return
         appContext = context.applicationContext
         this.onDestination = onDestination
+        this.onRoute = onRoute
         running.set(true)
         Thread({ runAccept() }, "btlink-accept").apply { isDaemon = true }.start()
     }
@@ -62,6 +72,7 @@ object BluetoothLinkServer {
         try { serverSocket?.close() } catch (_: Exception) { }
         serverSocket = null
         onDestination = null
+        onRoute = null
     }
 
     private fun runAccept() {
@@ -108,14 +119,32 @@ object BluetoothLinkServer {
     private fun handleClient(socket: BluetoothSocket) {
         try {
             val reader = socket.inputStream.bufferedReader(Charsets.UTF_8)
-            val text = reader.readLine()?.trim()
-            val dest = text?.let { PhoneLinkServer.parseDestination(it) }
+            // UNA linea: el destino solo es corta; la ruta completa
+            // es una sola linea larga (~15 KB) y readLine la lee
+            // entera antes de contestar.
+            val text = reader.readLine()?.trim() ?: return
             val out = socket.outputStream
+            if (PhoneRouteJson.isRouteMessage(text)) {
+                val data = PhoneRouteJson.decode(text)
+                if (data != null) {
+                    out.write("OK\n".toByteArray(Charsets.UTF_8))
+                    out.flush()
+                    onRoute?.invoke(data)
+                } else {
+                    out.write("BAD\n".toByteArray(Charsets.UTF_8))
+                    out.flush()
+                    appContext?.let {
+                        CrashLog.logEvent(it, "BT: ruta ignorada (JSON invalido o fuera de RD)")
+                    }
+                }
+                return
+            }
+            val dest = PhoneLinkServer.parseDestination(text)
             if (dest != null) {
                 out.write("OK\n".toByteArray(Charsets.UTF_8))
                 out.flush()
                 onDestination?.invoke(dest.name, dest.lat, dest.lng)
-            } else if (text != null) {
+            } else {
                 out.write("BAD\n".toByteArray(Charsets.UTF_8))
                 out.flush()
                 appContext?.let {

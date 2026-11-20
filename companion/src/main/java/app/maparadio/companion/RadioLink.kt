@@ -106,4 +106,36 @@ object RadioLink {
                 false
             }
         }
+
+    /** Resultado de mandar una ruta completa (v1.0.3-test). */
+    enum class SendRouteResult {
+        /** El radio acepto la ruta (200). */
+        SENT,
+        /** El radio contesto 404: version vieja sin POST /route; el
+         *  llamador puede caer al destino solo (/destination). */
+        NOT_FOUND,
+        /** Sin respuesta (radio apagado, IP vieja, hotspot caido...). */
+        UNREACHABLE,
+    }
+
+    /** Manda la ruta completa al radio (POST /route, JSON de
+     *  PhoneRouteJson). No lanza: devuelve el motivo del fallo. */
+    suspend fun sendRoute(ip: String, routeJson: String): SendRouteResult =
+        withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder()
+                    .url("http://$ip:$TCP_PORT/route")
+                    .post(routeJson.toRequestBody(JSON))
+                    .build()
+                http.newCall(req).execute().use { resp ->
+                    when {
+                        resp.isSuccessful -> SendRouteResult.SENT
+                        resp.code == 404 -> SendRouteResult.NOT_FOUND
+                        else -> SendRouteResult.UNREACHABLE
+                    }
+                }
+            } catch (_: Exception) {
+                SendRouteResult.UNREACHABLE
+            }
+        }
 }

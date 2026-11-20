@@ -26,6 +26,12 @@
     <string name="bt_pick_title">Elige el radio</string>
     <string name="bt_no_devices">No hay dispositivos emparejados — empareja el teléfono con el radio en Ajustes de Bluetooth</string>
     <string name="bt_permission_needed">Permite el acceso a Bluetooth para elegir el radio</string>
+    <string name="location_permission_needed">Permite la ubicación para calcular la ruta desde donde estás</string>
+    <string name="route_calculating">Calculando ruta…</string>
+    <string name="route_no_internet">Sin internet en el teléfono — la ruta se calcula aquí, conéctate y reintenta</string>
+    <string name="route_http">El servidor de rutas no respondió. Inténtalo de nuevo.</string>
+    <string name="route_no_route">No hay ruta por carretera hasta ese lugar</string>
+    <string name="route_no_location">Sin ubicación del teléfono — activa el GPS y espera un momento</string>
     <string name="search_title">Buscar destino</string>
     <string name="search_hint">Buscar lugar, calle o negocio…</string>
     <string name="no_results">Sin resultados</string>

@@ -25,6 +25,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - Destino TCP, puerto 8080: POST /destination con cuerpo JSON
  *   {"name": "...", "lat": 18.48, "lng": -69.93} -> 200 {"ok": true}.
  *   GET /ping -> 200 {"ok": true, "name": "Mapa Radio"}.
+ * - Ruta completa TCP, puerto 8080 (v1.0.8): POST /route con el
+ *   cuerpo JSON de PhoneRouteJson ({"type":"route","name":...,
+ *   "points":[[lat,lng],...],"steps":[...],...}) -> 200 {"ok": true}
+ *   si la ruta vale, 400 si no. El telefono calcula la ruta con
+ *   OSRM y el radio solo la dibuja y la guia (su GraphHopper
+ *   offline tarda minutos en cargar). El destino solo sigue
+ *   funcionando igual que antes.
  *
  * Todo corre en hilos propios, nunca en el hilo principal. El servidor
  * solo escucha en la red local (hotspot); no se expone a internet.
@@ -41,6 +48,8 @@ object PhoneLinkServer {
     interface Listener {
         /** Un destino valido llego del telefono (hilo de red, no el principal). */
         fun onDestination(name: String, lat: Double, lng: Double)
+        /** Una ruta completa valida llego del telefono (v1.0.8). */
+        fun onRoute(data: RouteData)
         /** El servidor no pudo arrancar (puerto ocupado, sin WiFi...). */
         fun onStartFailed()
     }
@@ -140,6 +149,11 @@ object PhoneLinkServer {
                     val code = if (ok) 200 else 400
                     sendJson(out, code, JSONObject().put("ok", ok))
                 }
+                method == "POST" && path == "/route" -> {
+                    val ok = handleRoute(body)
+                    val code = if (ok) 200 else 400
+                    sendJson(out, code, JSONObject().put("ok", ok))
+                }
                 else -> sendJson(out, 404, JSONObject().put("ok", false))
             }
             out.flush()
@@ -182,6 +196,17 @@ object PhoneLinkServer {
     private fun handleDestination(body: String): Boolean {
         val dest = parseDestination(body) ?: return false
         listener?.onDestination(dest.name, dest.lat, dest.lng)
+        return true
+    }
+
+    /** Valida la ruta completa (PhoneRouteJson) y la pasa al listener.
+     *  El destino final (ultimo punto) se valida con el cuadro
+     *  estricto de RD, igual que el destino solo. */
+    private fun handleRoute(body: String): Boolean {
+        val data = PhoneRouteJson.decode(body) ?: return false
+        val last = data.points.lastOrNull() ?: return false
+        if (last.first !in 17.4..20.0 || last.second !in -72.1..-68.5) return false
+        listener?.onRoute(data)
         return true
     }
 

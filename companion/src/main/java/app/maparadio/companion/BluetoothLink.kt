@@ -90,31 +90,49 @@ object BluetoothLink {
     suspend fun sendDestination(
         device: BluetoothDevice, name: String, lat: Double, lng: Double
     ): Boolean = withContext(Dispatchers.IO) {
+        val json = JSONObject().apply {
+            put("name", name)
+            put("lat", lat)
+            put("lng", lng)
+        }.toString()
+        sendJson(device, json, replyTimeoutMs = 5_000)
+    }
+
+    /** Manda la ruta completa por RFCOMM (v1.0.3-test): el mismo
+     *  canal SPP, una sola linea JSON ({"type":"route",...}, ~8 KB
+     *  tras afinar; el radio la lee entera con readLine antes de
+     *  contestar). La espera es mas larga que con el destino solo
+     *  porque el radio tiene que validar ~300 puntos. True solo si
+     *  el radio contesto "OK". */
+    suspend fun sendRoute(device: BluetoothDevice, routeJson: String): Boolean =
+        withContext(Dispatchers.IO) {
+            sendJson(device, routeJson, replyTimeoutMs = 30_000)
+        }
+
+    /** Manda UNA linea JSON por RFCOMM y espera "OK"/"BAD". */
+    private fun sendJson(
+        device: BluetoothDevice, json: String, replyTimeoutMs: Long
+    ): Boolean {
         var socket: BluetoothSocket? = null
         try {
             socket = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
             socket.connect()
-            val json = JSONObject().apply {
-                put("name", name)
-                put("lat", lat)
-                put("lng", lng)
-            }.toString()
             val out = socket.outputStream
             out.write((json + "\n").toByteArray(Charsets.UTF_8))
             out.flush()
             // La respuesta ("OK"/"BAD") llega por el mismo socket.
-            // Se espera hasta 5 s sin bloquear para siempre.
+            // Se espera hasta replyTimeoutMs sin bloquear para siempre.
             val input = socket.inputStream
-            val deadline = System.currentTimeMillis() + 5000
+            val deadline = System.currentTimeMillis() + replyTimeoutMs
             while (input.available() == 0 && System.currentTimeMillis() < deadline) {
-                if (!socket.isConnected) return@withContext false
+                if (!socket.isConnected) return false
                 Thread.sleep(100)
             }
-            if (input.available() == 0) return@withContext false
+            if (input.available() == 0) return false
             val reply = input.bufferedReader(Charsets.UTF_8).readLine()?.trim()
-            reply == "OK"
+            return reply == "OK"
         } catch (_: Exception) {
-            false
+            return false
         } finally {
             try { socket?.close() } catch (_: Exception) { }
         }

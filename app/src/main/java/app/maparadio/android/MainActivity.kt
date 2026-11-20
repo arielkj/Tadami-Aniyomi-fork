@@ -134,6 +134,13 @@ class MainActivity : AppCompatActivity() {
         private const val STYLE_LIGHT = "https://tiles.openfreemap.org/styles/liberty"
         private const val REQ_LOCATION = 1
         private const val OFF_ROUTE_METERS = 60.0
+        // Volver a la ruta (v1.0.8, solo rutas del telefono): fixes
+        // seguidos fuera de la ruta antes de darla por perdida
+        // (~30 s a 1 fix/s). Muy lejos (>500 m) cada fix cuenta como
+        // 10 seguidos: a esa distancia no se vuelve andando.
+        private const val RETURN_TO_ROUTE_FIXES = 30
+        private const val RETURN_FAR_METERS = 500.0
+        private const val RETURN_FAR_FIXES = 10
         private const val MANUAL_ZOOM_MS = 20_000L
         // Umbrales de precision de ubicacion (v1.2).
         private const val GOOD_ACCURACY_M = 25f
@@ -233,6 +240,10 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { onPhoneDestination(name, lat, lng) }
         }
 
+        override fun onRoute(data: RouteData) {
+            runOnUiThread { onPhoneRoute(data) }
+        }
+
         override fun onStartFailed() {
             runOnUiThread {
                 phoneLastReceived = null
@@ -298,6 +309,16 @@ class MainActivity : AppCompatActivity() {
     private var destination: LatLng? = null
     private var destinationName: String? = null
     private var offRouteCount = 0
+    // Ruta del telefono (v1.0.8): la ruta activa la calculo el
+    // telefono con OSRM y llego entera por WiFi o Bluetooth. Si el
+    // usuario se desvia y el grafo offline NO esta listo, no se puede
+    // recalcular aqui: se avisa y se pide de nuevo desde el telefono.
+    private var isPhoneRoute = false
+    private var previewIsPhoneRoute = false
+    // Volviendo a la ruta (v1.0.8): el carro se salio de una ruta del
+    // telefono y se le guia de vuelta a la linea; al caer sobre ella
+    // la guia sigue sola. Se apaga al volver o al cancelar.
+    private var returningToRoute = false
 
     private var routeSource: GeoJsonSource? = null
     private var carSource: GeoJsonSource? = null
@@ -900,12 +921,63 @@ class MainActivity : AppCompatActivity() {
             if (match.snap.distance > OFF_ROUTE_METERS || match.score < 0.15) {
                 offRouteCount++
                 if (offRouteCount >= 3) {
+                    if (isPhoneRoute) {
+                        // Salida de una ruta del telefono (v1.0.8): NO
+                        // fallar de inmediato. La ruta sigue dibujada
+                        // y el panel guia de vuelta al punto mas
+                        // cercano de la linea (direccion + metros),
+                        // sin internet y sin pedir otra ruta. Al volver
+                        // a caer sobre la linea, la rama else de abajo
+                        // retoma la guia sola desde ese punto.
+                        if (!returningToRoute) {
+                            returningToRoute = true
+                            CrashLog.logEvent(
+                                this,
+                                "Desvío de ruta del teléfono: guiando de " +
+                                    "vuelta a la ruta " +
+                                    "(${match.snap.distance.toInt()} m)",
+                            )
+                        }
+                        val sustained = offRouteCount >= RETURN_TO_ROUTE_FIXES ||
+                            (match.snap.distance > RETURN_FAR_METERS &&
+                                offRouteCount >= RETURN_FAR_FIXES)
+                        if (sustained) {
+                            // Se mantiene fuera (lejos, sin volver):
+                            // respaldo. Con grafo offline listo se
+                            // recalcula en local; si no, aviso claro y
+                            // se pide de nuevo desde el telefono.
+                            offRouteCount = 0
+                            returningToRoute = false
+                            if (GraphHopperRouter.isReady) {
+                                routeTo(destination!!, destinationName, fromRaw = pos)
+                            } else {
+                                CrashLog.logEvent(
+                                    this,
+                                    "Desvío de ruta del teléfono sin volver " +
+                                        "y sin grafo offline: se pide de " +
+                                        "nuevo desde el teléfono",
+                                )
+                                Toast.makeText(
+                                    this, R.string.route_offroute_phone, Toast.LENGTH_LONG
+                                ).show()
+                                cancelRoute()
+                            }
+                            return
+                        }
+                        lastBearing = gpsBearing
+                        lastCarPos = pos
+                        updateCarMarker()
+                        updateReturnGuidance(match.snap)
+                        if (followMode) moveCamera(pos, lastBearing)
+                        return
+                    }
                     offRouteCount = 0
                     routeTo(destination!!, destinationName, fromRaw = pos)
                     return
                 }
             } else {
                 offRouteCount = 0
+                returningToRoute = false
                 routeIndex = match.snap.index
                 lastCarPos = match.snap.snapped
                 lastBearing = match.snap.bearing
@@ -1110,6 +1182,34 @@ class MainActivity : AppCompatActivity() {
         setGuidanceExpanded(remaining < 300)
     }
 
+    /**
+     * Guia de vuelta a la ruta (v1.0.8, solo rutas del telefono): el
+     * carro esta fuera de la linea. El panel muestra la flecha hacia
+     * el punto mas cercano de la ruta (rumbo relativo al rumbo del
+     * carro: 0 = recto, -90 izquierda, 90 derecha) y los metros que
+     * faltan hasta la linea; la llegada estimada sigue siendo la de
+     * la ruta desde ese punto. La ruta NO se borra ni se recalcula.
+     */
+    private fun updateReturnGuidance(snap: SnapResult) {
+        val r = route ?: return
+        guidanceCard.visibility = View.VISIBLE
+        setGuidanceExpanded(false)
+        val bearingToRoute = RouteEngine.bearingBetween(lastCarPos ?: return, snap.snapped)
+        val rel = (bearingToRoute - lastBearing + 540.0) % 360.0 - 180.0
+        maneuverArrow.rotation = rel.toFloat()
+        maneuverTitle.text = getString(R.string.route_return) +
+            " " + RouteEngine.formatDistance(snap.distance, this)
+        maneuverStreet.text = getString(R.string.route_return_hint)
+        val remainDist = (r.totalDistance - snap.progressMeters).coerceAtLeast(0.0)
+        val remainDurMin = (r.totalDuration * (remainDist / r.totalDistance.coerceAtLeast(1.0))).toLong()
+        val eta = Date(System.currentTimeMillis() + remainDurMin * 1000)
+        maneuverEta.text = getString(
+            R.string.eta_format,
+            SimpleDateFormat("h:mm a", Locale("es", "DO")).format(eta),
+            "${(remainDurMin / 60).toInt()} min",
+        )
+    }
+
     private fun setGuidanceExpanded(expanded: Boolean) {
         if (expanded == guidanceExpanded) return
         guidanceExpanded = expanded
@@ -1203,6 +1303,10 @@ class MainActivity : AppCompatActivity() {
             ?: SANTO_DOMINGO
         destination = dest
         destinationName = name
+        // Ruta calculada aqui (GraphHopper/OSRM local): deja de ser
+        // ruta del telefono, aunque antes lo fuera (recalculo).
+        isPhoneRoute = false
+        returningToRoute = false
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 try {
@@ -1295,14 +1399,19 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             // (3) Si fallo y el grafo aun se esta cargando, esperar a
-            // que este listo (hasta 45 s) y reintentar solo offline:
-            // en el primer arranque la copia tarda decenas de segundos
-            // en el radio y la ruta no debe fallar por eso.
+            // que este listo (hasta 180 s, v1.0.8: la primera carga
+            // —copia de 81 MB + load— tarda minutos en el radio, no
+            // 45 s) y reintentar solo offline. El panel dice cuanto
+            // lleva esperando, para que no parezca colgado.
             if (result.routes.isNullOrEmpty() &&
                 GraphHopperRouter.loadState == GhStatus.LOADING
             ) {
                 showPreviewMessage(getString(R.string.route_preparing))
-                if (waitForGraph(45_000)) {
+                if (waitForGraph(180_000) { waitedSec ->
+                    showPreviewMessage(
+                        getString(R.string.route_preparing) + " (${waitedSec} s)"
+                    )
+                }) {
                     result = withContext(Dispatchers.IO) {
                         try {
                             GraphHopperRouter.fetchOfflineResult(origin, dest)
@@ -1348,12 +1457,23 @@ class MainActivity : AppCompatActivity() {
         return currentOrigin() != null
     }
 
-    /** Espera hasta [timeoutMs] a que el grafo offline este listo. */
-    private suspend fun waitForGraph(timeoutMs: Long): Boolean {
+    /** Espera hasta [timeoutMs] a que el grafo offline este listo.
+     *  v1.0.8: [onTick] recibe los segundos esperados cada 5 s, para
+     *  que la UI diga cuanto lleva preparando las rutas. */
+    private suspend fun waitForGraph(
+        timeoutMs: Long,
+        onTick: ((Long) -> Unit)? = null,
+    ): Boolean {
         val start = SystemClock.uptimeMillis()
+        var lastTickSec = -1L
         while (SystemClock.uptimeMillis() - start < timeoutMs) {
             if (GraphHopperRouter.isReady) return true
             if (GraphHopperRouter.loadState == GhStatus.FAILED) return false
+            val waitedSec = (SystemClock.uptimeMillis() - start) / 1000
+            if (onTick != null && waitedSec != lastTickSec && waitedSec % 5L == 0L) {
+                lastTickSec = waitedSec
+                onTick(waitedSec)
+            }
             delay(500)
         }
         return GraphHopperRouter.isReady
@@ -1582,6 +1702,8 @@ class MainActivity : AppCompatActivity() {
     private fun activateRoute(selected: Route) {
         val dest = previewDest ?: destination ?: return
         val name = previewDestName ?: destinationName
+        isPhoneRoute = previewIsPhoneRoute
+        returningToRoute = false
         cancelPreview()
         route = selected
         routeIndex = 0
@@ -1608,6 +1730,7 @@ class MainActivity : AppCompatActivity() {
         previewDest = null
         previewDestName = null
         previewSelected = 0
+        previewIsPhoneRoute = false
         routePreviewPanel.visibility = View.GONE
         previewRows.removeAllViews()
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
@@ -1657,6 +1780,8 @@ class MainActivity : AppCompatActivity() {
     private fun cancelRoute() {
         cancelPreview()
         route = null
+        isPhoneRoute = false
+        returningToRoute = false
         destination = null
         destinationName = null
         routeIndex = 0
@@ -2309,6 +2434,67 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, R.string.route_from_phone, Toast.LENGTH_LONG).show()
     }
 
+    /**
+     * Una ruta COMPLETA llego desde el telefono (v1.0.8): el telefono
+     * ya la calculo con OSRM, aqui no se calcula nada. Se muestra en
+     * el mismo panel de previsualizacion que una ruta local (una sola
+     * ruta, sin alternativas) y al tocarla arranca la guia normal
+     * (mismo panel de guia y mismo pegado a la calle sobre la
+     * polilinea recibida). El destino es el ultimo punto de la ruta.
+     */
+    private fun onPhoneRoute(data: RouteData) {
+        val last = data.points.lastOrNull() ?: return
+        if (last.first !in 17.4..20.0 || last.second !in -72.1..-68.5) {
+            Toast.makeText(this, R.string.outside_dr, Toast.LENGTH_LONG).show()
+            return
+        }
+        phoneLastReceived = data.name
+        refreshPhoneStatus()
+        cancelRoute()
+        hideOverlays()
+        hideKeyboard()
+        searchInput.clearFocus()
+        val dest = LatLng(last.first, last.second)
+        previewDest = dest
+        previewDestName = data.name
+        destination = dest
+        destinationName = data.name
+        previewIsPhoneRoute = true
+        showRoutePreview(listOf(data.toRoute()))
+        CrashLog.logEvent(
+            this,
+            "Ruta del teléfono recibida: ${data.name} " +
+                "(${data.points.size} puntos, ${data.totalDistance.toInt()} m)",
+        )
+        Toast.makeText(this, R.string.route_from_phone, Toast.LENGTH_LONG).show()
+    }
+
+    /** RouteData del telefono -> Route de la app: mismas distancias
+     *  acumuladas y misma calle principal que RouteEngine.parseOneRoute
+     *  (se calculan desde los puntos recibidos). */
+    private fun RouteData.toRoute(): Route {
+        val points = points.map { LatLng(it.first, it.second) }
+        val cumulative = DoubleArray(points.size)
+        var total = 0.0
+        for (i in 1 until points.size) {
+            total += RouteEngine.metersBetween(points[i - 1], points[i])
+            cumulative[i] = total
+        }
+        val viaName = steps
+            .filter { it.name.isNotEmpty() && it.type != "depart" }
+            .maxByOrNull { it.distance }?.name ?: ""
+        return Route(
+            points = points,
+            steps = steps.map {
+                RouteStep(it.type, it.modifier, it.name, it.distance, it.startMeters)
+            },
+            totalDistance = totalDistance,
+            totalDuration = totalDuration,
+            cumulative = cumulative,
+            viaName = viaName,
+        )
+    }
+
     /** IP y estado del enlace, en Ajustes -> Telefono. */
     private fun refreshPhoneStatus() {
         if (!::phoneIp.isInitialized) return
@@ -2394,13 +2580,25 @@ class MainActivity : AppCompatActivity() {
         startMusicUpdates()
         startGpsStatusUpdates()
         startDeadReckoning()
+        // Rutas sin internet (v1.0.8): si el init de onCreate no
+        // llego a correr por cualquier camino, aqui se reintenta
+        // (es no-op si ya esta cargando o listo, y no reintenta un
+        // fallo: eso seria Toast y registro en cada vuelta).
+        GraphHopperRouter.initAsync(this)
         // Enlace con el telefono (v1.6): escucha en la red local
         // mientras la app esta abierta.
         PhoneLinkServer.start(phoneLinkListener)
         // Enlace por Bluetooth (v1.0.4): respaldo cuando no hay hotspot.
-        BluetoothLinkServer.start(this) { name, lat, lng ->
-            runOnUiThread { onPhoneDestination(name, lat, lng) }
-        }
+        // v1.0.8: tambien recibe rutas completas, no solo destinos.
+        BluetoothLinkServer.start(
+            this,
+            onDestination = { name, lat, lng ->
+                runOnUiThread { onPhoneDestination(name, lat, lng) }
+            },
+            onRoute = { data ->
+                runOnUiThread { onPhoneRoute(data) }
+            },
+        )
         refreshPhoneStatus()
     }
 

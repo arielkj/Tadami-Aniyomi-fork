@@ -90,6 +90,9 @@
     <string name="phone_bt_unavailable">Bluetooth: no disponible en este radio</string>
     <string name="phone_bt_failed">Bluetooth: no se pudo abrir (este radio no lo permite) — sigue funcionando por WiFi</string>
     <string name="route_from_phone">Ruta recibida del teléfono</string>
+    <string name="route_offroute_phone">Te desviaste de la ruta. Pídela de nuevo desde el teléfono.</string>
+    <string name="route_return">Vuelve a la ruta</string>
+    <string name="route_return_hint">Sigue la flecha hasta la línea azul</string>
     <string name="crash_title">Registro de errores</string>
     <string name="crash_none">Sin errores registrados</string>
     <string name="crash_last">Último cierre: %1$s\n%2$s</string>

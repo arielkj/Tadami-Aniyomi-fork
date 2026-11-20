@@ -2,10 +2,15 @@ package app.maparadio.companion
 
 import android.Manifest
 import android.bluetooth.BluetoothDevice
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -20,13 +25,20 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 
 /**
  * Mapa Radio Movil (v1.0.1-test): la app del telefono que manda destinos
@@ -56,17 +68,36 @@ class MainActivity : AppCompatActivity() {
 
     // Bluetooth (v1.0.2-test): accion pendiente de conceder el permiso.
     private var pendingBtAction: (() -> Unit)? = null
+    // Ubicacion (v1.0.3-test): envio pendiente de conceder el permiso.
+    private var pendingSendAction: (() -> Unit)? = null
 
     private var radioIp: String? = null
     private var destination: ShareParser.SharedPlace? = null
 
     private companion object {
         private const val REQ_BT_CONNECT = 41
+        private const val REQ_LOCATION = 42
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // Barra de estado (v1.0.3-test): el titulo "Mapa Radio Movil"
+        // quedaba muy arriba y cubria parte de las notificaciones en
+        // el telefono del usuario. El layout raiz baja su padding
+        // superior lo que mide la barra de estado (inset del sistema):
+        // si el telefono ya deja el contenido debajo de la barra, el
+        // inset es 0 y no cambia nada; si dibuja debajo, el titulo
+        // empieza debajo de la barra. El padding base (16dp del XML)
+        // se guarda una vez para no acumularlo en cada llamada.
+        val root = findViewById<View>(R.id.rootScroll)
+        val baseTopPadding = root.paddingTop
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+            v.setPadding(v.paddingLeft, baseTopPadding + top, v.paddingRight, v.paddingBottom)
+            insets
+        }
 
         statusText = findViewById(R.id.statusText)
         destName = findViewById(R.id.destName)
@@ -251,23 +282,174 @@ class MainActivity : AppCompatActivity() {
             }
             pendingBtAction = null
         }
+        if (requestCode == REQ_LOCATION) {
+            if (grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            ) {
+                pendingSendAction?.invoke()
+            } else {
+                Toast.makeText(
+                    this, R.string.location_permission_needed, Toast.LENGTH_LONG
+                ).show()
+            }
+            pendingSendAction = null
+        }
     }
 
+    /** Ubicacion precisa concedida (fina o gruesa). */
+    private fun hasLocationPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * Posicion actual del telefono (lat, lng), origen de la ruta
+     * (v1.0.3-test). En orden, lo primero que sirva: ultimo fix del
+     * FusedLocationProvider, ultimo fix conocido del LocationManager
+     * (GPS o red), y si no hay ninguno, un fix fresco con espera de
+     * hasta 12 s. Null si no hay permiso o no llega ningun fix: el
+     * llamador lo dice claro en vez de inventar un origen.
+     */
+    private suspend fun currentPhoneLocation(): Pair<Double, Double>? {
+        if (!hasLocationPermission()) return null
+        // 1) Ultimo fix del Fused (GPS+WiFi+celda, suele existir).
+        // Con tope de 8 s: si Play Services no contesta, se sigue
+        // con el LocationManager en vez de dejar el envio colgado.
+        try {
+            val fused = LocationServices.getFusedLocationProviderClient(this)
+            val last: Location? = withTimeoutOrNull(8_000) {
+                suspendCancellableCoroutine { cont ->
+                    fused.lastLocation
+                        .addOnSuccessListener { cont.resume(it) }
+                        .addOnFailureListener { cont.resume(null) }
+                }
+            }
+            if (last != null) return last.latitude to last.longitude
+        } catch (_: Exception) {
+        }
+        // 2) Ultimo fix conocido del sistema (GPS, si no, red).
+        try {
+            val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val last = try {
+                lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            } catch (_: SecurityException) {
+                null
+            } ?: try {
+                lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            } catch (_: SecurityException) {
+                null
+            }
+            if (last != null) return last.latitude to last.longitude
+            // 3) Fix fresco: una sola actualizacion GPS, maximo 12 s
+            // (requestSingleUpdate se da de baja solo tras el fix).
+            val fresh: Location? = withTimeoutOrNull(12_000) {
+                suspendCancellableCoroutine { cont ->
+                    val listener = object : LocationListener {
+                        override fun onLocationChanged(location: Location) {
+                            if (cont.isActive) cont.resume(location)
+                        }
+                    }
+                    cont.invokeOnCancellation {
+                        try { lm.removeUpdates(listener) } catch (_: Exception) { }
+                    }
+                    try {
+                        lm.requestSingleUpdate(
+                            LocationManager.GPS_PROVIDER, listener,
+                            Looper.getMainLooper()
+                        )
+                    } catch (_: Exception) {
+                        if (cont.isActive) cont.resume(null)
+                    }
+                }
+            }
+            if (fresh != null) return fresh.latitude to fresh.longitude
+        } catch (_: Exception) {
+        }
+        return null
+    }
+
+    /**
+     * Enviar al radio (v1.0.3-test): la ruta se calcula AQUI, en el
+     * telefono, con OSRM (tiene internet) y se manda ENTERA al radio.
+     * 1) Origen = GPS del telefono; sin fix, aviso claro, no se manda
+     *    nada. 2) OSRM: sin internet o sin ruta, aviso con el motivo.
+     * 3) WiFi primero (POST /route); si el radio es viejo y contesta
+     *    404, cae al destino solo (/destination) para que la ruta
+     *    salga igual. 4) Bluetooth de respaldo con la ruta entera;
+     *    si tambien falla, ultimo intento con el destino solo por
+     *    Bluetooth (radio viejo). Sin ruta no se manda nada a ciegas.
+     */
     private fun sendToRadio() {
         val dest = destination
         if (dest == null) {
             Toast.makeText(this, R.string.no_dest_yet, Toast.LENGTH_SHORT).show()
             return
         }
+        if (!hasLocationPermission()) {
+            pendingSendAction = { sendToRadio() }
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                REQ_LOCATION
+            )
+            return
+        }
         scope.launch {
+            Toast.makeText(
+                this@MainActivity, R.string.route_calculating, Toast.LENGTH_SHORT
+            ).show()
+            val origin = currentPhoneLocation()
+            if (origin == null) {
+                Toast.makeText(
+                    this@MainActivity, R.string.route_no_location, Toast.LENGTH_LONG
+                ).show()
+                return@launch
+            }
+            val result = withContext(Dispatchers.IO) {
+                OsrmRoute.fetchRoute(
+                    origin.first, origin.second, dest.lat, dest.lng, dest.name
+                )
+            }
+            val route = when (result) {
+                is OsrmRoute.Result.Ok -> result.route
+                is OsrmRoute.Result.Fail -> {
+                    val msg = when (result.kind) {
+                        OsrmRoute.FailKind.NO_INTERNET -> R.string.route_no_internet
+                        OsrmRoute.FailKind.HTTP -> R.string.route_http
+                        OsrmRoute.FailKind.NO_ROUTE -> R.string.route_no_route
+                    }
+                    Toast.makeText(this@MainActivity, msg, Toast.LENGTH_LONG).show()
+                    return@launch
+                }
+            }
+            val routeJson = PhoneRouteJson.encode(route)
             // 1) WiFi primero: el camino principal (hotspot).
             val ip = radioIp
             if (ip != null) {
-                if (RadioLink.sendDestination(ip, dest.name, dest.lat, dest.lng)) {
-                    Toast.makeText(
-                        this@MainActivity, R.string.sent_wifi, Toast.LENGTH_LONG
-                    ).show()
-                    return@launch
+                when (RadioLink.sendRoute(ip, routeJson)) {
+                    RadioLink.SendRouteResult.SENT -> {
+                        Toast.makeText(
+                            this@MainActivity, R.string.sent_wifi, Toast.LENGTH_LONG
+                        ).show()
+                        return@launch
+                    }
+                    RadioLink.SendRouteResult.NOT_FOUND -> {
+                        // Radio viejo sin POST /route: destino solo,
+                        // el radio calcula la ruta como antes.
+                        if (RadioLink.sendDestination(ip, dest.name, dest.lat, dest.lng)) {
+                            Toast.makeText(
+                                this@MainActivity, R.string.sent_wifi, Toast.LENGTH_LONG
+                            ).show()
+                            return@launch
+                        }
+                    }
+                    RadioLink.SendRouteResult.UNREACHABLE -> {
+                        // Sin respuesta por WiFi: probar Bluetooth.
+                    }
                 }
             }
             // 2) Bluetooth de respaldo, cuando no hay hotspot.
@@ -290,6 +472,13 @@ class MainActivity : AppCompatActivity() {
                 pickBluetoothRadio()
                 return@launch
             }
+            if (BluetoothLink.sendRoute(device, routeJson)) {
+                Toast.makeText(
+                    this@MainActivity, R.string.sent_bt, Toast.LENGTH_LONG
+                ).show()
+                return@launch
+            }
+            // Ultimo intento: destino solo por Bluetooth (radio viejo).
             val ok = BluetoothLink.sendDestination(
                 device, dest.name, dest.lat, dest.lng
             )

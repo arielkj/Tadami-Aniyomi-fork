@@ -3,6 +3,7 @@ package app.maparadio.android
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import com.graphhopper.GHRequest
@@ -77,6 +78,28 @@ import java.io.File
  * genericos que "fastest" necesita ("road_access": el ponderado
  * rapido lo exige). import.osm.ignored_highways SE MANTIENE: 7.0
  * lo exige (tira IllegalArgumentException si falta).
+ *
+ * v1.0.8: el acceso pasa de RAM_STORE a MMAP (ver DATA_ACCESS):
+ * en GH 7.0 el MMapDataAccess usa gets relativos, no el metodo
+ * absoluto que falta en este radio; ademas no mete 81 MB en el heap
+ * ni tarda minutos en cargar. Si MMAP falla, se reintenta con
+ * RAM_STORE. La copia es reanudable (copy-progress.txt) y cada fase
+ * queda en el registro con su tiempo. El grafo NO se reconstruye:
+ * sigue gh70-dr-v1. El estado del detalle ya no miente (READY y
+ * NOT_STARTED tenian el mismo texto, ver fetchRoutesResult).
+ *
+ * Sobre el "grafo offline no listo" del registro del usuario
+ * (20:32 hora del radio): en el codigo, tras onCreate, el estado
+ * solo puede ser LOADING, READY o FAILED (initAsync pone LOADING
+ * antes de arrancar el hilo); NOT_STARTED tras onCreate no tiene
+ * camino en el codigo. Lo que SI tenia camino era el detalle
+ * enganoso: con el grafo LISTO pero la ruta fallida, el else decia
+ * "grafo offline no listo". Con el detalle corregido y con los
+ * eventos de inicio/listo/fallo con tiempos, el proximo registro
+ * dira sin ambiguedad en que estado estaba y cuanto tardo cada
+ * fase. Por si acaso, initAsync se vuelve a llamar en onResume
+ * (no-op si ya arranco) para cubrir cualquier camino en que
+ * onCreate no llegara a llamarlo.
  */
 /** Estado de la carga del grafo offline (v1.0.3): la UI lo usa para
     saber si vale la pena esperar a que este listo en vez de fallar. */
@@ -92,6 +115,9 @@ object GraphHopperRouter {
     /** Cambiar cuando se reconstruya el grafo: fuerza volver a copiarlo. */
     private const val GRAPH_VERSION = "gh70-dr-v1"
     private const val GRAPH_ASSET_DIR = "graphhopper"
+    /** Progreso de la copia reanudable (v1.0.8): nombres de archivos
+     *  ya copiados enteros; se borra al terminar la copia. */
+    private const val PROGRESS_FILE = "copy-progress.txt"
     private const val PROFILE = "car"
 
     @Volatile
@@ -110,58 +136,69 @@ object GraphHopperRouter {
     var loadError: String? = null
         private set
 
-    /** Copia el grafo (si hace falta) y lo abre, en segundo plano. */
+    /** Tipo de acceso a datos del grafo (v1.0.8): MMAP en vez de
+     *  RAM_STORE. Verificado en el jar de GraphHopper 7.0 antes de
+     *  decidir (javap sobre MMapDataAccess + escaneo de todo el jar):
+     *  en 7.0 getBytes() usa gets RELATIVOS (position() + get(byte[],
+     *  int, int)), NO el get absoluto ByteBuffer.get(int, byte[],
+     *  int, int) que FALTA en el framework ALPS de este radio (ese
+     *  metodo era de GH 10.0 y mato el intento MMAP de la v1.0.2).
+     *  Con MMAP no se copian 81 MB al heap (la causa del OOM de la
+     *  v1.0.5 y de la carga de minutos): el SO pagina el archivo
+     *  bajo demanda. Si MMAP falla en el radio (otro metodo que
+     *  falte en un camino no visto), se reintenta con RAM_STORE
+     *  (ver openHopper): el fallo queda en el registro y la app no
+     *  se cierra. SIN PROBAR EN EL RADIO TODAVIA: hasta que el
+     *  usuario lo pruebe, MMAP es una hipotesis verificada en el jar
+     *  y en JVM, no un hecho en el aparato. */
+    private const val DATA_ACCESS = "MMAP"
+    private const val DATA_ACCESS_FALLBACK = "RAM_STORE"
+
+    /** Copia el grafo (si hace falta) y lo abre, en segundo plano.
+     *  v1.0.8: cada fase queda en el registro con su tiempo (copia,
+     *  load, total) y cada archivo grande de la copia, para que el
+     *  proximo registro diga EXACTAMENTE donde se atasca la primera
+     *  carga en vez de un "no listo" sin mas. */
     fun initAsync(context: Context) {
         if (isReady || hopper != null) return
+        // Solo se arranca si nunca se arranco: un fallo (FAILED) no
+        // se reintenta solo en cada onResume (seria Toast y registro
+        // una y otra vez); el usuario reintenta reiniciando la app.
+        // Esto tambien cubre el caso en que onCreate no llegara a
+        // llamar (el onResume lo vuelve a intentar).
+        if (loadState != GhStatus.NOT_STARTED) return
         loadState = GhStatus.LOADING
         loadError = null
+        val appContext = context.applicationContext
+        val startedAt = SystemClock.elapsedRealtime()
+        CrashLog.logEvent(appContext, "Grafo offline: iniciando carga (copia + load)")
         Thread({
             try {
-                val appContext = context.applicationContext
                 val dir = File(appContext.filesDir, GRAPH_ASSET_DIR)
-                if (!isGraphCopied(dir)) {
+                val copyStarted = SystemClock.elapsedRealtime()
+                val copyResult = if (!isGraphCopied(dir)) {
                     copyGraphFromAssets(appContext, dir)
+                } else {
+                    "ya copiado"
                 }
-                val gh = GraphHopper()
-                // RAM_STORE en vez de MMAP (v1.0.5): en GH 7.0 el
-                // RAMDataAccess es Java puro sobre byte[] y carga en
-                // API 27; MMAP quedo descartado porque su
-                // MMapDataAccess usa ByteBuffer.get(int, byte[], int,
-                // int), metodo que NO EXISTE en el framework de este
-                // radio ALPS (registro 19 nov: "No virtual method
-                // get(I[BII)"). init() ANTES que los setters, como
-                // recomienda el javadoc de GraphHopper; graph.location
-                // va en el config porque init() lo sobrescribe, y
-                // import.osm.ignored_highways es obligatorio en
-                // init() aunque solo se cargue el grafo (7.0 lo
-                // exige: sin el, tira IllegalArgumentException).
-                // En 7.0 los valores codificados del vehiculo van en
-                // setVehiclesString("car") y en el string solo
-                // "road_access", que exige el ponderado "fastest".
-                val config = GraphHopperConfig()
-                config.putObject("graph.location", dir.absolutePath)
-                config.putObject("graph.dataaccess", "RAM_STORE")
-                config.putObject("import.osm.ignored_highways", "")
-                gh.init(config)
-                gh.setVehiclesString("car")
-                gh.setEncodedValuesString("road_access")
-                gh.setProfiles(carProfile())
-                gh.chPreparationHandler.setCHProfiles(CHProfile(PROFILE))
-                try {
-                    if (!gh.load()) {
-                        loadState = GhStatus.FAILED
-                        loadError = "load() devolvió false"
-                        Log.w(TAG, "GraphHopper.load() devolvio false")
-                        return@Thread
-                    }
-                } catch (t: Throwable) {
-                    // Un fallo del router NUNCA debe cerrar la app:
-                    // sin rutas offline esta sesion, OSRM con internet
-                    // de respaldo. VerifyError es un Error, no una
-                    // Exception: por eso se atrapa Throwable.
+                val copyMs = SystemClock.elapsedRealtime() - copyStarted
+                CrashLog.logEvent(
+                    appContext,
+                    "Grafo offline: copia lista en ${copyMs / 1000} s ($copyResult)",
+                )
+                val loadStarted = SystemClock.elapsedRealtime()
+                val gh = openHopper(appContext, dir)
+                val loadMs = SystemClock.elapsedRealtime() - loadStarted
+                if (gh == null) {
+                    // openHopper ya dejo el motivo en loadError y en
+                    // el registro; aqui solo se cierra el intento.
                     loadState = GhStatus.FAILED
-                    loadError = t.message ?: t.javaClass.simpleName
-                    Log.e(TAG, "GraphHopper.load() fallo", t)
+                    val totalMs = SystemClock.elapsedRealtime() - startedAt
+                    CrashLog.logEvent(
+                        appContext,
+                        "Grafo offline FALLO tras ${totalMs / 1000} s " +
+                            "(copia ${copyMs / 1000} s, load ${loadMs / 1000} s)",
+                    )
                     Handler(Looper.getMainLooper()).post {
                         Toast.makeText(
                             appContext,
@@ -174,15 +211,83 @@ object GraphHopperRouter {
                 hopper = gh
                 isReady = true
                 loadState = GhStatus.READY
-                Log.i(TAG, "GraphHopper listo (offline, RAM_STORE)")
+                val totalMs = SystemClock.elapsedRealtime() - startedAt
+                CrashLog.logEvent(
+                    appContext,
+                    "Grafo offline LISTO en ${totalMs / 1000} s " +
+                        "(copia ${copyMs / 1000} s, load ${loadMs / 1000} s, $DATA_ACCESS)",
+                )
+                Log.i(TAG, "GraphHopper listo (offline, $DATA_ACCESS)")
             } catch (t: Throwable) {
                 // Sin grafo (versiones de prueba) o grafo danado: se
                 // sigue con OSRM cuando hay internet. No se rompe nada.
                 loadState = GhStatus.FAILED
                 loadError = t.message ?: t.javaClass.simpleName
+                val totalMs = SystemClock.elapsedRealtime() - startedAt
+                CrashLog.logEvent(
+                    appContext,
+                    "Grafo offline FALLO tras ${totalMs / 1000} s: " +
+                        "${t.javaClass.simpleName}: ${t.message}",
+                )
                 Log.w(TAG, "GraphHopper no disponible: ${t.message}")
             }
         }, "gh-init").start()
+    }
+
+    /** Abre el grafo con el DAType principal (MMAP) y, si eso falla,
+     *  reintenta con RAM_STORE. Un fallo del router NUNCA debe cerrar
+     *  la app: VerifyError es un Error, no una Exception, por eso se
+     *  atrapa Throwable. Devuelve null si ningun intento sirvio (el
+     *  motivo queda en loadError y en el registro). */
+    private fun openHopper(context: Context, dir: File): GraphHopper? {
+        val attempts = listOf(DATA_ACCESS, DATA_ACCESS_FALLBACK)
+        for (dataAccess in attempts) {
+            val gh = GraphHopper()
+            // init() ANTES que los setters, como recomienda el
+            // javadoc de GraphHopper; graph.location va en el config
+            // porque init() lo sobrescribe, y
+            // import.osm.ignored_highways es obligatorio en init()
+            // aunque solo se cargue el grafo (7.0 lo exige: sin el,
+            // tira IllegalArgumentException). En 7.0 los valores
+            // codificados del vehiculo van en setVehiclesString("car")
+            // y en el string solo "road_access", que exige el
+            // ponderado "fastest".
+            val config = GraphHopperConfig()
+            config.putObject("graph.location", dir.absolutePath)
+            config.putObject("graph.dataaccess", dataAccess)
+            config.putObject("import.osm.ignored_highways", "")
+            try {
+                gh.init(config)
+                gh.setVehiclesString("car")
+                gh.setEncodedValuesString("road_access")
+                gh.setProfiles(carProfile())
+                gh.chPreparationHandler.setCHProfiles(CHProfile(PROFILE))
+                if (!gh.load()) {
+                    loadError = "load() devolvió false ($dataAccess)"
+                    Log.w(TAG, "GraphHopper.load() devolvio false ($dataAccess)")
+                    CrashLog.logEvent(
+                        context,
+                        "Grafo offline: load() devolvió false ($dataAccess)",
+                    )
+                    try { gh.close() } catch (_: Exception) { }
+                    continue
+                }
+                return gh
+            } catch (t: Throwable) {
+                loadError = "${t.javaClass.simpleName}: ${t.message} ($dataAccess)"
+                Log.e(TAG, "GraphHopper.load() fallo ($dataAccess)", t)
+                CrashLog.logEvent(
+                    context,
+                    "Grafo offline: load() falló con $dataAccess: " +
+                        "${t.javaClass.simpleName}: ${t.message}",
+                )
+                try { gh.close() } catch (_: Exception) { }
+                // El siguiente intento (RAM_STORE) abre un
+                // GraphHopper nuevo sobre los mismos archivos.
+                continue
+            }
+        }
+        return null
     }
 
     /** Perfil "car" de GraphHopper 7.0: ponderado "fastest" de serie
@@ -217,7 +322,12 @@ object GraphHopperRouter {
         val ghDetail = when (loadState) {
             GhStatus.FAILED -> "grafo offline no cargó (${loadError ?: "?"})"
             GhStatus.LOADING -> "grafo offline aún cargando"
-            else -> "grafo offline no listo"
+            // OJO (v1.0.8): antes el else metia READY y NOT_STARTED
+            // en el mismo "no listo" y el registro mentia: con el
+            // grafo LISTO pero la ruta fallida decia "no listo", y un
+            // NOT_STARTED real (init sin correr) era indistinguible.
+            GhStatus.NOT_STARTED -> "grafo offline no iniciado (init no corrió)"
+            GhStatus.READY -> "grafo offline listo pero la ruta falló"
         }
         val detail = if (osrm.detail.isNotEmpty()) "${osrm.detail}; $ghDetail" else ghDetail
         return RouteResult(null, osrm.failure, detail)
@@ -342,41 +452,98 @@ object GraphHopperRouter {
             File(dir, "properties").exists()
     }
 
-    private fun copyGraphFromAssets(context: Context, dir: File) {
-        dir.deleteRecursively()
+    /**
+     * Copia el grafo desde assets (v1.0.8: REANUDABLE). Antes, si la
+     * app se cerraba a mitad de copia (81 MB, minutos en este radio),
+     * la proxima vez se borraba todo y se empezaba de cero. Ahora
+     * cada archivo copiado se apunta en copy-progress.txt y al
+     * reintentar se saltan los que ya estan: solo se vuelve a copiar
+     * el archivo que quedo a medias (un archivo parcial se
+     * sobrescribe entero al copiarlo). El marcador de version se
+     * escribe AL FINAL, como siempre: sin el, el grafo no se da por
+     * copiado. Si el marcador es de OTRA version, el grafo viejo no
+     * sirve y se empieza de cero (ahi si se borra el directorio).
+     * Devuelve "copiados/saltados" para el registro.
+     */
+    private fun copyGraphFromAssets(context: Context, dir: File): String {
+        val marker = File(dir, "graph-version.txt")
+        if (marker.exists() && marker.readText().trim() != GRAPH_VERSION) {
+            dir.deleteRecursively()
+        }
         dir.mkdirs()
-        val copied = copyAssetDir(context, GRAPH_ASSET_DIR, dir)
-        if (copied == 0) {
+        val progressFile = File(dir, PROGRESS_FILE)
+        val done = try {
+            if (progressFile.exists()) progressFile.readLines().toHashSet()
+            else HashSet()
+        } catch (_: Exception) {
+            HashSet()
+        }
+        val result = copyAssetDir(context, GRAPH_ASSET_DIR, dir, "", done, progressFile)
+        if (!File(dir, "properties").exists()) {
             // Versiones de prueba sin grafo empaquetado: no marcar
             // nada, para no fingir que hay grafo.
             dir.deleteRecursively()
             throw IllegalStateException("sin grafo en assets")
         }
         File(dir, "graph-version.txt").writeText(GRAPH_VERSION)
-        Log.i(TAG, "Grafo copiado a ${dir.absolutePath} ($copied archivos)")
+        try { progressFile.delete() } catch (_: Exception) { }
+        Log.i(TAG, "Grafo copiado a ${dir.absolutePath} (${result.first} nuevos, ${result.second} ya estaban)")
+        return "${result.first} nuevos, ${result.second} reanudados"
     }
 
-    /** Copia un directorio de assets (recursivo). Devuelve archivos. */
-    private fun copyAssetDir(context: Context, assetPath: String, outDir: File): Int {
+    /** Copia un directorio de assets (recursivo). Devuelve
+     *  (archivos copiados ahora, archivos saltados por ya estar).
+     *  [relPath] es la ruta relativa dentro del grafo (para el
+     *  progreso); [done] son los relativos ya copiados. */
+    private fun copyAssetDir(
+        context: Context,
+        assetPath: String,
+        outDir: File,
+        relPath: String,
+        done: HashSet<String>,
+        progressFile: File,
+    ): Pair<Int, Int> {
         val assets = context.assets
-        val entries = assets.list(assetPath) ?: return 0
-        var count = 0
+        val entries = assets.list(assetPath) ?: return 0 to 0
+        var copied = 0
+        var skipped = 0
         for (name in entries) {
             val childAsset = "$assetPath/$name"
             val childOut = File(outDir, name)
+            val childRel = if (relPath.isEmpty()) name else "$relPath/$name"
             val sub = assets.list(childAsset)
             if (sub != null && sub.isNotEmpty()) {
                 childOut.mkdirs()
-                count += copyAssetDir(context, childAsset, childOut)
+                val r = copyAssetDir(context, childAsset, childOut, childRel, done, progressFile)
+                copied += r.first
+                skipped += r.second
             } else {
+                if (childRel in done && childOut.exists() && childOut.length() > 0) {
+                    skipped++
+                    continue
+                }
+                val t0 = SystemClock.elapsedRealtime()
                 assets.open(childAsset).use { input ->
                     childOut.outputStream().use { output ->
                         input.copyTo(output)
                     }
                 }
-                count++
+                val ms = SystemClock.elapsedRealtime() - t0
+                // Solo se apunta el archivo cuando esta entero en
+                // disco: si se cierra la app a mitad, no se apunta y
+                // se vuelve a copiar entero la proxima vez.
+                try { progressFile.appendText("$childRel\n") } catch (_: Exception) { }
+                done.add(childRel)
+                copied++
+                if (childOut.length() > 5 * 1024 * 1024) {
+                    CrashLog.logEvent(
+                        context,
+                        "Grafo offline: copiado $childRel " +
+                            "(${childOut.length() / 1024 / 1024} MB) en ${ms / 1000} s",
+                    )
+                }
             }
         }
-        return count
+        return copied to skipped
     }
 }
