@@ -1299,8 +1299,11 @@ class MainActivity : AppCompatActivity() {
         val newBearing = if (headingUp) bearing else 0.0
         // En el radio debil, no re-animar si la camara ya esta ahi:
         // evita encadenar animaciones que se cancelan entre si.
+        // (CameraPosition.target es nullable en MapLibre 10.3.7.)
+        val curTarget = cur.target
         val bearingDiff = abs((newBearing - cur.bearing + 540.0) % 360.0 - 180.0)
-        if (RouteEngine.metersBetween(cur.target, target) < 2.0 &&
+        if (curTarget != null &&
+            RouteEngine.metersBetween(curTarget, target) < 2.0 &&
             bearingDiff < 2.0 &&
             abs(newZoom - cur.zoom) < 0.05 && abs(newTilt - cur.tilt) < 0.5
         ) return
