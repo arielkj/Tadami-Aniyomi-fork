@@ -2103,8 +2103,8 @@ private fun LazyListScope.AnimeAuroraMobileHeroItems(
                     expanded = descriptionExpanded,
                     onToggle = { descriptionExpanded = !descriptionExpanded },
                     // v7.9.6: proveedor al final de la sinopsis, igual que en manga.
-                    sourceTitle = animeDetailsSnapshot.sourceTitle,
-                    translationText = animeDetailsSnapshot.translationText,
+                    sourceTitle = detailsSnapshot.sourceTitle,
+                    translationText = detailsSnapshot.translationText,
                     onSourceClick = onSourceClick,
                     modifier = Modifier
                         .fillMaxWidth()
