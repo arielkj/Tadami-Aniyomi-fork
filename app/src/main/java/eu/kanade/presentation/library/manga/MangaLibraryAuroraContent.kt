@@ -299,8 +299,9 @@ private fun MangaLibraryAuroraList(
             }
         }
 
-        // v7.9.6: destacado + carrusel arriba; las píldoras quedan fijas
-        // arriba al desplazar, debajo del carrusel como en el diseño.
+        // v7.9.7: destacado + carrusel arriba y las píldoras debajo, TODO
+        // como ítems normales que se desplazan con el contenido: al bajar
+        // desaparecen y al subir vuelven; nada queda fijo.
         if (headerContent != null) {
             item(contentType = "library_featured_header") {
                 headerContent()
@@ -308,7 +309,7 @@ private fun MangaLibraryAuroraList(
         }
 
         if (categoryTabsContent != null) {
-            stickyHeader {
+            item(contentType = "library_category_tabs") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -510,8 +511,9 @@ private fun MangaLibraryAuroraCardGrid(
     ) {
         globalSearchItem(searchQuery, onGlobalSearchClicked)
 
-        // v7.9.6: destacado + carrusel arriba; las píldoras quedan fijas
-        // arriba al desplazar, debajo del carrusel como en el diseño.
+        // v7.9.7: destacado + carrusel arriba y las píldoras debajo, TODO
+        // como ítems normales que se desplazan con el contenido: al bajar
+        // desaparecen y al subir vuelven; nada queda fijo.
         if (headerContent != null) {
             item(
                 span = { GridItemSpan(maxLineSpan) },
@@ -522,7 +524,10 @@ private fun MangaLibraryAuroraCardGrid(
         }
 
         if (categoryTabsContent != null) {
-            stickyHeader {
+            item(
+                span = { GridItemSpan(maxLineSpan) },
+                contentType = "library_category_tabs",
+            ) {
                 categoryTabsContent()
             }
         }

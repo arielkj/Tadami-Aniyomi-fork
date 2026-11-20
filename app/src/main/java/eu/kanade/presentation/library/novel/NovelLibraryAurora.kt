@@ -304,9 +304,10 @@ fun NovelLibraryAuroraContent(
                     }
                 }
 
-                // v7.9.6: las píldoras quedan fijas arriba al desplazar.
+                // v7.9.7: las píldoras son un ítem normal: se desplazan con
+                // el contenido, desaparecen al bajar y vuelven al subir.
                 if (categoryTabsContent != null) {
-                    stickyHeader {
+                    item(contentType = "library_category_tabs") {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -407,9 +408,13 @@ fun NovelLibraryAuroraContent(
                     }
                 }
 
-                // v7.9.6: las píldoras quedan fijas arriba al desplazar.
+                // v7.9.7: las píldoras son un ítem normal: se desplazan con
+                // el contenido, desaparecen al bajar y vuelven al subir.
                 if (categoryTabsContent != null) {
-                    stickyHeader {
+                    item(
+                        span = { GridItemSpan(maxLineSpan) },
+                        contentType = "library_category_tabs",
+                    ) {
                         categoryTabsContent()
                     }
                 }
