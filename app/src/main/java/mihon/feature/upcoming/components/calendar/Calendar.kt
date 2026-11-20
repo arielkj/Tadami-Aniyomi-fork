@@ -45,21 +45,27 @@ fun Calendar(
     // v7.9.2: días con fecha puesta a mano por el usuario; se marcan
     // con puntos ámbar, distintos de los de emisión (color primario).
     customEvents: ImmutableMap<LocalDate, Int> = persistentMapOf(),
+    // v7.9.3: Actualizaciones dibuja su propia cabecera (título + flechas
+    // de mes + flecha para plegar/desplegar), así que la del calendario se
+    // puede ocultar sin perder la navegación entre meses.
+    showHeader: Boolean = true,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        CalenderHeader(
-            yearMonth = selectedYearMonth,
-            onPreviousClick = { setSelectedYearMonth(selectedYearMonth.minusMonths(1L)) },
-            onNextClick = { setSelectedYearMonth(selectedYearMonth.plusMonths(1L)) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = MaterialTheme.padding.small)
-                .padding(start = MaterialTheme.padding.medium),
-        )
+        if (showHeader) {
+            CalenderHeader(
+                yearMonth = selectedYearMonth,
+                onPreviousClick = { setSelectedYearMonth(selectedYearMonth.minusMonths(1L)) },
+                onNextClick = { setSelectedYearMonth(selectedYearMonth.plusMonths(1L)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = MaterialTheme.padding.small)
+                    .padding(start = MaterialTheme.padding.medium),
+            )
+        }
         CalendarGrid(
             selectedYearMonth = selectedYearMonth,
             events = events,

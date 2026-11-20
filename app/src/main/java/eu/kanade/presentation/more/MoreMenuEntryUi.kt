@@ -25,8 +25,9 @@ import tachiyomi.presentation.core.i18n.stringResource
  * Single source of truth for the label of a «More» screen entry, shared by the screen itself and by
  * the menu customization screen so a renamed entry cannot drift apart.
  *
- * [movedTabTitle] is resolved by the caller: it comes from `navStyle.moreTab.options`, which may only
- * be read inside the bottom-nav tab navigator.
+ * [movedTabTitle] is resolved by the caller: it comes from `NavStyle.movedTabTitle`, never from
+ * `navStyle.moreTab.options`, which may only be read inside the bottom-nav tab navigator
+ * (reading it from a pushed screen crashes with "TabNavigator not initialized", v7.9.3).
  */
 @Composable
 internal fun MoreEntryTitle(

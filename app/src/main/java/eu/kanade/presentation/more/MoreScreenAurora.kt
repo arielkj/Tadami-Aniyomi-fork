@@ -91,7 +91,7 @@ fun MoreScreenAurora(
     val darkRimLightEnabled by uiPreferences.auroraDarkRimLightEnabled().collectAsState()
     var menuExpanded by remember { mutableStateOf(false) }
 
-    val movedTabTitle = navStyle.moreTab.options.title
+    val movedTabTitle = navStyle.movedTabTitle
     val movedTabIcon = navStyle.moreIcon
 
     val downloadQueueState = downloadQueueStateProvider()

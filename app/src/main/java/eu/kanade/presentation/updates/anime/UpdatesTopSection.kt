@@ -1,6 +1,8 @@
 package eu.kanade.presentation.updates.anime
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,10 +22,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -50,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,19 +70,28 @@ import eu.kanade.tachiyomi.ui.updates.DayEntry
 import eu.kanade.tachiyomi.ui.updates.UpdatesTopSectionScreenModel
 import eu.kanade.tachiyomi.ui.updates.displayDate
 import eu.kanade.tachiyomi.util.system.toast
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.coroutines.launch
 import mihon.feature.upcoming.components.calendar.Calendar
+import mihon.feature.upcoming.components.calendar.CalendarDay
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.time.temporal.TemporalAdjusters
+import java.time.temporal.WeekFields
 import java.util.Locale
 
-private val PosterWidth = 104.dp
-private val PosterHeight = 156.dp
+// v7.9.3: un solo tamaño intermedio para todas las portadas de
+// Actualizaciones (carruseles 104dp, filas simples 60dp y tarjetas de
+// grupo 48dp eran tres tamaños distintos): 72x108dp en los tres sitios.
+private val PosterWidth = 72.dp
+private val PosterHeight = 108.dp
 private val CustomDateAmber = Color(0xFFFFA726)
 
 /**
@@ -101,6 +117,10 @@ fun UpdatesTopSection(
     var dayDialogDate by remember { mutableStateOf<LocalDate?>(null) }
     var datePickerTarget by remember { mutableStateOf<DatePickerTarget?>(null) }
     var tmdbDetail by remember { mutableStateOf<TmdbUpcomingItem?>(null) }
+    // v7.9.3: el calendario nace plegado (solo la semana actual); la
+    // flecha lo expande al mes completo y lo vuelve a plegar.
+    var calendarExpanded by rememberSaveable { mutableStateOf(false) }
+    val weekDays = currentWeekDays()
     // "+" de anime ya pulsados en esta sesión (la lista de AniList no se
     // vuelve a consultar; el toast confirma cada añadido).
     var addedAnimeIds by remember { mutableStateOf(setOf<Long>()) }
@@ -112,24 +132,49 @@ fun UpdatesTopSection(
             .fillMaxWidth()
             .padding(horizontal = 16.dp),
     ) {
-        // 1. Calendario primero, como tarjeta ancha.
+        // 1. Calendario primero, como tarjeta ancha. La expansión se anima
+        // (animateContentSize) para que el cambio semana <-> mes sea fluido.
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize(),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = colors.cardBackground),
         ) {
             Column(modifier = Modifier.padding(8.dp)) {
-                Calendar(
+                CalendarHeaderRow(
+                    expanded = calendarExpanded,
+                    weekDays = weekDays,
                     selectedYearMonth = state.selectedYearMonth,
-                    events = state.calendarEvents,
-                    customEvents = state.customCalendarEvents,
-                    setSelectedYearMonth = model::setSelectedYearMonth,
-                    onClickDay = { date ->
-                        if (!state.dayEntries[date].isNullOrEmpty()) {
-                            dayDialogDate = date
-                        }
-                    },
+                    onPreviousMonth = { model.setSelectedYearMonth(state.selectedYearMonth.minusMonths(1)) },
+                    onNextMonth = { model.setSelectedYearMonth(state.selectedYearMonth.plusMonths(1)) },
+                    onToggleExpanded = { calendarExpanded = !calendarExpanded },
                 )
+                if (calendarExpanded) {
+                    Calendar(
+                        selectedYearMonth = state.selectedYearMonth,
+                        events = state.calendarEvents,
+                        customEvents = state.customCalendarEvents,
+                        setSelectedYearMonth = model::setSelectedYearMonth,
+                        showHeader = false,
+                        onClickDay = { date ->
+                            if (!state.dayEntries[date].isNullOrEmpty()) {
+                                dayDialogDate = date
+                            }
+                        },
+                    )
+                } else {
+                    WeekStrip(
+                        weekDays = weekDays,
+                        events = state.calendarEvents,
+                        customEvents = state.customCalendarEvents,
+                        onClickDay = { date ->
+                            if (!state.dayEntries[date].isNullOrEmpty()) {
+                                dayDialogDate = date
+                            }
+                        },
+                    )
+                }
                 // Leyenda: emisión vs fecha puesta a mano.
                 Row(
                     modifier = Modifier
@@ -330,6 +375,119 @@ private fun LegendDot(color: Color, text: String) {
     }
 }
 
+/** Los 7 días de la semana actual (empieza según el primer día local). */
+private fun currentWeekDays(): List<LocalDate> {
+    val firstDayOfWeek = WeekFields.of(Locale.getDefault()).firstDayOfWeek
+    val weekStart = LocalDate.now().with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
+    return (0..6).map { weekStart.plusDays(it.toLong()) }
+}
+
+private fun formatWeekLabel(start: LocalDate, end: LocalDate): String {
+    val short = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
+    return if (start.month == end.month) {
+        "Semana del ${start.dayOfMonth} al ${short.format(end)}"
+    } else {
+        "Semana del ${short.format(start)} al ${short.format(end)}"
+    }
+}
+
+/**
+ * v7.9.3 — cabecera del calendario: plegado muestra la semana actual,
+ * desplegado el mes con sus flechas para cambiar de mes. La flecha de la
+ * derecha pliega y despliega.
+ */
+@Composable
+private fun CalendarHeaderRow(
+    expanded: Boolean,
+    weekDays: List<LocalDate>,
+    selectedYearMonth: YearMonth,
+    onPreviousMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    onToggleExpanded: () -> Unit,
+) {
+    val colors = AuroraTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val title = if (expanded) {
+            DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
+                .format(selectedYearMonth)
+                .replaceFirstChar { it.uppercaseChar() }
+        } else {
+            formatWeekLabel(weekDays.first(), weekDays.last())
+        }
+        Text(
+            text = title,
+            color = colors.textPrimary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (expanded) {
+            IconButton(onClick = onPreviousMonth) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = null,
+                    tint = colors.textPrimary,
+                )
+            }
+            IconButton(onClick = onNextMonth) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = colors.textPrimary,
+                )
+            }
+        }
+        IconButton(onClick = onToggleExpanded) {
+            Icon(
+                imageVector = if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                contentDescription = null,
+                tint = colors.accent,
+            )
+        }
+    }
+}
+
+/** Tira de una semana: 7 días con sus puntos de emisión / fecha manual. */
+@Composable
+private fun WeekStrip(
+    weekDays: List<LocalDate>,
+    events: ImmutableMap<LocalDate, Int>,
+    customEvents: ImmutableMap<LocalDate, Int>,
+    onClickDay: (LocalDate) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            weekDays.forEach { day ->
+                Text(
+                    text = day.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.getDefault()),
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+        Row(modifier = Modifier.fillMaxWidth()) {
+            weekDays.forEach { day ->
+                CalendarDay(
+                    date = day,
+                    events = events[day] ?: 0,
+                    customEvents = customEvents[day] ?: 0,
+                    onDayClick = { onClickDay(day) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun UpcomingCarouselHeader(
     title: String,
@@ -467,19 +625,23 @@ private fun UpcomingPosterCard(
                     .clip(RoundedCornerShape(12.dp))
                     .background(colors.cardBackground),
             )
-            IconButton(
-                onClick = onAddClick,
+            // v7.9.3: botón "+" pequeño (32dp). El IconButton de Material3
+            // impone un mínimo táctil de 48dp y tapaba un cuarto del póster.
+            Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(6.dp)
                     .size(32.dp)
-                    .background(colors.accent, CircleShape),
+                    .clip(CircleShape)
+                    .background(colors.accent, CircleShape)
+                    .clickable { onAddClick() },
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = if (isAdded) Icons.Filled.Check else Icons.Filled.Add,
                     contentDescription = null,
                     tint = colors.textOnAccent,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }

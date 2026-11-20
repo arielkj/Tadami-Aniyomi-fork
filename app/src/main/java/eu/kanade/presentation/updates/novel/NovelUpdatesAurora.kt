@@ -175,7 +175,9 @@ fun NovelUpdatesAuroraContent(
                     }
                 }
 
-                item { Spacer(modifier = Modifier.height(24.dp)) }
+                // v7.9.3: 96dp para que el último elemento no quede tapado
+                // por la cápsula flotante de navegación inferior.
+                item { Spacer(modifier = Modifier.height(96.dp)) }
             }
         }
     }
@@ -319,8 +321,9 @@ private fun NovelUpdateCard(
     ) {
         Box(
             modifier = Modifier
-                .width(60.dp)
-                .height(90.dp)
+                // v7.9.3: 72x108dp, tamaño intermedio único
+                .width(72.dp)
+                .height(108.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(Color.Gray.copy(alpha = 0.3f))
                 .clickable { onNovelClick(update.novelId) },

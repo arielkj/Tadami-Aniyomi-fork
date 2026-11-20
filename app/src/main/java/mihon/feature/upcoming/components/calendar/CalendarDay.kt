@@ -20,10 +20,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import tachiyomi.presentation.core.components.material.DISABLED_ALPHA
 import java.time.LocalDate
 
 private const val MAX_EVENTS = 3
+
+// v7.9.3: todos los números de día son 16sp; los días pasados solo van
+// un poco más apagados (0.60). Con el apagado fuerte de antes (0.38) los
+// días pasados se veían MÁS PEQUEÑOS que los futuros aunque el tamaño
+// de letra era el mismo: tres tamaños distintos en una sola pantalla.
+private const val PAST_DAY_ALPHA = 0.6f
 
 @Composable
 fun CalendarDay(
@@ -61,7 +66,7 @@ fun CalendarDay(
             textAlign = TextAlign.Center,
             fontSize = 16.sp,
             color = if (date.isBefore(today)) {
-                MaterialTheme.colorScheme.onBackground.copy(alpha = DISABLED_ALPHA)
+                MaterialTheme.colorScheme.onBackground.copy(alpha = PAST_DAY_ALPHA)
             } else {
                 MaterialTheme.colorScheme.onBackground
             },

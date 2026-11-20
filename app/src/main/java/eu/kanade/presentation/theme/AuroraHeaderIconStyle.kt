@@ -38,10 +38,13 @@ fun Modifier.auroraHeaderIconSurface(
     val useDarkLens = colors.isDark
 
     // Glass fill color with scroll densification.
-    // AMOLED: negro puro opaco. El gris azulado 0xFF161922 era uno de los
-    // grises visibles en los botones circulares de buscar/filtrar/menú.
+    // v7.9.3: en AMOLED el fondo era negro puro opaco y los botones
+    // circulares se veían como círculos negros sólidos sobre el póster
+    // (detalle, 20 Nov). Ahora es cristal glass como las cápsulas de
+    // género (Romance/Drama/Comedia): blanco translúcido con borde claro,
+    // legible sobre el fondo negro y sobre la imagen.
     val glassColor = if (colors.isAmoled) {
-        Color.Black
+        Color.White.copy(alpha = 0.16f + 0.10f * density)
     } else if (useDarkLens) {
         if (isPosterMode) {
             Color(0xFF161922).copy(alpha = 0.85f)

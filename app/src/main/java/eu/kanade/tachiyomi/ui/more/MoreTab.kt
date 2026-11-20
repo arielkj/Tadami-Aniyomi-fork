@@ -99,8 +99,11 @@ data object MoreTab : Tab {
         if (theme.isAuroraStyle) {
             val downloadedOnly by screenModel.downloadedOnlyFlow.collectAsStateWithLifecycle()
             val incognitoMode by screenModel.incognitoModeFlow.collectAsStateWithLifecycle()
-            // Resolved here because `navStyle.moreTab.options` is only readable inside the tab navigator.
-            val movedTabTitle = navStyle.moreTab.options.title
+            // v7.9.3: el título viene de `navStyle.movedTabTitle`, no de
+            // `navStyle.moreTab.options`: leer `options` fuera del TabNavigator
+            // lanza IllegalStateException (crash 20 Nov) y Compose prohíbe
+            // blindarlo con try/catch.
+            val movedTabTitle = navStyle.movedTabTitle
 
             MoreScreenAurora(
                 navStyle = navStyle,

@@ -88,7 +88,7 @@ fun MoreScreen(
 
             item {
                 TextPreferenceWidget(
-                    title = navStyle.moreTab.options.title,
+                    title = navStyle.movedTabTitle,
                     icon = navStyle.moreIcon,
                     onPreferenceClick = onClickAlt,
                 )

@@ -96,8 +96,10 @@ fun AuroraUpdatesGroupCard(
                 contentScale = ContentScale.Crop,
                 colorFilter = rememberAuroraPosterColorFilter(),
                 modifier = Modifier
-                    .width(48.dp)
-                    .height(72.dp)
+                    // v7.9.3: 72x108dp, tamaño intermedio único con las filas
+                    // simples y los pósters de los carruseles.
+                    .width(72.dp)
+                    .height(108.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(colors.cardBackground),
                 error = placeholderPainter,
