@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.Done
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.FileDownloadOff
 import androidx.compose.material.icons.outlined.NewLabel
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.Icon
@@ -570,16 +571,29 @@ fun AnimeDetailScrolledTitle(
 /**
  * Synopsis card: 3 lines with an expand arrow that reveals the full text.
  * The arrow only shows when the text actually overflows (or is expanded).
+ * v7.9.6: muted source row at the bottom (globe + "Fuente (ES) · Español"),
+ * same as the manga synopsis card — the anime detail was missing it.
  */
 @Composable
 fun AnimeDetailSynopsisCard(
     description: String?,
     expanded: Boolean,
     onToggle: () -> Unit,
+    sourceTitle: String? = null,
+    translationText: String? = null,
+    onSourceClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val colors = AuroraTheme.colors
     var hasOverflow by remember(description) { mutableStateOf(false) }
+    // Misma línea que en manga: "Fuente (ES) · Español", o solo la fuente.
+    val sourceLine = remember(sourceTitle, translationText) {
+        when {
+            sourceTitle.isNullOrBlank() -> null
+            translationText.isNullOrBlank() -> sourceTitle
+            else -> "$sourceTitle · $translationText"
+        }
+    }
     val cardBackground = if (colors.isDark) {
         Color.White.copy(alpha = 0.08f)
     } else {
@@ -619,6 +633,33 @@ fun AnimeDetailSynopsisCard(
                     contentDescription = null,
                     tint = colors.textSecondary,
                     modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+        // Fila del proveedor, idéntica a la de manga: globo + texto 12sp
+        // en gris, toca para abrir la fuente. (El clic de la fila gana
+        // sobre el clic de toda la tarjeta que expande la sinopsis.)
+        if (sourceLine != null && onSourceClick != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .auroraSpringClick { onSourceClick() },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Public,
+                    contentDescription = null,
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(14.dp),
+                )
+                Text(
+                    text = sourceLine,
+                    color = colors.textSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

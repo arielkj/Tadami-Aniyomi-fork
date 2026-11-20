@@ -159,6 +159,7 @@ import eu.kanade.presentation.util.formatEpisodeNumber
 import eu.kanade.tachiyomi.animesource.model.FetchType
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
+import eu.kanade.tachiyomi.source.anime.getNameForAnimeInfo
 import eu.kanade.tachiyomi.data.download.anime.model.AnimeDownload
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreenModel
@@ -371,6 +372,7 @@ fun AnimeScreenAuroraImpl(
     val animeDetailsSnapshot = remember(
         anime,
         episodes,
+        state.source,
         selectedDubbing,
         nextUpdate,
         state.animeMetadata,
@@ -383,6 +385,9 @@ fun AnimeScreenAuroraImpl(
             watchedCount = state.episodes.count { it.episode.seen || it.episode.lastSecondSeen > 0L },
             totalEpisodes = state.episodes.size,
             sourceName = state.source.name,
+            // v7.9.6: proveedor al final de la sinopsis, igual que en manga.
+            sourceTitle = state.source.getNameForAnimeInfo(),
+            sourceLanguage = state.source.lang,
             selectedDubbing = selectedDubbing,
             nextUpdate = nextUpdate,
             sourceRating = state.sourceRating,
@@ -2097,6 +2102,10 @@ private fun LazyListScope.AnimeAuroraMobileHeroItems(
                     description = synopsisText,
                     expanded = descriptionExpanded,
                     onToggle = { descriptionExpanded = !descriptionExpanded },
+                    // v7.9.6: proveedor al final de la sinopsis, igual que en manga.
+                    sourceTitle = animeDetailsSnapshot.sourceTitle,
+                    translationText = animeDetailsSnapshot.translationText,
+                    onSourceClick = onSourceClick,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)

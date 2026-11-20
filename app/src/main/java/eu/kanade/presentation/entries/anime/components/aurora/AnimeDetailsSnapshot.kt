@@ -7,6 +7,7 @@ import eu.kanade.domain.metadata.model.MetadataLoadError
 import eu.kanade.presentation.entries.components.displayFormat
 import eu.kanade.presentation.entries.components.displayStatus
 import eu.kanade.presentation.entries.components.isCompleted
+import eu.kanade.presentation.entries.manga.components.aurora.resolveMangaTranslationText
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import tachiyomi.domain.entries.anime.model.Anime
 import tachiyomi.domain.metadata.model.ExternalMetadata
@@ -44,6 +45,10 @@ data class AnimeProgressSnapshot(
 @Immutable
 data class AnimeDetailsSnapshot(
     val sourceText: String,
+    // v7.9.6: proveedor al final de la sinopsis, igual que en manga —
+    // nombre de la extensión (getNameForAnimeInfo) + idioma ("Español").
+    val sourceTitle: String?,
+    val translationText: String?,
     val dubbingText: String?,
     val ratingValue: Float?,
     val ratingText: String,
@@ -61,6 +66,8 @@ fun resolveAnimeDetailsSnapshot(
     watchedCount: Int,
     totalEpisodes: Int,
     sourceName: String,
+    sourceTitle: String? = null,
+    sourceLanguage: String? = null,
     selectedDubbing: String?,
     nextUpdate: Instant?,
     sourceRating: Float?,
@@ -113,6 +120,14 @@ fun resolveAnimeDetailsSnapshot(
 
     return AnimeDetailsSnapshot(
         sourceText = sourceName.trim().ifBlank { "N/D" },
+        sourceTitle = sourceTitle,
+        // Igual que en manga: la etiqueta del idioma de la fuente
+        // ("Español") sale del mismo resolver que usa el detalle de manga.
+        translationText = resolveMangaTranslationText(
+            selectedScanlator = null,
+            scanlatorChapterCounts = emptyMap(),
+            sourceLanguage = sourceLanguage,
+        ),
         dubbingText = selectedDubbing.trimOrNull(),
         ratingValue = ratingValue,
         ratingText = ratingText,
