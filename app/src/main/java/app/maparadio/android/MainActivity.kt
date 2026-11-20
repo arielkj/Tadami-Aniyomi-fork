@@ -2464,7 +2464,7 @@ class MainActivity : AppCompatActivity() {
         CrashLog.logEvent(
             this,
             "Ruta del teléfono recibida: ${data.name} " +
-                "(${data.points.size} puntos, ${data.totalDistance.toInt()} m)",
+                "(${data.points.size} puntos, ${data.distance.toInt()} m)",
         )
         Toast.makeText(this, R.string.route_from_phone, Toast.LENGTH_LONG).show()
     }
@@ -2488,8 +2488,8 @@ class MainActivity : AppCompatActivity() {
             steps = steps.map {
                 RouteStep(it.type, it.modifier, it.name, it.distance, it.startMeters)
             },
-            totalDistance = totalDistance,
-            totalDuration = totalDuration,
+            totalDistance = distance,
+            totalDuration = duration,
             cumulative = cumulative,
             viaName = viaName,
         )
