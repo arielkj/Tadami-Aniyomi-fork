@@ -1810,7 +1810,7 @@
     <string name="aurora_set_custom_date">Cambiar fecha</string>
     <string name="aurora_clear_custom_date">Quitar fecha personalizada</string>
     <string name="aurora_custom_date">Fecha personalizada</string>
-    <string name="aurora_no_upcoming_anime">Sin próximos animes esta semana</string>
+    <string name="aurora_no_upcoming_anime">Sin estrenos de anime este mes</string>
     <string name="aurora_no_upcoming_tmdb">Sin próximos estrenos</string>
     <string name="aurora_episode_short">Ep. %d</string>
     <string name="aurora_updating_library">Actualizando toda la biblioteca</string>

@@ -80,6 +80,11 @@ class UpdatesTopSectionScreenModel(
 
     init {
         // Calendario: fechas de la biblioteca + fechas manuales + lista Por ver.
+        // v7.9.4: la actualización del estado es atómica (_state.update):
+        // antes el onEach hacía `_state.value = calendarState` con una
+        // lectura no atómica, y si el flujo emitía después de cargar los
+        // estrenos de AniList, el estado del calendario los borraba y el
+        // carrusel quedaba vacío ("Sin próximos animes esta semana").
         combine(
             getUpcomingAnime.subscribe(),
             uiPreferences.animeCustomDates().changes(),
@@ -87,23 +92,32 @@ class UpdatesTopSectionScreenModel(
             uiPreferences.tmdbApiKey().changes(),
             selectedYearMonthFlow,
         ) { libraryAnime, customDatesJson, watchlistJson, tmdbKey, selectedYearMonth ->
-            val customDates = parseCustomDates(customDatesJson)
-            val watchlist = parseWatchlist(watchlistJson)
-            buildCalendarState(
+            CalendarInputs(
                 libraryAnime = libraryAnime,
-                customDates = customDates,
-                watchlist = watchlist,
+                customDates = parseCustomDates(customDatesJson),
+                watchlist = parseWatchlist(watchlistJson),
                 tmdbKey = tmdbKey,
                 selectedYearMonth = selectedYearMonth,
             )
         }
-            .onEach { calendarState -> _state.value = calendarState }
+            .onEach { inputs ->
+                _state.update { current ->
+                    buildCalendarState(
+                        current = current,
+                        libraryAnime = inputs.libraryAnime,
+                        customDates = inputs.customDates,
+                        watchlist = inputs.watchlist,
+                        tmdbKey = inputs.tmdbKey,
+                        selectedYearMonth = inputs.selectedYearMonth,
+                    )
+                }
+            }
             .launchIn(screenModelScope)
 
         // Estrenos de la red: AniList es público; TMDB solo con clave.
         // changes() emite el valor actual al suscribirse, así que este
         // collect ya carga TMDB al arrancar y al cambiar la clave.
-        screenModelScope.launch { loadAiringAnime() }
+        screenModelScope.launch { loadUpcomingAnime() }
         screenModelScope.launch {
             uiPreferences.tmdbApiKey().changes().collect { loadTmdb() }
         }
@@ -114,16 +128,17 @@ class UpdatesTopSectionScreenModel(
     }
 
     fun refresh() {
-        screenModelScope.launch { loadAiringAnime() }
+        screenModelScope.launch { loadUpcomingAnime() }
         screenModelScope.launch { loadTmdb() }
     }
 
-    private suspend fun loadAiringAnime() {
+    /** v7.9.4: estrenos nuevos del mes (todo AniList, sin filtrar por biblioteca). */
+    private suspend fun loadUpcomingAnime() {
         _state.update { it.copy(animeLoading = true) }
         val items = try {
-            repository.fetchAiringAnime()
+            repository.fetchMonthlyPremieres()
         } catch (e: Exception) {
-            logcat(LogPriority.WARN, e) { "UpdatesTopSection: AniList airing failed" }
+            logcat(LogPriority.WARN, e) { "UpdatesTopSection: AniList premieres failed" }
             emptyList()
         }
         _state.update { it.copy(animeItems = items, animeLoading = false) }
@@ -229,6 +244,7 @@ class UpdatesTopSectionScreenModel(
     }
 
     private fun buildCalendarState(
+        current: State,
         libraryAnime: List<Anime>,
         customDates: Map<String, CustomDateEntry>,
         watchlist: Map<String, WatchlistEntry>,
@@ -266,7 +282,7 @@ class UpdatesTopSectionScreenModel(
             }
         }
 
-        return _state.value.copy(
+        return current.copy(
             selectedYearMonth = selectedYearMonth,
             calendarEvents = events.toImmutableMap(),
             customCalendarEvents = customEvents.toImmutableMap(),
@@ -276,6 +292,15 @@ class UpdatesTopSectionScreenModel(
             tmdbKeySet = tmdbKey.trim().isNotEmpty(),
         )
     }
+
+    /** Entradas del combine del calendario (v7.9.4: para actualizar el estado de forma atómica). */
+    private data class CalendarInputs(
+        val libraryAnime: List<Anime>,
+        val customDates: Map<String, CustomDateEntry>,
+        val watchlist: Map<String, WatchlistEntry>,
+        val tmdbKey: String,
+        val selectedYearMonth: YearMonth,
+    )
 
     data class State(
         val selectedYearMonth: YearMonth = YearMonth.now(),

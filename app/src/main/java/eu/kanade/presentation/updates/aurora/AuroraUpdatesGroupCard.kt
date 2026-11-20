@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,7 +38,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import eu.kanade.presentation.components.buildAuroraCoverImageRequest
 import eu.kanade.presentation.components.rememberAuroraCoverPlaceholderPainter
@@ -45,6 +49,48 @@ import eu.kanade.presentation.entries.components.aurora.rememberAuroraPosterColo
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.resolveAuroraBorderColor
 import eu.kanade.presentation.theme.resolveAuroraControlContainerColor
+
+/**
+ * v7.9.4: métrica de fila compartida entre la tarjeta de grupo y la fila
+ * simple de Anime, para que las dos queden niveladas: mismo eje de póster
+ * (x=20dp), mismo eje de texto (x=108dp) y misma acción a la derecha
+ * (caja de 36dp centrada en el mismo eje vertical). Por defecto, la
+ * geometría actual (Manga y Novela no cambian); Anime usa AnimeAligned.
+ */
+data class AuroraUpdateRowMetrics(
+    /** Relleno interior de la fila (la tarjeta ya aporta 20dp laterales). */
+    val innerPadding: PaddingValues = PaddingValues(12.dp),
+    /** Separación póster -> texto. */
+    val textGap: Dp = 12.dp,
+    val titleFontSize: TextUnit = 16.sp,
+    val titleLineHeight: TextUnit = 24.sp,
+    val titleToSubtitleGap: Dp = 4.dp,
+    val subtitleFontSize: TextUnit = 12.sp,
+    /** Caja de la acción de la derecha (chevron); 22dp = solo el icono. */
+    val trailingSlotSize: Dp = 22.dp,
+    /** Relleno vertical exterior de la tarjeta; null = el del tema (6dp oscuro, 8dp claro). */
+    val outerVerticalPadding: Dp? = null,
+) {
+    companion object {
+        val Default = AuroraUpdateRowMetrics()
+
+        /**
+         * Misma métrica que la fila simple de Anime (AuroraUpdateCard):
+         * póster 72x108 en x=20dp, texto 16sp/20sp con subtítulo 14sp,
+         * acción de 36dp en el mismo eje que el botón de reproducir.
+         */
+        val AnimeAligned = AuroraUpdateRowMetrics(
+            innerPadding = PaddingValues(vertical = 12.dp),
+            textGap = 16.dp,
+            titleFontSize = 16.sp,
+            titleLineHeight = 20.sp,
+            titleToSubtitleGap = 6.dp,
+            subtitleFontSize = 14.sp,
+            trailingSlotSize = 36.dp,
+            outerVerticalPadding = 0.dp,
+        )
+    }
+}
 
 @Composable
 fun AuroraUpdatesGroupCard(
@@ -54,6 +100,7 @@ fun AuroraUpdatesGroupCard(
     expanded: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    metrics: AuroraUpdateRowMetrics = AuroraUpdateRowMetrics.Default,
 ) {
     val colors = AuroraTheme.colors
     val context = LocalContext.current
@@ -87,7 +134,7 @@ fun AuroraUpdatesGroupCard(
 
     val cardContent: @Composable () -> Unit = {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(metrics.innerPadding),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AsyncImage(
@@ -106,34 +153,45 @@ fun AuroraUpdatesGroupCard(
                 fallback = placeholderPainter,
             )
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(metrics.textGap))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     color = colors.textPrimary,
                     fontWeight = FontWeight.Bold,
+                    fontSize = metrics.titleFontSize,
+                    lineHeight = metrics.titleLineHeight,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(metrics.titleToSubtitleGap))
                 Text(
                     text = countText,
                     color = colors.textSecondary,
                     style = MaterialTheme.typography.bodySmall,
+                    fontSize = metrics.subtitleFontSize,
                 )
             }
 
-            Icon(
-                imageVector = if (expanded) {
-                    Icons.Filled.KeyboardArrowDown
-                } else {
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight
-                },
-                contentDescription = null,
-                tint = colors.accent,
-                modifier = Modifier.size(22.dp),
-            )
+            // v7.9.4: la acción va en una caja del mismo tamaño que el botón
+            // de reproducir de la fila simple (36dp en Anime), para que el
+            // eje vertical de la derecha sea el mismo en las dos filas.
+            Box(
+                modifier = Modifier.size(metrics.trailingSlotSize),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (expanded) {
+                        Icons.Filled.KeyboardArrowDown
+                    } else {
+                        Icons.AutoMirrored.Filled.KeyboardArrowRight
+                    },
+                    contentDescription = null,
+                    tint = colors.accent,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
         }
     }
 
@@ -141,7 +199,7 @@ fun AuroraUpdatesGroupCard(
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 8.dp)
+                .padding(horizontal = 20.dp, vertical = metrics.outerVerticalPadding ?: 8.dp)
                 .drawBehind {
                     val radius = 16.dp.toPx()
                     val cornerRadius = CornerRadius(radius, radius)
@@ -194,7 +252,7 @@ fun AuroraUpdatesGroupCard(
             onClick = onClick,
             modifier = modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 6.dp),
+                .padding(horizontal = 20.dp, vertical = metrics.outerVerticalPadding ?: 6.dp),
             shape = cardShape,
             colors = CardDefaults.cardColors(containerColor = tabContainerColor),
             border = if (colors.isDark || colors.isEInk) {

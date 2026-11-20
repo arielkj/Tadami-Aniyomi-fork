@@ -2038,7 +2038,7 @@
     <string name="aurora_set_custom_date">Change date</string>
     <string name="aurora_clear_custom_date">Clear custom date</string>
     <string name="aurora_custom_date">Custom date</string>
-    <string name="aurora_no_upcoming_anime">No upcoming anime this week</string>
+    <string name="aurora_no_upcoming_anime">No new anime premieres this month</string>
     <string name="aurora_no_upcoming_tmdb">No upcoming releases</string>
     <string name="aurora_episode_short">Ep. %d</string>
     <string name="novel_downloads_saved_on_device">Saved on device</string>

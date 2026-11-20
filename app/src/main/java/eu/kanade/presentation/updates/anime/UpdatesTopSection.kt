@@ -65,6 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import eu.kanade.presentation.components.rememberAuroraCoverPlaceholderPainter
 import eu.kanade.presentation.theme.AuroraTheme
+import eu.kanade.presentation.util.animateItemFastScroll
 import eu.kanade.tachiyomi.data.track.tmdb.TmdbUpcomingItem
 import eu.kanade.tachiyomi.data.upcoming.AiringAnimeItem
 import eu.kanade.tachiyomi.ui.updates.DayEntry
@@ -197,7 +198,8 @@ fun UpdatesTopSection(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // 2. Próximos animes (AniList, sin clave: el horario es público).
+        // 2. Próximos animes (AniList, sin clave: estrenos nuevos del mes,
+        // de todo AniList, sin filtrar por biblioteca).
         UpcomingCarouselHeader(
             title = stringResource(AYMR.strings.aurora_upcoming_anime),
             onViewAll = onViewAllAnime,
@@ -230,33 +232,37 @@ fun UpdatesTopSection(
                 ) { item ->
                     val customDate = state.customDates["al:${item.anilistId}"]
                     val date = item.displayDate(state.customDates)
-                    UpcomingPosterCard(
-                        posterUrl = item.coverUrl,
-                        title = item.title,
-                        dateText = formatShortDate(date),
-                        dateIsCustom = customDate != null,
-                        extraLine = stringResource(AYMR.strings.aurora_episode_short, item.episode),
-                        isAdded = item.anilistId in addedAnimeIds,
-                        onClick = { onAnimeClick(item) },
-                        onLongClick = {
-                            datePickerTarget = DatePickerTarget(
-                                key = "al:${item.anilistId}",
-                                title = item.title,
-                                initialDate = date,
-                            )
-                        },
-                        onAddClick = {
-                            scope.launch {
-                                val added = model.addToAnilistPlanning(item)
-                                if (added) {
-                                    addedAnimeIds = addedAnimeIds + item.anilistId
-                                    context.toast(addedToPlanningMsg)
-                                } else {
-                                    context.toast(anilistNotLinkedMsg)
+                    // v7.9.4 (fluidez): las tarjetas animan su posición al
+                    // cargar o cambiar la lista, sin fundidos que den tirones.
+                    Box(modifier = Modifier.animateItemFastScroll(this)) {
+                        UpcomingPosterCard(
+                            posterUrl = item.coverUrl,
+                            title = item.title,
+                            dateText = formatShortDate(date),
+                            dateIsCustom = customDate != null,
+                            extraLine = stringResource(AYMR.strings.aurora_episode_short, item.episode),
+                            isAdded = item.anilistId in addedAnimeIds,
+                            onClick = { onAnimeClick(item) },
+                            onLongClick = {
+                                datePickerTarget = DatePickerTarget(
+                                    key = "al:${item.anilistId}",
+                                    title = item.title,
+                                    initialDate = date,
+                                )
+                            },
+                            onAddClick = {
+                                scope.launch {
+                                    val added = model.addToAnilistPlanning(item)
+                                    if (added) {
+                                        addedAnimeIds = addedAnimeIds + item.anilistId
+                                        context.toast(addedToPlanningMsg)
+                                    } else {
+                                        context.toast(anilistNotLinkedMsg)
+                                    }
                                 }
-                            }
-                        },
-                    )
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -580,17 +586,20 @@ private fun TmdbCarousel(
     ) {
         items(items = items, key = { it.watchlistKey }) { item ->
             val date = item.date?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
-            UpcomingPosterCard(
-                posterUrl = item.posterUrl,
-                title = item.title,
-                dateText = date?.let { formatShortDate(it) },
-                dateIsCustom = false,
-                extraLine = null,
-                isAdded = watchlist.containsKey(item.watchlistKey),
-                onClick = { onItemClick(item) },
-                onLongClick = null,
-                onAddClick = { onToggleWatchlist(item) },
-            )
+            // v7.9.4 (fluidez): igual que el carrusel de animes.
+            Box(modifier = Modifier.animateItemFastScroll(this)) {
+                UpcomingPosterCard(
+                    posterUrl = item.posterUrl,
+                    title = item.title,
+                    dateText = date?.let { formatShortDate(it) },
+                    dateIsCustom = false,
+                    extraLine = null,
+                    isAdded = watchlist.containsKey(item.watchlistKey),
+                    onClick = { onItemClick(item) },
+                    onLongClick = null,
+                    onAddClick = { onToggleWatchlist(item) },
+                )
+            }
         }
     }
 }

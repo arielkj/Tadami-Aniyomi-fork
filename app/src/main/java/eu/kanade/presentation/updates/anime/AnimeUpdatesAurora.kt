@@ -56,6 +56,7 @@ import eu.kanade.presentation.entries.components.aurora.rememberAuroraPosterColo
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
 import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
+import eu.kanade.presentation.updates.aurora.AuroraUpdateRowMetrics
 import eu.kanade.presentation.updates.aurora.AuroraUpdatesGroupCard
 import eu.kanade.presentation.updates.aurora.buildAuroraUpdatesGroups
 import eu.kanade.tachiyomi.ui.updates.anime.AnimeUpdatesItem
@@ -150,6 +151,12 @@ fun AnimeUpdatesAuroraContent(
                             } else {
                                 val isExpanded = group.key in expandedGroups
                                 Column(modifier = Modifier.fillMaxWidth()) {
+                                    // v7.9.4: la tarjeta de grupo usa la misma
+                                    // métrica que la fila simple (póster en
+                                    // x=20dp, texto en x=108dp, chevron en el
+                                    // mismo eje que el botón de reproducir) y
+                                    // el mismo ritmo vertical (12dp abajo),
+                                    // para que toda la lista quede nivelada.
                                     AuroraUpdatesGroupCard(
                                         title = group.title,
                                         countText = stringResource(
@@ -165,6 +172,8 @@ fun AnimeUpdatesAuroraContent(
                                                 expandedGroups + group.key
                                             }
                                         },
+                                        metrics = AuroraUpdateRowMetrics.AnimeAligned,
+                                        modifier = Modifier.padding(bottom = 12.dp),
                                     )
 
                                     if (isExpanded) {
