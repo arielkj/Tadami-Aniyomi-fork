@@ -204,6 +204,12 @@ class MainActivity : AppCompatActivity() {
     private fun connectManualIp() {
         val ip = ipInput.text.toString().trim()
         if (ip.isEmpty()) return
+        // IPv4 con 4 numeros (ej. 192.168.43.10): sin esto, una IP
+        // mal escrita llegaba al ping y fallaba sin decir por que.
+        if (!isValidIpv4(ip)) {
+            Toast.makeText(this, R.string.ip_invalid, Toast.LENGTH_LONG).show()
+            return
+        }
         hideKeyboard()
         statusText.setText(R.string.searching_radio)
         scope.launch {
@@ -216,6 +222,16 @@ class MainActivity : AppCompatActivity() {
                 ).show()
                 statusText.setText(R.string.radio_not_found)
             }
+        }
+    }
+
+    /** IPv4 con 4 numeros de 0 a 255 (ej. 192.168.43.10). */
+    private fun isValidIpv4(ip: String): Boolean {
+        val parts = ip.split(".")
+        if (parts.size != 4) return false
+        return parts.all { p ->
+            p.isNotEmpty() && p.length <= 3 && p.all { it.isDigit() } &&
+                p.toIntOrNull()?.let { it in 0..255 } == true
         }
     }
 
@@ -238,7 +254,12 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.bt_no_devices, Toast.LENGTH_LONG).show()
             return
         }
-        val names = devices.map { it.name ?: it.address }.toTypedArray()
+        // Nombre + direccion: dos aparatos pueden llamarse parecido
+        // (el usuario eligio un telefono "Galaxy S21 Ultra 5G" en vez
+        // del radio). Con la direccion se ve cual es cual.
+        val names = devices.map {
+            "${it.name ?: it.address} (${it.address})"
+        }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle(R.string.bt_pick_title)
             .setItems(names) { _, which ->
@@ -257,8 +278,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshBtStatus() {
         val name = BluetoothLink.rememberedName(this)
+        val address = BluetoothLink.rememberedAddress(this)
         btStatus.text = if (name != null) {
-            getString(R.string.bt_chosen, name)
+            // Nombre + direccion, para que se vea que el elegido es
+            // el radio y no otro aparato con nombre parecido.
+            val label = if (address != null) "$name ($address)" else name
+            getString(R.string.bt_chosen, label)
         } else {
             getString(R.string.bt_none)
         }
@@ -377,11 +402,14 @@ class MainActivity : AppCompatActivity() {
      * telefono, con OSRM (tiene internet) y se manda ENTERA al radio.
      * 1) Origen = GPS del telefono; sin fix, aviso claro, no se manda
      *    nada. 2) OSRM: sin internet o sin ruta, aviso con el motivo.
-     * 3) WiFi primero (POST /route); si el radio es viejo y contesta
-     *    404, cae al destino solo (/destination) para que la ruta
-     *    salga igual. 4) Bluetooth de respaldo con la ruta entera;
-     *    si tambien falla, ultimo intento con el destino solo por
-     *    Bluetooth (radio viejo). Sin ruta no se manda nada a ciegas.
+     * 3) WiFi primero (POST /route) si hay radio por WiFi; si el
+     *    radio es viejo y contesta 404, cae al destino solo
+     *    (/destination) para que la ruta salga igual. 4) Bluetooth
+     *    como camino directo (v1.0.4-test): si no hay radio por WiFi,
+     *    manda la ruta entera por RFCOMM al radio Bluetooth elegido,
+     *    SIN exigir hotspot; si tambien falla, ultimo intento con el
+     *    destino solo por Bluetooth (radio viejo). Sin ruta no se
+     *    manda nada a ciegas.
      */
     private fun sendToRadio() {
         val dest = destination

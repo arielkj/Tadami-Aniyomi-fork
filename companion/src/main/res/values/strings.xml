@@ -5,9 +5,10 @@
     <string name="radio_title">Radio</string>
     <string name="searching_radio">Buscando radio…</string>
     <string name="radio_found">Radio encontrado: %1$s</string>
-    <string name="radio_not_found">Radio no encontrado — conecta el radio al hotspot de este teléfono y dale a Buscar radio</string>
+    <string name="radio_not_found">Radio no encontrado por WiFi — también puedes mandarlo por Bluetooth: elige el radio abajo, o conecta el radio al hotspot y dale a Buscar radio</string>
     <string name="radio_manual_ok">Radio conectado: %1$s</string>
     <string name="radio_manual_fail">Esa IP no contesta — revisa la IP en Ajustes del radio</string>
+    <string name="ip_invalid">Esa IP no es válida — escríbela como 192.168.43.10</string>
     <string name="find_radio">Buscar radio</string>
     <string name="ip_hint">IP del radio</string>
     <string name="dest_title">Destino</string>

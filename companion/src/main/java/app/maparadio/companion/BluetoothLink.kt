@@ -15,8 +15,12 @@ import java.util.UUID
 
 /**
  * Enlace con el radio por Bluetooth (v1.0.2-test): segundo camino
- * para mandar destinos, cuando no hay hotspot WiFi. El hotspot sigue
- * siendo el principal (RadioLink); el Bluetooth es el respaldo.
+ * para mandar destinos, cuando no hay hotspot WiFi, y camino directo
+ * por si solo (v1.0.4-test): si no hay radio por WiFi, "Enviar al
+ * radio" manda la ruta/destino por este RFCOMM al radio Bluetooth
+ * elegido, sin exigir hotspot. El hotspot sigue siendo el principal
+ * cuando responde (RadioLink); el Bluetooth ya no es solo un
+ * respaldo que se alcanza tras fallar el WiFi.
  *
  * Protocolo: RFCOMM clasico (perfil SPP), mismo UUID que en el radio
  * (BluetoothLinkServer). Se conecta al radio emparejado, manda UNA
@@ -68,7 +72,13 @@ object BluetoothLink {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val address = prefs.getString(KEY_BT_ADDRESS, null) ?: return null
         return try {
-            adapter(context)?.getRemoteDevice(address)
+            val device = adapter(context)?.getRemoteDevice(address) ?: return null
+            // Si ya no esta emparejado (se desemparejo, o la
+            // direccion guardada era de otro aparato), no fingir
+            // que hay radio: el llamador abre el selector para
+            // elegir de nuevo.
+            if (device.bondState != BluetoothDevice.BOND_BONDED) return null
+            device
         } catch (_: Exception) {
             null
         }
@@ -77,6 +87,13 @@ object BluetoothLink {
     fun rememberedName(context: Context): String? {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_BT_NAME, null)
+    }
+
+    /** Direccion MAC del radio recordado (para mostrarla junto al
+     *  nombre y que se distinga de otros aparatos). */
+    fun rememberedAddress(context: Context): String? {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_BT_ADDRESS, null)
     }
 
     fun rememberDevice(context: Context, device: BluetoothDevice) {
