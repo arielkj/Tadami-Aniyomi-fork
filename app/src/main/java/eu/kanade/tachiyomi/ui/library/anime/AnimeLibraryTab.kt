@@ -726,15 +726,18 @@ data object AnimeLibraryTab : Tab {
                     userScrollEnabled = swipeSwitchesCategories && state.categories.size > 1,
                 ) { page ->
                     val items = state.getAnimelibItemsByPage(page)
-                    // v7.9.6: el destacado y el carrusel solo cuando se está
-                    // navegando (sin buscar ni filtrar) y hay algo empezado
-                    // en la categoría; las píldoras se calculan por sección
-                    // aquí dentro, no con el derivado global (el pager
-                    // precompone la página vecina y el global seguiría a la
-                    // sección actual, no a esta página).
+                    // v7.9.7: el destacado y el carrusel son de TODA la
+                    // sección (no solo de la categoría actual): salen en
+                    // Anime, Anime N, Anime F, Película… La puerta solo
+                    // exige navegar (sin buscar ni filtrar) y que la
+                    // sección tenga títulos; si nada está empezado, el
+                    // banner usa su respaldo (toda la sección). Como la
+                    // cabecera es la misma en todas las páginas, la
+                    // precomposición del pager ya no es un problema.
+                    val sectionItems = state.items
                     val showAnimeFeaturedHeader = state.searchQuery == null &&
                         !state.hasActiveFilters &&
-                        items.any { it.seenCount > 0 }
+                        sectionItems.isNotEmpty()
                     val showAnimeCategoryTabs = shouldShowAuroraLibraryCategoryTabsRow(
                         section = Section.Anime,
                         categoryCount = state.categories.size,
@@ -804,7 +807,7 @@ data object AnimeLibraryTab : Tab {
                         headerContent = if (showAnimeFeaturedHeader) {
                             {
                                 AnimeLibraryFeaturedHeader(
-                                    items = items,
+                                    items = sectionItems,
                                     featuredSource = featuredSource,
                                     seed = featuredSeed,
                                     onDetailsClick = { item ->
@@ -906,12 +909,12 @@ data object AnimeLibraryTab : Tab {
                     userScrollEnabled = swipeSwitchesCategories && mangaState.categories.size > 1,
                 ) { page ->
                     val items = mangaState.getLibraryItemsByPage(page)
-                    // v7.9.6: mismo rediseño que en anime (ver la página de
-                    // anime): destacado + carrusel con capítulos, y las
-                    // píldoras de manga como cabecera fija.
+                    // v7.9.7: igual que en anime — destacado + carrusel de
+                    // TODA la sección de Manga, en todas las categorías.
+                    val mangaSectionItems = mangaState.items
                     val showMangaFeaturedHeader = mangaState.searchQuery == null &&
                         !mangaState.hasActiveFilters &&
-                        items.any { it.readCount > 0 }
+                        mangaSectionItems.isNotEmpty()
                     val showMangaCategoryTabs = shouldShowAuroraLibraryCategoryTabsRow(
                         section = Section.Manga,
                         categoryCount = mangaState.categories.size,
@@ -988,7 +991,7 @@ data object AnimeLibraryTab : Tab {
                         headerContent = if (showMangaFeaturedHeader) {
                             {
                                 MangaLibraryFeaturedHeader(
-                                    items = items,
+                                    items = mangaSectionItems,
                                     featuredSource = featuredSource,
                                     seed = featuredSeed,
                                     onDetailsClick = { item ->
@@ -2930,7 +2933,12 @@ internal fun shouldShowAuroraLibraryCategoryTabsRow(
 ): Boolean {
     if (!shouldShowAuroraLibraryCategoryTabs(section)) return false
     if (categoryCount <= 1) return false
-    return showCategoryTabs || !searchQuery.isNullOrEmpty()
+    // v7.9.7: las píldoras salen siempre en Títulos cuando hay varias
+    // categorías, sin depender del ajuste "Pestañas de categoría" — el
+    // usuario debe ver siempre en qué categoría está y poder cambiar
+    // tocando. showCategoryTabs y searchQuery se mantienen en la firma
+    // para no tocar las tres llamadas; ya no deciden.
+    return true
 }
 
 internal fun shouldShowAuroraSearchField(
