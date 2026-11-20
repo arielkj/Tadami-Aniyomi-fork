@@ -11,6 +11,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.net.Proxy
 import java.util.concurrent.TimeUnit
@@ -49,30 +50,28 @@ object RadioLink {
     private val JSON = "application/json; charset=utf-8".toMediaType()
 
     /**
-     * Broadcast de la red local activa (v1.0.5-test): la interfaz
-     * WiFi (wlan*) con su direccion de broadcast de subred
-     * (ej. 192.168.0.255 en casa, 192.168.43.255 en el hotspot).
-     * El 255.255.255.255 de antes salia por la interfaz que el
-     * sistema elegia: con datos moviles, VPN o hotspot activos
-     * podia irse por otra interfaz y el radio nunca lo veia.
-     * Null si no hay interfaz LAN: el llamador cae al broadcast
-     * general como antes.
+     * Interfaz de la red local activa (v1.0.5-test): la WiFi (wlan*)
+     * con IPv4 privada y broadcast de subred (ej. 192.168.0.255 en
+     * casa, 192.168.43.255 en el hotspot). El 255.255.255.255 de
+     * antes salia por la interfaz que el sistema elegia: con datos
+     * moviles, VPN o hotspot activos podia irse por otra interfaz
+     * y el radio nunca lo veia. Null si no hay interfaz LAN: el
+     * llamador cae al broadcast general como antes.
      */
-    private fun lanBroadcast(): Pair<NetworkInterface, InetAddress>? {
+    private fun lanInterface(): NetworkInterface? {
         return try {
             val ifaces = NetworkInterface.getNetworkInterfaces()
                 ?.toList().orEmpty()
             val candidates = ifaces.filter { it.isUp && !it.isLoopback }
-                .mapNotNull { nif ->
-                    val ia = nif.interfaceAddresses.firstOrNull {
+                .filter { nif ->
+                    nif.interfaceAddresses.any {
                         it.address is Inet4Address &&
                             it.address.isSiteLocalAddress &&
                             it.broadcast != null
-                    } ?: return@mapNotNull null
-                    nif to ia.broadcast
+                    }
                 }
             // WiFi primero; si no, cualquier otra interfaz LAN.
-            candidates.firstOrNull { it.first.name.startsWith("wlan") }
+            candidates.firstOrNull { it.name.startsWith("wlan") }
                 ?: candidates.firstOrNull()
         } catch (_: Exception) {
             null
@@ -85,22 +84,30 @@ object RadioLink {
      */
     suspend fun discover(timeoutMs: Int = 4000): String? = withContext(Dispatchers.IO) {
         try {
-            val socket = DatagramSocket()
+            // Socket atado a la direccion de la interfaz LAN: asi el
+            // broadcast sale por el WiFi y no por otra interfaz.
+            // (DatagramSocket no tiene networkInterface: eso es de
+            // MulticastSocket. Atar es con bind a la direccion.)
+            val nif = lanInterface()
+            val lanAddr = nif?.interfaceAddresses?.firstOrNull {
+                it.address is Inet4Address &&
+                    it.address.isSiteLocalAddress &&
+                    it.broadcast != null
+            }
+            val target = lanAddr?.broadcast
+                ?: InetAddress.getByName("255.255.255.255")
+            val socket = try {
+                if (lanAddr != null) {
+                    DatagramSocket(null).apply {
+                        bind(InetSocketAddress(lanAddr.address, 0))
+                    }
+                } else DatagramSocket()
+            } catch (_: Exception) {
+                DatagramSocket()
+            }
             socket.broadcast = true
             socket.soTimeout = timeoutMs
             val msg = DISCOVER_MSG.toByteArray(Charsets.UTF_8)
-            // Broadcast de la subred WiFi, con el socket atado a
-            // esa interfaz; si no hay interfaz LAN, el broadcast
-            // general de antes.
-            val lan = lanBroadcast()
-            val target = lan?.second
-                ?: InetAddress.getByName("255.255.255.255")
-            if (lan != null) {
-                try {
-                    socket.networkInterface = lan.first
-                } catch (_: Exception) {
-                }
-            }
             val packet = DatagramPacket(
                 msg, msg.size,
                 target, UDP_PORT
