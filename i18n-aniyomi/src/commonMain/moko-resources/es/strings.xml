@@ -676,6 +676,14 @@
     <string name="pref_aurora_library_immersive_mode_summary">Ocultar la barra superior y la navegación inferior al desplazarte, manteniendo visibles las categorías.</string>
     <string name="pref_aurora_library_swipe_switches_categories">Cambiar de categoría al deslizar</string>
     <string name="pref_aurora_library_swipe_switches_categories_summary">Desliza horizontalmente en la biblioteca para cambiar de categoría en lugar de cambiar de sección (anime, manga o novelas).</string>
+    <string name="aurora_library_featured_source">Origen del destacado</string>
+    <string name="aurora_library_featured_source_summary">De dónde toma los títulos el destacado de arriba de Títulos</string>
+    <string name="aurora_library_featured_source_in_progress">En curso</string>
+    <string name="aurora_library_featured_source_all">Toda la biblioteca</string>
+    <string name="aurora_library_featured_source_pinned">Favoritos</string>
+    <string name="aurora_library_featured_view_details">Ver detalles</string>
+    <string name="aurora_library_featured_new_episode">Nuevo episodio</string>
+    <string name="aurora_library_featured_new_chapter">Nuevo capítulo</string>
     <string name="action_display_full_number_of_items">Mostrar la cantidad completa en las categorías de la biblioteca</string>
     <string name="action_display_full_number_of_items_summary">Mostrar la cantidad exacta en lugar de 99+, por ejemplo, 123.</string>
     <string name="action_display_grouped_number_of_items">Agrupar los dígitos de las cantidades</string>

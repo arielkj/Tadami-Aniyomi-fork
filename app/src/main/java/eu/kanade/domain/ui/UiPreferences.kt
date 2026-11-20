@@ -59,7 +59,14 @@ class UiPreferences(
 
     fun auroraLibrarySwipeSwitchesCategories() = preferenceStore.getBoolean(
         "aurora_library_swipe_switches_categories",
-        false,
+        true,
+    )
+
+    // v7.9.6: de dónde toma los títulos el destacado de Títulos.
+    // "in_progress" (En curso, por defecto) | "all" (Toda la biblioteca) | "pinned" (Favoritos).
+    fun auroraLibraryFeaturedSource() = preferenceStore.getString(
+        "aurora_library_featured_source",
+        "in_progress",
     )
 
     fun libraryUpdatePacingTimeoutSeconds() = preferenceStore.getInt(

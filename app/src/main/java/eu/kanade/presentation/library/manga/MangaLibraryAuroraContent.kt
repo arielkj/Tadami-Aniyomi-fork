@@ -1,6 +1,7 @@
 package eu.kanade.presentation.library.manga
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
@@ -11,7 +12,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.stickyHeader
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.stickyHeader
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -78,6 +81,10 @@ fun MangaLibraryAuroraContent(
     onGlobalSearchClicked: () -> Unit,
     contentPadding: PaddingValues,
     libraryPreferences: LibraryPreferences,
+    // v7.9.6: cabecera del destacado + píldoras de categoría (igual que en
+    // anime: el destacado y el carrusel arriba, las píldoras fijas debajo).
+    headerContent: (@Composable () -> Unit)? = null,
+    categoryTabsContent: (@Composable () -> Unit)? = null,
     // H15: caller-retained scroll states (the Aurora pager disposes pages beyond ±1).
     listState: LazyListState = rememberLazyListState(),
     gridState: LazyGridState = rememberLazyGridState(),
@@ -90,12 +97,29 @@ fun MangaLibraryAuroraContent(
     val useLargeGridPerformanceMode = items.size > AURORA_LARGE_GRID_PERFORMANCE_THRESHOLD
 
     if (items.isEmpty()) {
-        MangaLibraryAuroraEmptyScreen(
-            searchQuery = searchQuery,
-            hasActiveFilters = hasActiveFilters,
-            contentPadding = contentPadding,
-            onGlobalSearchClicked = onGlobalSearchClicked,
-        )
+        // v7.9.6: sin las píldoras aquí, una categoría vacía dejaría al
+        // usuario sin forma de salir con toques (solo deslizando).
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+        ) {
+            if (categoryTabsContent != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                ) {
+                    categoryTabsContent()
+                }
+            }
+            MangaLibraryAuroraEmptyScreen(
+                searchQuery = searchQuery,
+                hasActiveFilters = hasActiveFilters,
+                contentPadding = PaddingValues(8.dp),
+                onGlobalSearchClicked = onGlobalSearchClicked,
+            )
+        }
         return
     }
 
@@ -129,6 +153,8 @@ fun MangaLibraryAuroraContent(
                 listMaxWidthDp = auroraAdaptiveSpec.listMaxWidthDp,
                 horizontalPaddingDp = auroraAdaptiveSpec.contentHorizontalPaddingDp,
                 state = listState,
+                headerContent = headerContent,
+                categoryTabsContent = categoryTabsContent,
             )
         }
 
@@ -156,6 +182,8 @@ fun MangaLibraryAuroraContent(
                     enabledAuras = enabledAuras,
                     performanceMode = useLargeGridPerformanceMode,
                     state = gridState,
+                    headerContent = headerContent,
+                    categoryTabsContent = categoryTabsContent,
                 )
             } else {
                 MangaLibraryCompactGrid(
@@ -199,6 +227,8 @@ fun MangaLibraryAuroraContent(
                 enabledAuras = enabledAuras,
                 performanceMode = useLargeGridPerformanceMode,
                 state = gridState,
+                headerContent = headerContent,
+                categoryTabsContent = categoryTabsContent,
             )
         }
 
@@ -224,6 +254,8 @@ fun MangaLibraryAuroraContent(
                 enabledAuras = enabledAuras,
                 performanceMode = useLargeGridPerformanceMode,
                 state = gridState,
+                headerContent = headerContent,
+                categoryTabsContent = categoryTabsContent,
             )
         }
     }
@@ -245,6 +277,8 @@ private fun MangaLibraryAuroraList(
     listMaxWidthDp: Int?,
     horizontalPaddingDp: Int,
     state: LazyListState,
+    headerContent: (@Composable () -> Unit)? = null,
+    categoryTabsContent: (@Composable () -> Unit)? = null,
 ) {
     val colors = AuroraTheme.colors
     val showPinnedSection = remember(items) { items.containsAtLeastMatches(requiredCount = 2) { it.pinned } }
@@ -264,6 +298,26 @@ private fun MangaLibraryAuroraList(
                     searchQuery = searchQuery,
                     onClick = onGlobalSearchClicked,
                 )
+            }
+        }
+
+        // v7.9.6: destacado + carrusel arriba; las píldoras quedan fijas
+        // arriba al desplazar, debajo del carrusel como en el diseño.
+        if (headerContent != null) {
+            item(contentType = "library_featured_header") {
+                headerContent()
+            }
+        }
+
+        if (categoryTabsContent != null) {
+            stickyHeader {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .auroraCenteredMaxWidth(listMaxWidthDp),
+                ) {
+                    categoryTabsContent()
+                }
             }
         }
 
@@ -440,6 +494,8 @@ private fun MangaLibraryAuroraCardGrid(
     enabledAuras: Set<String> = emptySet(),
     performanceMode: Boolean = false,
     state: LazyGridState,
+    headerContent: (@Composable () -> Unit)? = null,
+    categoryTabsContent: (@Composable () -> Unit)? = null,
 ) {
     val useGlowContourCards = cardStyle == AuroraLibraryCardStyle.GlowContour
     val showPinnedSection = remember(items) { items.containsAtLeastMatches(requiredCount = 2) { it.pinned } }
@@ -455,6 +511,23 @@ private fun MangaLibraryAuroraCardGrid(
         contentPadding = contentPadding,
     ) {
         globalSearchItem(searchQuery, onGlobalSearchClicked)
+
+        // v7.9.6: destacado + carrusel arriba; las píldoras quedan fijas
+        // arriba al desplazar, debajo del carrusel como en el diseño.
+        if (headerContent != null) {
+            item(
+                span = { GridItemSpan(maxLineSpan) },
+                contentType = "library_featured_header",
+            ) {
+                headerContent()
+            }
+        }
+
+        if (categoryTabsContent != null) {
+            stickyHeader {
+                categoryTabsContent()
+            }
+        }
 
         if (showPinnedSection) {
             item(span = { GridItemSpan(maxLineSpan) }) {

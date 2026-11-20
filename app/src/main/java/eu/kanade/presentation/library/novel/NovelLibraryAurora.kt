@@ -22,7 +22,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.grid.stickyHeader
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.stickyHeader
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -135,6 +137,11 @@ fun NovelLibraryAuroraContent(
     onContinueReadingClicked: ((NovelLibraryItem) -> Unit)? = null,
     showInlineHeader: Boolean = true,
     libraryPreferences: LibraryPreferences,
+    // v7.9.6: las píldoras de categoría bajaron del encabezado fijo al
+    // contenido (igual que en anime/manga) para que las secciones queden
+    // debajo del destacado y el carrusel; aquí solo las píldoras, sin
+    // destacado ni carrusel.
+    categoryTabsContent: (@Composable () -> Unit)? = null,
     // H15: caller-retained scroll states (the Aurora pager disposes pages beyond ±1).
     listState: LazyListState = rememberLazyListState(),
     gridState: LazyGridState = rememberLazyGridState(),
@@ -205,6 +212,15 @@ fun NovelLibraryAuroraContent(
                 .fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (categoryTabsContent != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .auroraCenteredMaxWidth(auroraAdaptiveSpec.listMaxWidthDp),
+                ) {
+                    categoryTabsContent()
+                }
+            }
             if (showInlineHeader) {
                 InlineNovelLibraryHeader(
                     isSearchActive = isSearchActive,
@@ -287,6 +303,19 @@ fun NovelLibraryAuroraContent(
                             searchQuery = searchQuery,
                             onClick = onGlobalSearchClicked,
                         )
+                    }
+                }
+
+                // v7.9.6: las píldoras quedan fijas arriba al desplazar.
+                if (categoryTabsContent != null) {
+                    stickyHeader {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .auroraCenteredMaxWidth(auroraAdaptiveSpec.listMaxWidthDp),
+                        ) {
+                            categoryTabsContent()
+                        }
                     }
                 }
 
@@ -377,6 +406,13 @@ fun NovelLibraryAuroraContent(
                             searchQuery = searchQuery,
                             onClick = onGlobalSearchClicked,
                         )
+                    }
+                }
+
+                // v7.9.6: las píldoras quedan fijas arriba al desplazar.
+                if (categoryTabsContent != null) {
+                    stickyHeader {
+                        categoryTabsContent()
                     }
                 }
 

@@ -136,7 +136,9 @@ import eu.kanade.presentation.library.DeleteLibraryEntryType
 import eu.kanade.presentation.library.anime.AnimeLibraryAuroraContent
 import eu.kanade.presentation.library.anime.AnimeLibraryContent
 import eu.kanade.presentation.library.anime.AnimeLibrarySettingsDialog
+import eu.kanade.presentation.library.components.AnimeLibraryFeaturedHeader
 import eu.kanade.presentation.library.components.LibraryToolbar
+import eu.kanade.presentation.library.components.MangaLibraryFeaturedHeader
 import eu.kanade.presentation.library.manga.MangaLibraryAuroraContent
 import eu.kanade.presentation.library.manga.MangaLibrarySettingsDialog
 import eu.kanade.presentation.library.novel.NovelLibraryAuroraContent
@@ -215,6 +217,7 @@ import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 import java.text.NumberFormat
 import java.util.Locale
+import kotlin.random.Random
 import eu.kanade.presentation.library.anime.components.AddToSeriesDialog as AnimeAddToSeriesDialog
 import eu.kanade.presentation.library.anime.components.CreateSeriesDialog as AnimeCreateSeriesDialog
 import eu.kanade.presentation.library.manga.components.AddToSeriesDialog as MangaAddToSeriesDialog
@@ -315,6 +318,13 @@ data object AnimeLibraryTab : Tab {
         val immersiveModeEnabled by uiPreferences.auroraLibraryImmersiveMode().collectAsStateWithLifecycle()
         val swipeSwitchesCategories by uiPreferences
             .auroraLibrarySwipeSwitchesCategories()
+            .collectAsStateWithLifecycle()
+        // v7.9.6: semilla del destacado — remember del ámbito Content: muere
+        // con cada push del navegador (J1), así el destacado se baraja de
+        // nuevo cada vez que se vuelve a entrar a Títulos.
+        val featuredSeed = remember { Random.nextInt() }
+        val featuredSource by uiPreferences
+            .auroraLibraryFeaturedSource()
             .collectAsStateWithLifecycle()
         val bottomNavVisibilityController = LocalBottomNavVisibilityController.current
         val useSeparateDisplayModePerMedia by settingsScreenModel
@@ -666,6 +676,17 @@ data object AnimeLibraryTab : Tab {
             }
         }
 
+        // v7.9.6: formato del contador de las píldoras de categoría,
+        // compartido por las tres secciones (antes vivía en la llamada al
+        // encabezado fijo).
+        val formatAuroraCategoryCount: (Int) -> String = { count ->
+            formatAuroraLibraryCategoryBadgeCount(
+                count = count,
+                showFullCount = showFullCategoryNumberOfItems,
+                groupDigits = groupCategoryNumberOfItems,
+            )
+        }
+
         val animeTab = TabContent(
             titleRes = AYMR.strings.label_anime,
             searchEnabled = true,
@@ -705,6 +726,21 @@ data object AnimeLibraryTab : Tab {
                     userScrollEnabled = swipeSwitchesCategories && state.categories.size > 1,
                 ) { page ->
                     val items = state.getAnimelibItemsByPage(page)
+                    // v7.9.6: el destacado y el carrusel solo cuando se está
+                    // navegando (sin buscar ni filtrar) y hay algo empezado
+                    // en la categoría; las píldoras se calculan por sección
+                    // aquí dentro, no con el derivado global (el pager
+                    // precompone la página vecina y el global seguiría a la
+                    // sección actual, no a esta página).
+                    val showAnimeFeaturedHeader = state.searchQuery == null &&
+                        !state.hasActiveFilters &&
+                        items.any { it.seenCount > 0 }
+                    val showAnimeCategoryTabs = shouldShowAuroraLibraryCategoryTabsRow(
+                        section = Section.Anime,
+                        categoryCount = state.categories.size,
+                        showCategoryTabs = state.showCategoryTabs,
+                        searchQuery = state.searchQuery,
+                    )
                     // H15: retained per-(section, category, display mode) scroll states - the
                     // page slot dies outside the ±1 window and took the scroll position with it.
                     val scrollCategoryId = state.categories.getOrNull(page)?.id ?: -1L
@@ -765,6 +801,69 @@ data object AnimeLibraryTab : Tab {
                         libraryPreferences = screenModel.libraryPreferences,
                         listState = retainedListState,
                         gridState = retainedGridState,
+                        headerContent = if (showAnimeFeaturedHeader) {
+                            {
+                                AnimeLibraryFeaturedHeader(
+                                    items = items,
+                                    featuredSource = featuredSource,
+                                    seed = featuredSeed,
+                                    onDetailsClick = { item ->
+                                        when (item) {
+                                            is AnimeLibraryItem.Single -> {
+                                                navigator.push(AnimeScreen(item.libraryAnime.anime.id))
+                                            }
+                                            is AnimeLibraryItem.Series -> {
+                                                navigator.push(AnimeSeriesScreen(item.librarySeries.id))
+                                            }
+                                        }
+                                    },
+                                    onContinueClick = { item ->
+                                        if (!continueActionGuard.inFlight) {
+                                            continueActionGuard.inFlight = true
+                                            scope.launchIO {
+                                                try {
+                                                    val episode = screenModel.getNextUnseenEpisode(item)
+                                                    if (episode != null) openEpisode(episode)
+                                                } finally {
+                                                    continueActionGuard.inFlight = false
+                                                }
+                                            }
+                                        }
+                                        Unit
+                                    },
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        categoryTabsContent = if (showAnimeCategoryTabs) {
+                            {
+                                AuroraLibraryCategoryTabs(
+                                    categories = state.categories,
+                                    selectedIndex = animeCategoryIndex,
+                                    onCategorySelected = { index ->
+                                        screenModel.activeCategoryIndex = coerceAuroraLibraryCategoryIndex(
+                                            requestedIndex = index,
+                                            categoryCount = state.categories.size,
+                                        )
+                                    },
+                                    onCategoryLongSelected = { index ->
+                                        screenModel.selectAll(
+                                            coerceAuroraLibraryCategoryIndex(
+                                                requestedIndex = index,
+                                                categoryCount = state.categories.size,
+                                            ),
+                                        )
+                                    },
+                                    getCountForCategory = { category ->
+                                        state.getAnimeCountForCategory(category)
+                                    },
+                                    formatCountForCategory = formatAuroraCategoryCount,
+                                )
+                            }
+                        } else {
+                            null
+                        },
                     )
                 }
             },
@@ -807,6 +906,18 @@ data object AnimeLibraryTab : Tab {
                     userScrollEnabled = swipeSwitchesCategories && mangaState.categories.size > 1,
                 ) { page ->
                     val items = mangaState.getLibraryItemsByPage(page)
+                    // v7.9.6: mismo rediseño que en anime (ver la página de
+                    // anime): destacado + carrusel con capítulos, y las
+                    // píldoras de manga como cabecera fija.
+                    val showMangaFeaturedHeader = mangaState.searchQuery == null &&
+                        !mangaState.hasActiveFilters &&
+                        items.any { it.readCount > 0 }
+                    val showMangaCategoryTabs = shouldShowAuroraLibraryCategoryTabsRow(
+                        section = Section.Manga,
+                        categoryCount = mangaState.categories.size,
+                        showCategoryTabs = mangaState.showCategoryTabs,
+                        searchQuery = mangaState.searchQuery,
+                    )
                     // H15: retained scroll states (see the anime section page).
                     val scrollCategoryId = mangaState.categories.getOrNull(page)?.id ?: -1L
                     val scrollKey = Triple(Section.Manga, scrollCategoryId, mangaDisplayMode)
@@ -874,6 +985,91 @@ data object AnimeLibraryTab : Tab {
                         libraryPreferences = mangaScreenModel.libraryPreferences,
                         listState = retainedListState,
                         gridState = retainedGridState,
+                        headerContent = if (showMangaFeaturedHeader) {
+                            {
+                                MangaLibraryFeaturedHeader(
+                                    items = items,
+                                    featuredSource = featuredSource,
+                                    seed = featuredSeed,
+                                    onDetailsClick = { item ->
+                                        when (item) {
+                                            is MangaLibraryItem.Single -> {
+                                                navigator.push(MangaScreen(item.libraryManga.manga.id))
+                                            }
+                                            is MangaLibraryItem.Series -> {
+                                                navigator.push(MangaSeriesScreen(item.librarySeries.id))
+                                            }
+                                        }
+                                    },
+                                    onContinueClick = { item ->
+                                        if (!continueActionGuard.inFlight) {
+                                            continueActionGuard.inFlight = true
+                                            scope.launchIO {
+                                                try {
+                                                    val targetManga = when (item) {
+                                                        is MangaLibraryItem.Single -> item.libraryManga
+                                                        is MangaLibraryItem.Series -> {
+                                                            item.librarySeries.entries.firstOrNull {
+                                                                it.manga.id == item.librarySeries.activeManga?.id
+                                                            } ?: item.libraryManga
+                                                        }
+                                                    }
+                                                    val chapter = mangaScreenModel.getNextUnreadChapter(
+                                                        targetManga.manga,
+                                                    )
+                                                    if (chapter != null) {
+                                                        context.startActivity(
+                                                            ReaderActivity.newIntent(
+                                                                context,
+                                                                chapter.mangaId,
+                                                                chapter.id,
+                                                            ),
+                                                        )
+                                                    } else {
+                                                        snackbarHostState.showSnackbar(
+                                                            context.stringResource(MR.strings.no_next_chapter),
+                                                        )
+                                                    }
+                                                } finally {
+                                                    continueActionGuard.inFlight = false
+                                                }
+                                            }
+                                        }
+                                        Unit
+                                    },
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        categoryTabsContent = if (showMangaCategoryTabs) {
+                            {
+                                AuroraLibraryCategoryTabs(
+                                    categories = mangaState.categories,
+                                    selectedIndex = mangaCategoryIndex,
+                                    onCategorySelected = { index ->
+                                        mangaScreenModel.activeCategoryIndex = coerceAuroraLibraryCategoryIndex(
+                                            requestedIndex = index,
+                                            categoryCount = mangaState.categories.size,
+                                        )
+                                    },
+                                    onCategoryLongSelected = { index ->
+                                        mangaScreenModel.selectAll(
+                                            coerceAuroraLibraryCategoryIndex(
+                                                requestedIndex = index,
+                                                categoryCount = mangaState.categories.size,
+                                            ),
+                                        )
+                                    },
+                                    getCountForCategory = { category ->
+                                        mangaState.getMangaCountForCategory(category)
+                                    },
+                                    formatCountForCategory = formatAuroraCategoryCount,
+                                )
+                            }
+                        } else {
+                            null
+                        },
                     )
                 }
             },
@@ -920,6 +1116,14 @@ data object AnimeLibraryTab : Tab {
                     userScrollEnabled = swipeSwitchesCategories && novelState.categories.size > 1,
                 ) { page ->
                     val items = novelState.getLibraryItemsByPage(page)
+                    // v7.9.6: solo las píldoras como cabecera fija (sin
+                    // destacado ni carrusel en novelas).
+                    val showNovelCategoryTabs = shouldShowAuroraLibraryCategoryTabsRow(
+                        section = Section.Novel,
+                        categoryCount = novelState.categories.size,
+                        showCategoryTabs = showCategoryTabs,
+                        searchQuery = novelState.searchQuery,
+                    )
                     // H15: retained scroll states (see the anime section page).
                     val scrollCategoryId = novelState.categories.getOrNull(page)?.id ?: -1L
                     val scrollKey = Triple(Section.Novel, scrollCategoryId, novelDisplayMode)
@@ -1019,6 +1223,41 @@ data object AnimeLibraryTab : Tab {
                         libraryPreferences = activeNovelScreenModel.libraryPreferences,
                         listState = retainedListState,
                         gridState = retainedGridState,
+                        categoryTabsContent = if (showNovelCategoryTabs) {
+                            {
+                                AuroraLibraryCategoryTabs(
+                                    categories = novelState.categories,
+                                    selectedIndex = novelCategoryIndex,
+                                    onCategorySelected = { index ->
+                                        activeNovelScreenModel.activeCategoryIndex =
+                                            coerceAuroraLibraryCategoryIndex(
+                                                requestedIndex = index,
+                                                categoryCount = novelState.categories.size,
+                                            )
+                                    },
+                                    onCategoryLongSelected = { index ->
+                                        activeNovelScreenModel.selectAll(
+                                            coerceAuroraLibraryCategoryIndex(
+                                                requestedIndex = index,
+                                                categoryCount = novelState.categories.size,
+                                            ),
+                                        )
+                                    },
+                                    getCountForCategory = { category ->
+                                        if (showCategoryNumberOfItems ||
+                                            !novelState.searchQuery.isNullOrEmpty()
+                                        ) {
+                                            novelState.library[category]?.size ?: 0
+                                        } else {
+                                            null
+                                        }
+                                    },
+                                    formatCountForCategory = formatAuroraCategoryCount,
+                                )
+                            }
+                        } else {
+                            null
+                        },
                     )
                 }
             },
@@ -1119,106 +1358,12 @@ data object AnimeLibraryTab : Tab {
                 null -> Unit
             }
         }
-        val auroraCategories by derivedStateOf {
-            when (auroraCurrentSection) {
-                Section.Anime -> state.categories
-                Section.Manga -> mangaState.categories
-                Section.Novel -> novelState.categories
-                null -> emptyList()
-            }
-        }
-        val auroraCategoryIndex by derivedStateOf {
-            when (auroraCurrentSection) {
-                Section.Anime -> coerceAuroraLibraryCategoryIndex(
-                    requestedIndex = screenModel.activeCategoryIndex,
-                    categoryCount = state.categories.size,
-                )
-                Section.Manga -> coerceAuroraLibraryCategoryIndex(
-                    requestedIndex = mangaScreenModel.activeCategoryIndex,
-                    categoryCount = mangaState.categories.size,
-                )
-                Section.Novel -> coerceAuroraLibraryCategoryIndex(
-                    requestedIndex = novelScreenModel?.activeCategoryIndex ?: 0,
-                    categoryCount = novelState.categories.size,
-                )
-                null -> 0
-            }
-        }
-        val showAuroraCategoryTabs by derivedStateOf {
-            when (auroraCurrentSection) {
-                Section.Anime -> shouldShowAuroraLibraryCategoryTabsRow(
-                    section = Section.Anime,
-                    categoryCount = state.categories.size,
-                    showCategoryTabs = state.showCategoryTabs,
-                    searchQuery = state.searchQuery,
-                )
-                Section.Manga -> shouldShowAuroraLibraryCategoryTabsRow(
-                    section = Section.Manga,
-                    categoryCount = mangaState.categories.size,
-                    showCategoryTabs = mangaState.showCategoryTabs,
-                    searchQuery = mangaState.searchQuery,
-                )
-                Section.Novel -> shouldShowAuroraLibraryCategoryTabsRow(
-                    section = Section.Novel,
-                    categoryCount = novelState.categories.size,
-                    showCategoryTabs = showCategoryTabs,
-                    searchQuery = novelState.searchQuery,
-                )
-                null -> false
-            }
-        }
-        val onAuroraCategorySelected: (Int) -> Unit = { index ->
-            when (auroraCurrentSection) {
-                Section.Anime -> {
-                    screenModel.activeCategoryIndex = coerceAuroraLibraryCategoryIndex(
-                        requestedIndex = index,
-                        categoryCount = state.categories.size,
-                    )
-                }
-                Section.Manga -> {
-                    mangaScreenModel.activeCategoryIndex = coerceAuroraLibraryCategoryIndex(
-                        requestedIndex = index,
-                        categoryCount = mangaState.categories.size,
-                    )
-                }
-                Section.Novel -> {
-                    novelScreenModel?.activeCategoryIndex = coerceAuroraLibraryCategoryIndex(
-                        requestedIndex = index,
-                        categoryCount = novelState.categories.size,
-                    )
-                }
-                null -> Unit
-            }
-        }
-        val onAuroraCategoryLongSelected: (Int) -> Unit = { index ->
-            when (auroraCurrentSection) {
-                Section.Anime -> {
-                    screenModel.selectAll(
-                        coerceAuroraLibraryCategoryIndex(
-                            requestedIndex = index,
-                            categoryCount = state.categories.size,
-                        ),
-                    )
-                }
-                Section.Manga -> {
-                    mangaScreenModel.selectAll(
-                        coerceAuroraLibraryCategoryIndex(
-                            requestedIndex = index,
-                            categoryCount = mangaState.categories.size,
-                        ),
-                    )
-                }
-                Section.Novel -> {
-                    novelScreenModel?.selectAll(
-                        coerceAuroraLibraryCategoryIndex(
-                            requestedIndex = index,
-                            categoryCount = novelState.categories.size,
-                        ),
-                    )
-                }
-                null -> Unit
-            }
-        }
+        // v7.9.6: las píldoras de categoría ya no viven en el encabezado
+        // fijo (eran un derivado global de la sección actual y el pager
+        // precompone la página vecina: la píldora seguiría a la sección
+        // equivocada). Ahora cada página de categoría las dibuja dentro de
+        // su contenido, como cabecera fija debajo del destacado y el
+        // carrusel; ver los lambdas categoryTabsContent de anime/manga/novel.
         val onAuroraFilterClick: () -> Unit = {
             when (auroraCurrentSection) {
                 Section.Anime -> screenModel.showSettingsDialog()
@@ -1560,34 +1705,9 @@ data object AnimeLibraryTab : Tab {
                                     } else {
                                         null
                                     },
-                                    categories = auroraCategories,
-                                    selectedCategoryIndex = auroraCategoryIndex,
-                                    showCategories = showAuroraCategoryTabs,
-                                    onCategorySelected = onAuroraCategorySelected,
-                                    onCategoryLongSelected = onAuroraCategoryLongSelected,
-                                    getCountForCategory = { category ->
-                                        when (auroraCurrentSection) {
-                                            Section.Anime -> state.getAnimeCountForCategory(category)
-                                            Section.Manga -> mangaState.getMangaCountForCategory(category)
-                                            Section.Novel -> {
-                                                if (showCategoryNumberOfItems ||
-                                                    !novelState.searchQuery.isNullOrEmpty()
-                                                ) {
-                                                    novelState.library[category]?.size ?: 0
-                                                } else {
-                                                    null
-                                                }
-                                            }
-                                            null -> null
-                                        }
-                                    },
-                                    formatCountForCategory = { count ->
-                                        formatAuroraLibraryCategoryBadgeCount(
-                                            count = count,
-                                            showFullCount = showFullCategoryNumberOfItems,
-                                            groupDigits = groupCategoryNumberOfItems,
-                                        )
-                                    },
+                                    // v7.9.6: las píldoras de categoría ya no van aquí: bajaron
+                                    // al contenido de cada página, debajo del destacado y el
+                                    // carrusel (ver categoryTabsContent).
                                 )
                             },
                             disablePagerScroll = swipeSwitchesCategories,
@@ -2224,13 +2344,6 @@ private fun AuroraLibraryPinnedHeader(
     onOpenRandomEntry: () -> Unit,
     onImportEpub: (() -> Unit)?,
     onImportFolder: (() -> Unit)?,
-    categories: List<Category>,
-    selectedCategoryIndex: Int,
-    showCategories: Boolean,
-    onCategorySelected: (Int) -> Unit,
-    onCategoryLongSelected: ((Int) -> Unit)? = null,
-    getCountForCategory: (Category) -> Int?,
-    formatCountForCategory: (Int) -> String,
 ) {
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
@@ -2433,19 +2546,10 @@ private fun AuroraLibraryPinnedHeader(
                 // se eliminó a propósito: el cambio Anime/Manga vive solo en la
                 // píldora de la barra inferior Aurora. Novela sigue accesible
                 // desde el menú ⋮ de esta cabecera (OpenNovelSection).
+                // v7.9.6: las píldoras de categoría también salieron de aquí:
+                // ahora viven en el contenido de cada página, debajo del
+                // destacado y el carrusel (ver categoryTabsContent).
             }
-        }
-
-        if (showCategories && categories.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            AuroraLibraryCategoryTabs(
-                categories = categories,
-                selectedIndex = selectedCategoryIndex,
-                onCategorySelected = onCategorySelected,
-                onCategoryLongSelected = onCategoryLongSelected,
-                getCountForCategory = getCountForCategory,
-                formatCountForCategory = formatCountForCategory,
-            )
         }
     }
 }

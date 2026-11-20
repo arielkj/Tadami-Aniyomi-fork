@@ -699,6 +699,21 @@ object SettingsLibraryScreen : SearchableSettings {
                     ),
                 ),
             )
+            // v7.9.6: origen del destacado de Títulos (En curso / Toda la biblioteca / Favoritos).
+            add(
+                Preference.PreferenceItem.ListPreference(
+                    preference = uiPreferences.auroraLibraryFeaturedSource(),
+                    entries = persistentMapOf(
+                        "in_progress" to stringResource(
+                            AYMR.strings.aurora_library_featured_source_in_progress,
+                        ),
+                        "all" to stringResource(AYMR.strings.aurora_library_featured_source_all),
+                        "pinned" to stringResource(AYMR.strings.aurora_library_featured_source_pinned),
+                    ),
+                    title = stringResource(AYMR.strings.aurora_library_featured_source),
+                    subtitle = stringResource(AYMR.strings.aurora_library_featured_source_summary),
+                ),
+            )
             add(
                 Preference.PreferenceItem.SwitchPreference(
                     preference = fullNumberOfItemsPref,
