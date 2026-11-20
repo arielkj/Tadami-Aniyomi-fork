@@ -537,16 +537,12 @@ private fun AuroraUpdatesPinnedHeader(
     val selected = selectedIndex.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
     var pacingMenuExpanded by rememberSaveable { mutableStateOf(false) }
     // "Más" ya no está en la barra inferior Aurora: vive en este menú ⋮.
-    // v7.9.2 (mismo crash que Historial): si esta cabecera se dibuja sin
-    // TabNavigator ancestro, LocalTabNavigator.current lanzaba
-    // IllegalStateException. Se lee con try/catch (no con runCatching: el
-    // compilador de Compose no permite llamadas @Composable dentro de
-    // runCatching) y "Más" cae al Navigator raíz cuando no hay TabNavigator.
-    val tabNavigator = try {
-        LocalTabNavigator.current
-    } catch (e: IllegalStateException) {
-        null
-    }
+    // v7.9.2 (mismo crash que Historial): esta cabecera se dibuja sin
+    // TabNavigator ancestro cuando la pantalla se empuja como pantalla
+    // normal, y LocalTabNavigator.current lanzaba IllegalStateException.
+    // No se puede blindar esa lectura (Compose prohíbe runCatching y
+    // try/catch alrededor de llamadas @Composable), así que "Más" empuja
+    // MoreTab en el Navigator actual, que funciona en ambos casos.
     val rootNavigator = LocalNavigator.currentOrThrow
 
     // PERF: la transición infinita mantenía el reloj de frames corriendo
@@ -642,8 +638,7 @@ private fun AuroraUpdatesPinnedHeader(
                             leadingIcon = Icons.Filled.MoreHoriz,
                             onClick = {
                                 pacingMenuExpanded = false
-                                tabNavigator?.let { it.current = MoreTab }
-                                    ?: rootNavigator.push(MoreTab)
+                                rootNavigator.push(MoreTab)
                             },
                         )
                     }

@@ -100,7 +100,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
-import cafe.adriel.voyager.navigator.tab.LocalTabNavigator
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenu
@@ -470,17 +469,13 @@ private fun AuroraTabHeader(
     // v7.9.2 (crash Historial, 20 Nov): HistoriesTab se abre como pantalla
     // normal sobre el Navigator raíz, sin TabNavigator ancestro, y
     // LocalTabNavigator.current lanzaba IllegalStateException
-    // ("TabNavigator not initialized"). Se lee con try/catch (no con
-    // runCatching: el compilador de Compose no permite llamadas
-    // @Composable dentro de runCatching): si no hay TabNavigator, "Más"
-    // se abre empujando MoreTab en el Navigator raíz, igual que el resto
-    // de la navegación sin Inicio.
-    val tabNavigator = try {
-        LocalTabNavigator.current
-    } catch (e: IllegalStateException) {
-        null
-    }
-    val rootNavigator = LocalNavigator.currentOrThrow
+    // ("TabNavigator not initialized"). NO se puede blindar esa lectura:
+    // el compilador de Compose prohíbe runCatching y try/catch alrededor
+    // de llamadas @Composable. Así que "Más" ya no usa el TabNavigator:
+    // empuja MoreTab en el Navigator actual, que funciona igual esté la
+    // pantalla dentro de una pestaña o empujada como pantalla normal
+    // (MoreTab.Content solo usa LocalNavigator, no TabNavigator).
+    val navigator = LocalNavigator.currentOrThrow
     var showOverflowMenu by remember { mutableStateOf(false) }
     val searchFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -651,8 +646,7 @@ private fun AuroraTabHeader(
                             leadingIcon = Icons.Filled.MoreHoriz,
                             onClick = {
                                 showOverflowMenu = false
-                                tabNavigator?.let { it.current = MoreTab }
-                                    ?: rootNavigator.push(MoreTab)
+                                navigator.push(MoreTab)
                             },
                         )
                     }
