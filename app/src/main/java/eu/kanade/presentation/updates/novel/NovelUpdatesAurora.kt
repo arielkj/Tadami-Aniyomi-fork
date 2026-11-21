@@ -324,7 +324,7 @@ private fun NovelUpdateCard(
                 // v7.9.3: 72x108dp, tamaño intermedio único
                 .width(72.dp)
                 .height(108.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(4.dp))
                 .background(Color.Gray.copy(alpha = 0.3f))
                 .clickable { onNovelClick(update.novelId) },
         ) {

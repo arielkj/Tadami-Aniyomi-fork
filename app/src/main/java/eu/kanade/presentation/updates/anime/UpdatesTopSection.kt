@@ -632,7 +632,7 @@ private fun UpcomingPosterCard(
                 fallback = placeholderPainter,
                 modifier = Modifier
                     .size(PosterWidth, PosterHeight)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(4.dp))
                     .background(colors.cardBackground),
             )
             // v7.9.3: botón "+" pequeño (32dp). El IconButton de Material3
@@ -845,7 +845,7 @@ fun TmdbDetailDialog(
                         fallback = placeholderPainter,
                         modifier = Modifier
                             .size(96.dp, 144.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(4.dp))
                             .background(colors.cardBackground),
                     )
                     Spacer(modifier = Modifier.width(12.dp))

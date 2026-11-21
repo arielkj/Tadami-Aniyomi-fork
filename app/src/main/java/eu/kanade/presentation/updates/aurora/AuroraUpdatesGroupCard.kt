@@ -110,7 +110,7 @@ fun AuroraUpdatesGroupCard(
                 // simples y los pósters de los carruseles.
                 .width(72.dp)
                 .height(108.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(4.dp))
                 .background(colors.cardBackground),
             error = placeholderPainter,
             fallback = placeholderPainter,

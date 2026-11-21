@@ -342,7 +342,7 @@ fun AuroraUpdateCard(
             modifier = Modifier
                 .width(72.dp)
                 .height(108.dp)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(4.dp))
                 .background(Color.Gray.copy(alpha = 0.3f)),
         ) {
             AsyncImage(

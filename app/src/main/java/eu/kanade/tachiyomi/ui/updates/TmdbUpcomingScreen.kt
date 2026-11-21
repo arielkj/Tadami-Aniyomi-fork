@@ -313,7 +313,7 @@ private fun UpcomingRow(
             fallback = placeholderPainter,
             modifier = Modifier
                 .size(48.dp, 72.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(4.dp))
                 .background(colors.cardBackground),
         )
         Spacer(modifier = Modifier.width(12.dp))
@@ -381,7 +381,7 @@ private fun WatchlistRow(
             fallback = placeholderPainter,
             modifier = Modifier
                 .size(48.dp, 72.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(4.dp))
                 .background(colors.cardBackground),
         )
         Spacer(modifier = Modifier.width(12.dp))
