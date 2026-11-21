@@ -145,7 +145,7 @@ object CoverFilter {
      * Filtra un bitmap en memoria y devuelve uno nuevo; el de entrada
      * queda intacto.
      */
-    fun applyToBitmap(source: Bitmap, params: LevelParams): Bitmap {
+    private fun applyToBitmap(source: Bitmap, params: LevelParams): Bitmap {
         val w = source.width
         val h = source.height
         val pixels = IntArray(w * h)
