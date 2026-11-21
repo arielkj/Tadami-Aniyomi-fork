@@ -92,6 +92,14 @@ class UiPreferences(
         0L,
     )
 
+    // v7.9.19 Fase 1: filtro de portadas grandes del detalle
+    // (Ajustes → Apariencia → «Filtro de portadas»).
+    // "off" (Apagado) | "soft" (Suave, por defecto) | "intense" (Intenso).
+    fun auroraCoverFilter() = preferenceStore.getString(
+        "aurora_cover_filter",
+        "soft",
+    )
+
     fun libraryUpdatePacingTimeoutSeconds() = preferenceStore.getInt(
         "library_update_pacing_timeout_seconds",
         0,

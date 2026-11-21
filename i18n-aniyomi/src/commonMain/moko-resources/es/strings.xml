@@ -681,6 +681,11 @@
     <string name="aurora_library_featured_source_in_progress">En curso</string>
     <string name="aurora_library_featured_source_all">Toda la biblioteca</string>
     <string name="aurora_library_featured_source_pinned">Favoritos</string>
+    <string name="aurora_cover_filter">Filtro de portadas</string>
+    <string name="aurora_cover_filter_summary">Contraste, color y nitidez para las portadas grandes del detalle. Apagado las muestra tal como vienen de la fuente.</string>
+    <string name="aurora_cover_filter_off">Apagado</string>
+    <string name="aurora_cover_filter_soft">Suave</string>
+    <string name="aurora_cover_filter_intense">Intenso</string>
     <string name="aurora_library_featured_hidden_sources">Seguir viendo y sugerencias</string>
     <string name="aurora_library_featured_hidden_sources_summary">Elige qué fuentes pueden aparecer en Seguir viendo y en el destacado. Las desmarcadas no salen ahí, así lo privado queda fuera de la vista.</string>
     <string name="aurora_library_featured_view_details">Ver detalles</string>

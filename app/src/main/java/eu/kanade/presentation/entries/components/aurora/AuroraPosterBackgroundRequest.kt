@@ -16,6 +16,7 @@ import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import eu.kanade.presentation.components.resolveAuroraCoverPlaceholderMemoryCacheKey
+import eu.kanade.tachiyomi.data.coil.CoverFilter
 import eu.kanade.tachiyomi.util.debugTitleCoverFlow
 import eu.kanade.tachiyomi.util.previewTitleCoverValue
 
@@ -28,8 +29,13 @@ internal fun auroraPosterBackgroundSpec(
     containerWidthPx: Int,
     containerHeightPx: Int,
 ): AuroraPosterBackgroundSpec {
+    // v7.9.19 Fase 1 (Capa 2): el nivel del filtro forma parte de la
+    // clave de memoria — al cambiar el ajuste, el detalle compone una
+    // clave nueva y la portada se vuelve a pedir (y a filtrar) en vez
+    // de servir el bitmap viejo de la caché de memoria.
     return AuroraPosterBackgroundSpec(
-        memoryCacheKey = "$baseCacheKey;${containerWidthPx}x$containerHeightPx",
+        memoryCacheKey = "$baseCacheKey;${containerWidthPx}x$containerHeightPx" +
+            CoverFilter.cacheKeyFragment(),
     )
 }
 

@@ -76,6 +76,10 @@ class AuroraPosterRequestFetcher(
             append(data.primaryUrl.orEmpty())
             append(';')
             append(data.fallbackUrl.orEmpty())
+            // v7.9.19 Fase 1 (Capa 2): el nivel del filtro forma parte de
+            // la clave — al cambiar el ajuste, la portada se vuelve a
+            // bajar y a filtrar en vez de servir la versión vieja.
+            append(CoverFilter.cacheKeyFragment())
         }
 
     override suspend fun fetch(): FetchResult {
@@ -127,11 +131,23 @@ class AuroraPosterRequestFetcher(
      * available on offline starts. Returns null only before the source has
      * been consumed (caching disabled), so the caller can fall back to the
      * original result safely.
+     *
+     * v7.9.19 Fase 1 (Capa 2): antes de guardar, los bytes pasan por el
+     * filtro suave de portadas del detalle. Se aplica UNA vez aquí (hilo
+     * de IO de Coil) y el resultado filtrado es lo que queda en caché,
+     * así que al hacer scroll o al reabrir el detalle no se recalcula
+     * nada. Si el filtro está apagado o falla, se guardan los bytes
+     * originales sin tocar.
      */
     private fun writeToDiskCache(fetched: SourceFetchResult): FetchResult? {
         if (!options.diskCachePolicy.writeEnabled) return null
         val diskCache = imageLoader.diskCache ?: return null
-        val bytes = fetched.source.use { it.source().readByteArray() }
+        val originalBytes = fetched.source.use { it.source().readByteArray() }
+        val filteredBytes = CoverFilter.filter(originalBytes)
+        val bytes = filteredBytes ?: originalBytes
+        // Los bytes filtrados se re-codifican como JPEG: el tipo MIME
+        // tiene que decirlo, o el decodificador recibiría una pista falsa.
+        val mimeType = if (filteredBytes != null) "image/jpeg" else fetched.mimeType
         val snapshot = runCatching {
             val editor = diskCache.openEditor(diskCacheKey) ?: return@runCatching null
             try {
@@ -154,7 +170,7 @@ class AuroraPosterRequestFetcher(
         }
         return SourceFetchResult(
             source = source,
-            mimeType = fetched.mimeType,
+            mimeType = mimeType,
             dataSource = fetched.dataSource,
         )
     }
@@ -182,9 +198,20 @@ internal suspend fun loadAuroraPosterSource(
     fileSystem: FileSystem,
     request: AuroraPosterRequest,
 ): FetchResult {
+    // v7.9.19 Fase 1 (Capa 1): si la dirección de la portada permite
+    // pedir una variante más grande, se prueba esa primero y la original
+    // queda como respaldo inmediato — si la grande da 404 o falla, cae
+    // a la que había sin que se note. Cuando no hay variante mayor, la
+    // lista queda igual que antes ([primary, fallback]).
     val candidates = buildList {
-        request.primaryUrl?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
-        request.fallbackUrl?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
+        request.primaryUrl?.trim()?.takeIf { it.isNotBlank() }?.let { url ->
+            upgradePosterUrl(url)?.let(::add)
+            add(url)
+        }
+        request.fallbackUrl?.trim()?.takeIf { it.isNotBlank() }?.let { url ->
+            upgradePosterUrl(url)?.let(::add)
+            add(url)
+        }
     }.distinct()
 
     var lastError: IOException? = null
@@ -239,3 +266,52 @@ internal suspend fun loadAuroraPosterSource(
 
     throw (lastError ?: IOException("Failed to load poster"))
 }
+
+/**
+ * v7.9.19 Fase 1 (Capa 1): devuelve la variante más grande de una
+ * dirección de portada cuando el CDN la ofrece cambiando un segmento
+ * de la ruta, o null si no hay variante mayor que pedir. La variante
+ * se prueba primero y la original queda como respaldo (ver
+ * [loadAuroraPosterSource]), así que un 404 no rompe nada: solo cuesta
+ * una petición fallida antes de cargar la de siempre.
+ *
+ * Variantes que se conocen:
+ * - AniList CDN: /medium/ -> /large/ (la extraLarge vive bajo /large/).
+ * - Shikimori: /preview/ -> /original/.
+ * - MangaDex: cover.256.jpg / cover.512.jpg -> cover original.
+ * - MyAnimeList CDN: ...123t.jpg -> ...123.jpg (la `t` marca miniatura).
+ * - Genérico: /small/ -> /large/, /thumb(s)/ -> /original/,
+ *   /thumbnail/ -> /large/.
+ *
+ * Nota: los títulos con metadatos (AniList/Shikimori) ya traen la
+ * extraLarge o la original desde la propia API, así que esto solo
+ * ayuda a las portadas que vienen de la fuente sin metadatos. El
+ * bannerImage de AniList (~1900 px panorámico) NO se usa aquí: el
+ * fondo del detalle es vertical y con recorte solo se vería una
+ * franja del banner; la portada vertical grande es la imagen correcta.
+ */
+internal fun upgradePosterUrl(url: String): String? {
+    val value = url.trim()
+    if (value.isEmpty()) return null
+    val upgraded = when {
+        "/medium/" in value -> value.replace("/medium/", "/large/")
+        "/preview/" in value -> value.replace("/preview/", "/original/")
+        MANGADEX_SIZED_COVER_REGEX.containsMatchIn(value) ->
+            value.replace(MANGADEX_SIZED_COVER_REGEX, "$2")
+        value.contains("cdn.myanimelist.net") &&
+            MAL_THUMBNAIL_REGEX.containsMatchIn(value) ->
+            value.replace(MAL_THUMBNAIL_REGEX, "$1$2")
+        "/small/" in value -> value.replace("/small/", "/large/")
+        "/thumb/" in value -> value.replace("/thumb/", "/original/")
+        "/thumbs/" in value -> value.replace("/thumbs/", "/original/")
+        "/thumbnail/" in value -> value.replace("/thumbnail/", "/large/")
+        else -> return null
+    }
+    return upgraded.takeIf { it != value }
+}
+
+private val MANGADEX_SIZED_COVER_REGEX =
+    Regex("""\.(256|512)(\.(jpe?g|png|webp))$""", RegexOption.IGNORE_CASE)
+
+private val MAL_THUMBNAIL_REGEX =
+    Regex("""(\d)t(\.(jpe?g|png|webp))$""", RegexOption.IGNORE_CASE)
