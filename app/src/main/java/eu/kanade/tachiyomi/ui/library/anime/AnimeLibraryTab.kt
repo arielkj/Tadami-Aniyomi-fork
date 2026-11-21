@@ -2919,12 +2919,16 @@ internal fun shouldShowLibraryBookImport(section: AnimeLibraryTab.Section?): Boo
 }
 
 /**
- * v7.9.16 — medida de una píldora de categoría para la cápsula de
- * selección: posición y tamaño relativos a la vista (se mueven con el
- * desplazamiento de la fila) y el id de la categoría medida. El id es
- * lo que impide leer medidas de otra sección: la fila es compartida
- * por Anime, Manga y Novela y los índices se reutilizan, así que sin
- * el id la cápsula leería posiciones de la sección anterior.
+ * v7.9.17 — medida de una píldora de categoría para la cápsula de
+ * selección: posición y tamaño de CONTENIDO, relativos a la fila
+ * (positionInParent). NO se mueven con el desplazamiento de la fila:
+ * son invariantes al scroll, así que quien las compare contra el
+ * ancho visible o calcule desplazamientos debe restar antes
+ * scrollState.value (ver el revelado y el seguimiento en vivo). El id
+ * es lo que impide leer medidas de otra sección: la fila es
+ * compartida por Anime, Manga y Novela y los índices se reutilizan,
+ * así que sin el id la cápsula leería posiciones de la sección
+ * anterior.
  */
 private data class AuroraTabMeasurement(
     val left: Float,
@@ -2986,7 +2990,77 @@ private fun AuroraLibraryCategoryTabs(
         return if (measurement.categoryId == categories.getOrNull(index)?.id) measurement else null
     }
 
-    val activeMeasurement = measurementFor(coercedSelected)
+    // v7.9.17: separación entre las píldoras (Arrangement.spacedBy) y
+    // el padding lateral de la fila: ambos 6.dp. Sirven para estimar
+    // la posición de una píldora sin medida (abajo) y para que el
+    // revelado la deje a 6.dp del borde, no pegada a él.
+    val tabSpacingPx = with(LocalDensity.current) { 6.dp.toPx() }
+
+    // v7.9.17: respaldo ROBUSTO cuando la píldora seleccionada no tiene
+    // medida válida. El respaldo de la 7.9.14 (lastGood) guardaba la
+    // posición de la píldora ANTERIOR sin recordar de cuál era: si la
+    // medida de la nueva selección no llegaba, la cápsula se quedaba
+    // congelada para siempre en la píldora vieja (en el vídeo, en
+    // "Yaoi Terminados" mientras la cuadrícula pasaba por un montón de
+    // categorías). Ahora la posición se estima desde la medida válida
+    // más cercana, con el ancho medio de las píldoras medidas; lastGood
+    // solo vale para la píldora de la que salió (mismo índice), nunca
+    // para otra.
+    val validMeasuredWidths = (0 until categories.size)
+        .mapNotNull { measurementFor(it)?.width }
+        .filter { it > 0f }
+    val avgTabWidth = if (validMeasuredWidths.isNotEmpty()) {
+        validMeasuredWidths.average().toFloat()
+    } else {
+        0f
+    }
+    fun estimatedMeasurement(index: Int): AuroraTabMeasurement? {
+        measurementFor(index)?.let { return it }
+        if (avgTabWidth <= 0f) return null
+        val categoryId = categories.getOrNull(index)?.id ?: return null
+        // Medida válida más cercana a la izquierda.
+        var j = index - 1
+        while (j >= 0) {
+            val neighbor = measurementFor(j)
+            if (neighbor != null) {
+                val left = neighbor.left + neighbor.width +
+                    (index - j) * tabSpacingPx +
+                    (index - j - 1) * avgTabWidth
+                return AuroraTabMeasurement(
+                    left = left,
+                    top = neighbor.top,
+                    width = avgTabWidth,
+                    height = neighbor.height,
+                    categoryId = categoryId,
+                )
+            }
+            j--
+        }
+        // Si no hay nada a la izquierda, desde la derecha.
+        j = index + 1
+        while (j < categories.size) {
+            val neighbor = measurementFor(j)
+            if (neighbor != null) {
+                val left = neighbor.left - (j - index) * (avgTabWidth + tabSpacingPx)
+                return AuroraTabMeasurement(
+                    left = left,
+                    top = neighbor.top,
+                    width = avgTabWidth,
+                    height = neighbor.height,
+                    categoryId = categoryId,
+                )
+            }
+            j++
+        }
+        return null
+    }
+    // La medida que usa la cápsula: la real si existe, la estimada si
+    // no. La estimación nunca se guarda en lastGood (no es real).
+    fun measurementOrEstimate(index: Int): AuroraTabMeasurement? =
+        measurementFor(index) ?: estimatedMeasurement(index)
+
+    val realMeasurement = measurementFor(coercedSelected)
+    val activeMeasurement = realMeasurement ?: estimatedMeasurement(coercedSelected)
     val activeWidth = activeMeasurement?.width ?: 0f
     val activeHeight = activeMeasurement?.height ?: 0f
     val activeX = activeMeasurement?.left ?: 0f
@@ -2996,22 +3070,33 @@ private fun AuroraLibraryCategoryTabs(
     // seleccionada puede no tener medida en ese fotograma y la cápsula
     // colapsaba a ancho 0 y no volvía). Se guarda la última medición
     // buena y se usa como respaldo mientras la actual sea 0.
+    // v7.9.17: lastGood solo vale para SU píldora (mismo índice): si
+    // la selección cambió y no hay medida, usar la posición vieja es
+    // congelar la cápsula en otra píldora. En ese caso manda la
+    // estimación de arriba, y si tampoco hay estimación, la cápsula se
+    // esconde (no se dibuja en un sitio que no es el suyo).
     var lastGoodWidth by remember { mutableFloatStateOf(0f) }
     var lastGoodHeight by remember { mutableFloatStateOf(0f) }
     var lastGoodX by remember { mutableFloatStateOf(0f) }
     var lastGoodY by remember { mutableFloatStateOf(0f) }
+    var lastGoodIndex by remember { mutableIntStateOf(-1) }
     SideEffect {
-        if (activeWidth > 0f && activeHeight > 0f) {
-            lastGoodWidth = activeWidth
-            lastGoodHeight = activeHeight
-            lastGoodX = activeX
-            lastGoodY = activeY
+        if (realMeasurement != null && realMeasurement.width > 0f && realMeasurement.height > 0f) {
+            lastGoodWidth = realMeasurement.width
+            lastGoodHeight = realMeasurement.height
+            lastGoodX = realMeasurement.left
+            lastGoodY = realMeasurement.top
+            lastGoodIndex = coercedSelected
         }
     }
-    val effWidth = if (activeWidth > 0f) activeWidth else lastGoodWidth
-    val effHeight = if (activeHeight > 0f) activeHeight else lastGoodHeight
-    val effX = if (activeWidth > 0f) activeX else lastGoodX
-    val effY = if (activeHeight > 0f) activeY else lastGoodY
+    val effWidth = if (activeWidth > 0f) activeWidth
+        else if (lastGoodIndex == coercedSelected) lastGoodWidth else 0f
+    val effHeight = if (activeHeight > 0f) activeHeight
+        else if (lastGoodIndex == coercedSelected) lastGoodHeight else 0f
+    val effX = if (activeWidth > 0f) activeX
+        else if (lastGoodIndex == coercedSelected) lastGoodX else 0f
+    val effY = if (activeHeight > 0f) activeY
+        else if (lastGoodIndex == coercedSelected) lastGoodY else 0f
     // Only meaningful once the selected tab has been laid out at least once; before that the
     // targets above are all 0f and drawing would animate the pill into the row origin.
     val selectionMeasured = effWidth > 0f && effHeight > 0f
@@ -3029,16 +3114,17 @@ private fun AuroraLibraryCategoryTabs(
     // así se desliza pegada al dedo mientras el usuario desliza, y
     // pasa por la píldora del medio al cruzar varias páginas (la
     // posición continua no salta ninguna). Si alguna de las dos
-    // píldoras aún no tiene medida válida, se cae a la cápsula animada
-    // de siempre (liveCapsule = null).
+    // píldoras aún no tiene medida válida, se estima desde la medida
+    // válida más cercana (v7.9.17); solo si no hay ninguna medida
+    // válida se cae a la cápsula animada de siempre (liveCapsule = null).
     val liveOffset = pageOffsetFractionProvider()
     val livePage = (coercedSelected + liveOffset)
         .coerceIn(0f, (categories.size - 1).coerceAtLeast(0).toFloat())
     val liveFromIndex = livePage.toInt().coerceIn(0, (categories.size - 1).coerceAtLeast(0))
     val liveToIndex = (liveFromIndex + 1).coerceAtMost((categories.size - 1).coerceAtLeast(0))
     val liveT = (livePage - liveFromIndex).coerceIn(0f, 1f)
-    val liveFrom = measurementFor(liveFromIndex)
-    val liveTo = measurementFor(liveToIndex)
+    val liveFrom = measurementOrEstimate(liveFromIndex)
+    val liveTo = measurementOrEstimate(liveToIndex)
     val liveCapsule: Pair<Float, Float>? =
         if (liveFrom != null && liveTo != null &&
             liveFrom.width > 0f && liveTo.width > 0f
@@ -3129,24 +3215,36 @@ private fun AuroraLibraryCategoryTabs(
         // frescas (ancho SemiBold de la píldora seleccionada).
         delay(150)
 
-        // Las medidas son las mismas que usa la cápsula deslizante:
-        // relativas a la vista (se mueven con el desplazamiento de la
-        // fila) y con el tamaño completo de la píldora, incluido su
+        // v7.9.17: las medidas son de CONTENIDO (relativas a la fila,
+        // no se mueven con el desplazamiento). Para compararlas con el
+        // ancho visible hay que restar el desplazamiento actual de la
+        // fila: sin eso, una píldora fuera de vista a la izquierda
+        // (con left de contenido pequeño pero >= 0) pasaba el chequeo
+        // como "visible" y la fila no se movía nunca — la cápsula
+        // quedaba fuera de vista a la izquierda (al volver a "Anime")
+        // o congelada (en Manga, con la fila siempre desplazada). Las
+        // medidas llevan el tamaño completo de la píldora, incluido su
         // padding lateral de 14dp. Solo valen si son de la categoría
-        // actual (v7.9.16: measurementFor comprueba el id).
-        val selectedMeasurement = measurementFor(coercedSelected) ?: return@LaunchedEffect
+        // actual (v7.9.16: measurementFor comprueba el id); si no hay
+        // medida real, vale la estimada (v7.9.17).
+        val selectedMeasurement = measurementOrEstimate(coercedSelected) ?: return@LaunchedEffect
         val tabLeft = selectedMeasurement.left
         val tabWidth = selectedMeasurement.width
         if (tabWidth <= 0f) return@LaunchedEffect
         val tabRight = tabLeft + tabWidth
+        // Coordenadas de vista: lo que se ve de la píldora dentro de
+        // la fila (0 = borde izquierdo visible).
+        val viewLeft = tabLeft - scrollState.value.toFloat()
+        val viewRight = tabRight - scrollState.value.toFloat()
 
         // Fully visible already: do not touch the scroll, the row stays fixed.
-        if (tabLeft >= 0f && tabRight <= containerWidthPx.toFloat()) return@LaunchedEffect
+        if (viewLeft >= 0f && viewRight <= containerWidthPx.toFloat()) return@LaunchedEffect
 
-        // Minimal reveal: shift just enough to bring the pill into view.
+        // Minimal reveal: shift just enough to bring the pill into view,
+        // dejándola a 6.dp del borde (el padding de la fila), no pegada.
         val targetScroll = when {
-            tabLeft < 0f -> scrollState.value + tabLeft
-            else -> scrollState.value + (tabRight - containerWidthPx.toFloat())
+            viewLeft < 0f -> scrollState.value + viewLeft - tabSpacingPx
+            else -> scrollState.value + (viewRight - containerWidthPx.toFloat()) + tabSpacingPx
         }.toInt().coerceAtLeast(0)
 
         if (scrollState.value != targetScroll) {
@@ -3168,11 +3266,23 @@ private fun AuroraLibraryCategoryTabs(
         if (!isLiveTracking) return@SideEffect
         val capsule = liveCapsule ?: return@SideEffect
         if (containerWidthPx <= 0) return@SideEffect
+        // v7.9.17: la cápsula viene en coordenadas de CONTENIDO
+        // (relativas a la fila). Para saber si está fuera de vista hay
+        // que restar el desplazamiento actual: antes se comparaba el
+        // left de contenido contra 0 y nunca era < 0, así que la fila
+        // jamás seguía a la cápsula hacia la izquierda; y a la derecha
+        // se despachaba (right - ancho) sin restar el scroll, pasándose
+        // de largo. La cápsula se deja a 6.dp del borde, como en el
+        // revelado asentado.
         val (left, right) = capsule
-        if (left < 0f) {
-            scrollState.dispatchRawDelta(left)
-        } else if (right > containerWidthPx.toFloat()) {
-            scrollState.dispatchRawDelta(right - containerWidthPx.toFloat())
+        val viewLeft = left - scrollState.value.toFloat()
+        val viewRight = right - scrollState.value.toFloat()
+        if (viewLeft < tabSpacingPx) {
+            scrollState.dispatchRawDelta(viewLeft - tabSpacingPx)
+        } else if (viewRight > containerWidthPx.toFloat() - tabSpacingPx) {
+            scrollState.dispatchRawDelta(
+                viewRight - containerWidthPx.toFloat() + tabSpacingPx,
+            )
         }
     }
 
@@ -3271,7 +3381,15 @@ private fun AuroraLibraryCategoryTabs(
                     background = colors.background,
                 )
 
-                key(category.id) {
+                // v7.9.17: la clave es la categoría entera, no solo su
+                // id: los ids de Anime y de Manga colisionan (ambos
+                // empiezan en 1), así que con key(id) al cambiar de
+                // sección Compose reutilizaba la píldora y su medida
+                // quedaba con el id viejo — la cápsula leía posiciones
+                // de otra sección. Category es data class: la igualdad
+                // por valor solo reutiliza el nodo para la misma
+                // categoría.
+                key(category) {
                     Row(
                         modifier = Modifier
                             .clip(tabShape)
