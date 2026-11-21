@@ -140,7 +140,6 @@ import eu.kanade.presentation.components.TabbedScreenAurora
 import eu.kanade.presentation.components.auroraMenuRimLightBrush
 import eu.kanade.presentation.components.auroraTabEdgeSpring
 import eu.kanade.presentation.components.rememberAsymmetricTabEdgeSprings
-import eu.kanade.presentation.components.resolveAsymmetricTabStretchRadiusFactor
 import eu.kanade.presentation.components.resolveAuroraTabContainerColor
 import eu.kanade.presentation.components.resolveAuroraTabSelectionBorderColor
 import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenu
@@ -888,7 +887,17 @@ data object AnimeLibraryTab : Tab {
                         ) {
                             AuroraLibraryCategoryTabs(
                                 categories = state.categories,
-                                selectedIndex = animeCategoryIndex,
+                                // v7.9.14: la barra sigue la página REAL del
+                                // paginador (currentPage), no el índice del
+                                // modelo: el modelo solo se actualiza cuando
+                                // el paginador se asienta, así que tras un
+                                // deslizamiento rápido por varias categorías
+                                // la barra se quedaba congelada (y sin
+                                // cápsula) en la categoría anterior mientras
+                                // la cuadrícula ya mostraba otra. El tap
+                                // sigue escribiendo en el modelo, que anima
+                                // el paginador (ver LaunchedEffect abajo).
+                                selectedIndex = pagerState.currentPage,
                                 onCategorySelected = { index ->
                                     screenModel.activeCategoryIndex = coerceAuroraLibraryCategoryIndex(
                                         requestedIndex = index,
@@ -1156,7 +1165,11 @@ data object AnimeLibraryTab : Tab {
                         ) {
                             AuroraLibraryCategoryTabs(
                                 categories = mangaState.categories,
-                                selectedIndex = mangaCategoryIndex,
+                                // v7.9.14: igual que en anime — la barra
+                                // sigue la página REAL del paginador
+                                // (currentPage), no el índice del modelo
+                                // (ver comentario en la llamada de anime).
+                                selectedIndex = pagerState.currentPage,
                                 onCategorySelected = { index ->
                                     mangaScreenModel.activeCategoryIndex = coerceAuroraLibraryCategoryIndex(
                                         requestedIndex = index,
@@ -1346,7 +1359,10 @@ data object AnimeLibraryTab : Tab {
                     ) {
                         AuroraLibraryCategoryTabs(
                             categories = novelState.categories,
-                            selectedIndex = novelCategoryIndex,
+                            // v7.9.14: igual que en anime/manga — la barra
+                            // sigue la página REAL del paginador
+                            // (currentPage), no el índice del modelo.
+                            selectedIndex = pagerState.currentPage,
                             onCategorySelected = { index ->
                                 activeNovelScreenModel.activeCategoryIndex =
                                     coerceAuroraLibraryCategoryIndex(
@@ -2855,8 +2871,12 @@ private fun AuroraLibraryCategoryTabs(
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
     val coercedSelected = coerceAuroraLibraryCategoryIndex(selectedIndex, categories.size)
-    val rowShape = CircleShape
-    val tabShape = CircleShape
+    // v7.9.14: las píldoras de categoría llevan el MISMO radio que las
+    // tarjetas de la biblioteca (4.dp, ligeramente redondeadas), no la
+    // forma de cápsula totalmente redondeada de antes. Aplica a la barra,
+    // a cada píldora y a la cápsula de selección (ver drawBehind abajo).
+    val rowShape = RoundedCornerShape(4.dp)
+    val tabShape = RoundedCornerShape(4.dp)
     val isLightTheme = !colors.isDark && !colors.isEInk
     val rowContainerColor = remember(colors) { resolveAuroraLibraryCategoryTabRowContainerColor(colors) }
     val selectedTabBrush = remember(colors) { resolveAuroraLibraryCategorySelectedTabBrush(colors) }
@@ -2879,12 +2899,33 @@ private fun AuroraLibraryCategoryTabs(
     val activeHeight = animTabHeights[coercedSelected] ?: 0f
     val activeX = animTabPositionsX[coercedSelected] ?: 0f
     val activeY = animTabPositionsY[coercedSelected] ?: 0f
+    // v7.9.14: la cápsula no debe desaparecer nunca por una medición
+    // momentáneamente ausente (al cambiar rápido de categoría, la píldora
+    // seleccionada puede no tener medida en ese fotograma y la cápsula
+    // colapsaba a ancho 0 y no volvía). Se guarda la última medición
+    // buena y se usa como respaldo mientras la actual sea 0.
+    var lastGoodWidth by remember { mutableFloatStateOf(0f) }
+    var lastGoodHeight by remember { mutableFloatStateOf(0f) }
+    var lastGoodX by remember { mutableFloatStateOf(0f) }
+    var lastGoodY by remember { mutableFloatStateOf(0f) }
+    SideEffect {
+        if (activeWidth > 0f && activeHeight > 0f) {
+            lastGoodWidth = activeWidth
+            lastGoodHeight = activeHeight
+            lastGoodX = activeX
+            lastGoodY = activeY
+        }
+    }
+    val effWidth = if (activeWidth > 0f) activeWidth else lastGoodWidth
+    val effHeight = if (activeHeight > 0f) activeHeight else lastGoodHeight
+    val effX = if (activeWidth > 0f) activeX else lastGoodX
+    val effY = if (activeHeight > 0f) activeY else lastGoodY
     // Only meaningful once the selected tab has been laid out at least once; before that the
     // targets above are all 0f and drawing would animate the pill into the row origin.
-    val selectionMeasured = activeWidth > 0f && activeHeight > 0f
+    val selectionMeasured = effWidth > 0f && effHeight > 0f
 
-    val activeLeft = activeX
-    val activeRight = activeX + activeWidth
+    val activeLeft = effX
+    val activeRight = effX + effWidth
 
     // Asymmetric spring stretch (variant A): sticky leading/trailing for whole travel.
     val (leftSpring, rightSpring) = rememberAsymmetricTabEdgeSprings(coercedSelected)
@@ -2903,12 +2944,12 @@ private fun AuroraLibraryCategoryTabs(
         label = "tabRight",
     )
     val animatedHeight by animateFloatAsState(
-        targetValue = activeHeight,
+        targetValue = effHeight,
         animationSpec = bodySpring,
         label = "tabHeight",
     )
     val animatedY by animateFloatAsState(
-        targetValue = activeY,
+        targetValue = effY,
         animationSpec = bodySpring,
         label = "tabY",
     )
@@ -2992,7 +3033,7 @@ private fun AuroraLibraryCategoryTabs(
                         animatedHeight > 0f &&
                         colors.eInkProfile != EInkProfile.MONOCHROME
                     ) {
-                        val minWidth = minOf(activeWidth, animatedHeight)
+                        val minWidth = minOf(effWidth, animatedHeight)
                         val drawWidth = (animatedRight - animatedLeft).coerceAtLeast(minWidth)
                         val drawX = if (animatedRight - animatedLeft < minWidth) {
                             animatedLeft - (minWidth - (animatedRight - animatedLeft)) / 2f
@@ -3000,8 +3041,13 @@ private fun AuroraLibraryCategoryTabs(
                             animatedLeft
                         }
 
-                        val radiusPx = (animatedHeight / 2f) *
-                            resolveAsymmetricTabStretchRadiusFactor(drawWidth, activeWidth.coerceAtLeast(1f))
+                        // v7.9.14: la cápsula de selección usa el mismo
+                        // radio fijo de 4.dp que las tarjetas de la
+                        // biblioteca (antes era medio alto de la píldora,
+                        // o sea, cápsula totalmente redondeada). El
+                        // estiramiento asimétrico al deslizar se mantiene
+                        // (minWidth/drawWidth), solo cambia el radio.
+                        val radiusPx = 4.dp.toPx()
                         drawRoundRect(
                             brush = selectedTabBrush,
                             topLeft = Offset(drawX, animatedY),
