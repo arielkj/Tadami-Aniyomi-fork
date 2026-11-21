@@ -857,6 +857,12 @@ data object AnimeLibraryTab : Tab {
                                 items = animeSectionItems,
                                 featuredSource = featuredSource,
                                 seed = featuredSeed,
+                                // v7.9.16: columnas de la rejilla (el mismo
+                                // ajuste que usa la rejilla) para que la
+                                // portada de "Seguir viendo" tenga el mismo
+                                // tamaño que las de la cuadrícula.
+                                columns = animeColumns,
+                                adaptiveMinCellDp = auroraAdaptiveSpec.compactGridAdaptiveMinCellDp,
                                 // v7.9.15: fuentes ocultas en Ajustes
                                 // (privacidad) y avance automático del
                                 // destacado solo si el encabezado está
@@ -1133,6 +1139,11 @@ data object AnimeLibraryTab : Tab {
                                 items = mangaSectionItems,
                                 featuredSource = featuredSource,
                                 seed = featuredSeed,
+                                // v7.9.16: igual que en anime — columnas de
+                                // la rejilla para el tamaño de la portada
+                                // de "Seguir viendo".
+                                columns = mangaColumns,
+                                adaptiveMinCellDp = auroraAdaptiveSpec.compactGridAdaptiveMinCellDp,
                                 // v7.9.15: igual que en anime — fuentes
                                 // ocultas y avance automático solo con el
                                 // encabezado visible.
@@ -2907,6 +2918,22 @@ internal fun shouldShowLibraryBookImport(section: AnimeLibraryTab.Section?): Boo
     return section == AnimeLibraryTab.Section.Novel
 }
 
+/**
+ * v7.9.16 — medida de una píldora de categoría para la cápsula de
+ * selección: posición y tamaño relativos a la vista (se mueven con el
+ * desplazamiento de la fila) y el id de la categoría medida. El id es
+ * lo que impide leer medidas de otra sección: la fila es compartida
+ * por Anime, Manga y Novela y los índices se reutilizan, así que sin
+ * el id la cápsula leería posiciones de la sección anterior.
+ */
+private data class AuroraTabMeasurement(
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float,
+    val categoryId: Long,
+)
+
 @Composable
 private fun AuroraLibraryCategoryTabs(
     categories: List<Category>,
@@ -2946,15 +2973,24 @@ private fun AuroraLibraryCategoryTabs(
     // re-measured in the same layout pass that composes the new section's tabs. Keying them on the
     // list re-created them empty on every section switch, so the indicator targets fell back to
     // 0f and the pill visibly collapsed into the left corner before flying back out.
-    val animTabWidths = remember { mutableStateMapOf<Int, Float>() }
-    val animTabHeights = remember { mutableStateMapOf<Int, Float>() }
-    val animTabPositionsX = remember { mutableStateMapOf<Int, Float>() }
-    val animTabPositionsY = remember { mutableStateMapOf<Int, Float>() }
+    //
+    // v7.9.16: cada medida guarda el id de su categoría y solo vale para
+    // esa categoría (ver AuroraTabMeasurement): al cambiar de sección los
+    // índices se reutilizan para otras categorías, y leer la medida vieja
+    // dibujaba la cápsula en la posición de otra píldora — la barra
+    // "detectaba solo dos y se olvidaba de la del medio". Una medida con
+    // otro id se trata como ausente (respaldo lastGood / cápsula nula).
+    val animTabMeasurements = remember { mutableStateMapOf<Int, AuroraTabMeasurement>() }
+    fun measurementFor(index: Int): AuroraTabMeasurement? {
+        val measurement = animTabMeasurements[index] ?: return null
+        return if (measurement.categoryId == categories.getOrNull(index)?.id) measurement else null
+    }
 
-    val activeWidth = animTabWidths[coercedSelected] ?: 0f
-    val activeHeight = animTabHeights[coercedSelected] ?: 0f
-    val activeX = animTabPositionsX[coercedSelected] ?: 0f
-    val activeY = animTabPositionsY[coercedSelected] ?: 0f
+    val activeMeasurement = measurementFor(coercedSelected)
+    val activeWidth = activeMeasurement?.width ?: 0f
+    val activeHeight = activeMeasurement?.height ?: 0f
+    val activeX = activeMeasurement?.left ?: 0f
+    val activeY = activeMeasurement?.top ?: 0f
     // v7.9.14: la cápsula no debe desaparecer nunca por una medición
     // momentáneamente ausente (al cambiar rápido de categoría, la píldora
     // seleccionada puede no tener medida en ese fotograma y la cápsula
@@ -2980,36 +3016,36 @@ private fun AuroraLibraryCategoryTabs(
     // targets above are all 0f and drawing would animate the pill into the row origin.
     val selectionMeasured = effWidth > 0f && effHeight > 0f
 
-    // v7.9.15: seguimiento EN VIVO de la cápsula. currentPage solo
-    // cambia cuando la página se asienta, así que la cápsula de la
-    // v7.9.14 se quedaba quieta durante el deslizamiento y saltaba
-    // después (en el teléfono "no iba al compás"). La posición
-    // continua es currentPage + currentPageOffsetFraction: un flotante
-    // que va de 5.0 a 6.0 al deslizar de la 5 a la 6 sin saltos (la
-    // fracción va en ±0.5 y currentPage cambia justo a la mitad, así
-    // que la suma es continua). La cápsula interpola su izquierda y su
-    // derecha entre las píldoras de los dos índices que rodean esa
-    // posición, así se desliza pegada al dedo mientras el usuario
-    // desliza. Si alguna de las dos píldoras aún no tiene medida, se
-    // cae a la cápsula animada de siempre (liveCapsule = null).
+    // v7.9.15: seguimiento EN VIVO de la cápsula. La posición continua
+    // es currentPage + currentPageOffsetFraction: un flotante que va de
+    // 5.0 a 6.0 al deslizar de la 5 a la 6 sin saltos (la fracción va en
+    // ±0.5 y currentPage cambia justo a la mitad, así que la suma es
+    // continua — verificado en el fuente de PagerState de Compose
+    // foundation 1.12.1: currentPage es "la página más cercana a la
+    // posición de ajuste" y cambia mientras el paginador se desliza,
+    // no solo al asentarse; la fracción "se invierte cuando cambia la
+    // página actual"). La cápsula interpola su izquierda y su derecha
+    // entre las píldoras de los dos índices que rodean esa posición,
+    // así se desliza pegada al dedo mientras el usuario desliza, y
+    // pasa por la píldora del medio al cruzar varias páginas (la
+    // posición continua no salta ninguna). Si alguna de las dos
+    // píldoras aún no tiene medida válida, se cae a la cápsula animada
+    // de siempre (liveCapsule = null).
     val liveOffset = pageOffsetFractionProvider()
     val livePage = (coercedSelected + liveOffset)
         .coerceIn(0f, (categories.size - 1).coerceAtLeast(0).toFloat())
     val liveFromIndex = livePage.toInt().coerceIn(0, (categories.size - 1).coerceAtLeast(0))
     val liveToIndex = (liveFromIndex + 1).coerceAtMost((categories.size - 1).coerceAtLeast(0))
     val liveT = (livePage - liveFromIndex).coerceIn(0f, 1f)
-    val liveFromLeft = animTabPositionsX[liveFromIndex]
-    val liveFromWidth = animTabWidths[liveFromIndex]
-    val liveToLeft = animTabPositionsX[liveToIndex]
-    val liveToWidth = animTabWidths[liveToIndex]
+    val liveFrom = measurementFor(liveFromIndex)
+    val liveTo = measurementFor(liveToIndex)
     val liveCapsule: Pair<Float, Float>? =
-        if (liveFromLeft != null && liveFromWidth != null &&
-            liveToLeft != null && liveToWidth != null &&
-            liveFromWidth > 0f && liveToWidth > 0f
+        if (liveFrom != null && liveTo != null &&
+            liveFrom.width > 0f && liveTo.width > 0f
         ) {
-            val fromRight = liveFromLeft + liveFromWidth
-            val toRight = liveToLeft + liveToWidth
-            (liveFromLeft + (liveToLeft - liveFromLeft) * liveT) to
+            val fromRight = liveFrom.left + liveFrom.width
+            val toRight = liveTo.left + liveTo.width
+            (liveFrom.left + (liveTo.left - liveFrom.left) * liveT) to
                 (fromRight + (toRight - fromRight) * liveT)
         } else {
             null
@@ -3026,12 +3062,25 @@ private fun AuroraLibraryCategoryTabs(
     }
 
     val animatedLeft by animateFloatAsState(
-        targetValue = activeLeft,
+        // v7.9.16: mientras se desliza, el muelle persigue la posición
+        // EN VIVO de la cápsula, no la píldora asentada. Antes el muelle
+        // seguía apuntando a la píldora vieja durante todo el gesto (con
+        // los muelles asimétricos 250/500 tarda ~300 ms en llegar), así
+        // que al soltar, el dibujo pasaba de la cápsula en vivo al valor
+        // rezagado del muelle: la cápsula SALTABA HACIA ATRÁS, hacia la
+        // píldora anterior, y luego volvía con el muelle — en el teléfono
+        // "para retroceder falla", y al pasar rápido por varias páginas
+        // el salto hacía que la píldora del medio no se viera. Con el
+        // objetivo en vivo, al asentarse el muelle ya está en la posición
+        // de la cápsula y el cambio es sin salto. Mientras se desliza se
+        // sigue dibujando la cápsula en vivo directamente (abajo), así
+        // que el muelle no retrasa nada: solo se mantiene pegado.
+        targetValue = if (isLiveTracking && liveCapsule != null) liveCapsule.first else activeLeft,
         animationSpec = leftSpring,
         label = "tabLeft",
     )
     val animatedRight by animateFloatAsState(
-        targetValue = activeRight,
+        targetValue = if (isLiveTracking && liveCapsule != null) liveCapsule.second else activeRight,
         animationSpec = rightSpring,
         label = "tabRight",
     )
@@ -3049,8 +3098,9 @@ private fun AuroraLibraryCategoryTabs(
     // v7.9.15: durante el deslizamiento, la cápsula se dibuja DIRECTO
     // en la posición interpolada (sin pasar por el muelle: el muelle
     // la dejaría atrás del dedo). Al asentarse (offset 0) vuelve la
-    // animación con muelle de siempre, que ya está cerca del destino
-    // y termina el recorrido sin salto.
+    // animación con muelle de siempre, que ya está en la posición de
+    // la cápsula (v7.9.16: el muelle persigue la posición en vivo
+    // durante el gesto, ver arriba) y termina el recorrido sin salto.
     val drawLeft = if (isLiveTracking && liveCapsule != null) liveCapsule.first else animatedLeft
     val drawRight = if (isLiveTracking && liveCapsule != null) liveCapsule.second else animatedRight
 
@@ -3079,11 +3129,14 @@ private fun AuroraLibraryCategoryTabs(
         // frescas (ancho SemiBold de la píldora seleccionada).
         delay(150)
 
-        // animTabPositionsX / animTabWidths are the same measurements the sliding
-        // capsule uses: viewport-relative (they move with the row's scroll offset)
-        // and the full pill size including its 14dp side padding.
-        val tabLeft = animTabPositionsX[coercedSelected] ?: return@LaunchedEffect
-        val tabWidth = animTabWidths[coercedSelected] ?: return@LaunchedEffect
+        // Las medidas son las mismas que usa la cápsula deslizante:
+        // relativas a la vista (se mueven con el desplazamiento de la
+        // fila) y con el tamaño completo de la píldora, incluido su
+        // padding lateral de 14dp. Solo valen si son de la categoría
+        // actual (v7.9.16: measurementFor comprueba el id).
+        val selectedMeasurement = measurementFor(coercedSelected) ?: return@LaunchedEffect
+        val tabLeft = selectedMeasurement.left
+        val tabWidth = selectedMeasurement.width
         if (tabWidth <= 0f) return@LaunchedEffect
         val tabRight = tabLeft + tabWidth
 
@@ -3256,11 +3309,18 @@ private fun AuroraLibraryCategoryTabs(
                                 },
                             )
                             .onGloballyPositioned { coordinates ->
-                                animTabWidths[index] = coordinates.size.width.toFloat()
-                                animTabHeights[index] = coordinates.size.height.toFloat()
+                                // v7.9.16: la medida guarda el id de la
+                                // categoría (ver AuroraTabMeasurement):
+                                // la fila es compartida por las tres
+                                // secciones y los índices se reutilizan.
                                 val pos = coordinates.positionInParent()
-                                animTabPositionsX[index] = pos.x
-                                animTabPositionsY[index] = pos.y
+                                animTabMeasurements[index] = AuroraTabMeasurement(
+                                    left = pos.x,
+                                    top = pos.y,
+                                    width = coordinates.size.width.toFloat(),
+                                    height = coordinates.size.height.toFloat(),
+                                    categoryId = category.id,
+                                )
                             }
                             .padding(horizontal = 14.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,

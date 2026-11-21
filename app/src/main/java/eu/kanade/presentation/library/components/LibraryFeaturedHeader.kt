@@ -81,22 +81,39 @@ import kotlin.random.Random
  * esquinas de las tres tarjetas (destacado, Seguir viendo, biblioteca)
  * quedan iguales: 4.dp, el radio de las tarjetas de la cuadrícula.
  *
+ * v7.9.16 — "Seguir viendo" con la portada del MISMO TAMAÑO que las
+ * de la cuadrícula de la biblioteca (el usuario: "quiero que esta
+ * portada tenga el mismo tamaño que las otras", con las letras al lado).
+ * La anchura disponible aquí (maxWidth del BoxWithConstraints) ES la
+ * misma que la de la rejilla: el encabezado y la rejilla viven en la
+ * misma columna y el padding del encabezado (contentPadding + 8dp por
+ * lado, ver AuroraCollapsingLibraryHeader) es el mismo que el de la
+ * rejilla (contentPadding + 8dp extra de LazyLibraryGrid), así que la
+ * fórmula de la celda es la de la rejilla: columnas fijas con 4dp
+ * entre celdas (GridHorizontalSpacer), o la celda adaptable si no hay
+ * columnas fijas. La tarjeta es portada + columna de texto (156dp,
+ * como en la v7.9.14); quepan las que quepan. La v7.9.14 calculaba la
+ * celda igual, pero el usuario la percibió distinta ("No como la de
+ * antes"): por eso la fórmula se escribe aquí desde la rejilla, con
+ * las columnas del mismo ajuste que usa la rejilla, no copiada.
+ *
  * v7.9.15 — (1) "Seguir viendo" MÁS PEQUEÑO, QUE QUEPAN DOS EN LA
  * FILA, NO TRES: la tarjeta pasa a ~la mitad del ancho del carrusel
  * (dos a la vez, una al lado de la otra), con el MISMO diseño de lado
  * y las MISMAS letras (15/12/11sp); la portada y la columna de texto
  * se ajustan proporcionalmente para caber (portada ~38% del interior
  * de la tarjeta, para que quepa la insignia "Nuevo capítulo" con su
- * padding). (2) El destacado se desliza SOLO cada ~4 s, en bucle,
- * como un catálogo; pausa mientras el usuario toca/arrastra (y
- * reanuda 4 s después del último cambio de página) y no avanza si el
- * encabezado está colapsado/oculto. El diseño no se toca. (3) Filtro
- * de privacidad: las fuentes desmarcadas en Ajustes → "Seguir viendo
- * y sugerencias" no aparecen ni en "Seguir viendo" ni en el
- * destacado (`hiddenSourceKeys`, claves "a:<id>" / "m:<id>").
- * (4) La semilla del barajado ya no es aleatoria a cada entrada: la
- * guarda UiPreferences y se renueva cada 6 h (ver AnimeLibraryTab),
- * así las sugerencias cambian solas cada 6 horas.
+ * padding). El usuario lo rechazó: la portada quedó muy pequeña.
+ * (2) El destacado se desliza SOLO cada ~4 s, en bucle, como un
+ * catálogo; pausa mientras el usuario toca/arrastra (y reanuda 4 s
+ * después del último cambio de página) y no avanza si el encabezado
+ * está colapsado/oculto. El diseño no se toca. (3) Filtro de
+ * privacidad: las fuentes desmarcadas en Ajustes → "Seguir viendo y
+ * sugerencias" no aparecen ni en "Seguir viendo" ni en el destacado
+ * (`hiddenSourceKeys`, claves "a:<id>" / "m:<id>"). (4) La semilla del
+ * barajado ya no es aleatoria a cada entrada: la guarda UiPreferences
+ * y se renueva cada 6 h (ver AnimeLibraryTab), así las sugerencias
+ * cambian solas cada 6 horas.
  */
 
 // Valores de UiPreferences.auroraLibraryFeaturedSource().
@@ -133,6 +150,11 @@ fun AnimeLibraryFeaturedHeader(
     onDetailsClick: (AnimeLibraryItem) -> Unit,
     onContinueClick: (AnimeLibraryItem) -> Unit,
     modifier: Modifier = Modifier,
+    // v7.9.16: columnas de la rejilla de la biblioteca (el mismo ajuste
+    // que usa la rejilla) y celda mínima adaptable: el carrusel de
+    // "Seguir viendo" calcula la portada con la fórmula de la rejilla.
+    columns: Int,
+    adaptiveMinCellDp: Int,
     // v7.9.15: fuentes ocultas por el usuario en Ajustes ("a:<id>");
     // no aparecen ni en "Seguir viendo" ni en el destacado.
     hiddenSourceKeys: Set<String> = emptySet(),
@@ -195,6 +217,8 @@ fun AnimeLibraryFeaturedHeader(
     LibraryFeaturedHeaderContent(
         featuredEntries = featuredEntries,
         continueEntries = continueEntries,
+        columns = columns,
+        adaptiveMinCellDp = adaptiveMinCellDp,
         modifier = modifier,
         headerVisible = headerVisible,
     )
@@ -208,6 +232,11 @@ fun MangaLibraryFeaturedHeader(
     onDetailsClick: (MangaLibraryItem) -> Unit,
     onContinueClick: (MangaLibraryItem) -> Unit,
     modifier: Modifier = Modifier,
+    // v7.9.16: columnas de la rejilla de la biblioteca (el mismo ajuste
+    // que usa la rejilla) y celda mínima adaptable: el carrusel de
+    // "Seguir viendo" calcula la portada con la fórmula de la rejilla.
+    columns: Int,
+    adaptiveMinCellDp: Int,
     // v7.9.15: fuentes ocultas por el usuario en Ajustes ("m:<id>");
     // no aparecen ni en "Seguir viendo" ni en el destacado.
     hiddenSourceKeys: Set<String> = emptySet(),
@@ -257,6 +286,8 @@ fun MangaLibraryFeaturedHeader(
     LibraryFeaturedHeaderContent(
         featuredEntries = featuredEntries,
         continueEntries = continueEntries,
+        columns = columns,
+        adaptiveMinCellDp = adaptiveMinCellDp,
         modifier = modifier,
         headerVisible = headerVisible,
     )
@@ -266,6 +297,8 @@ fun MangaLibraryFeaturedHeader(
 private fun LibraryFeaturedHeaderContent(
     featuredEntries: List<LibraryFeaturedEntry>,
     continueEntries: List<LibraryFeaturedEntry>,
+    columns: Int,
+    adaptiveMinCellDp: Int,
     modifier: Modifier = Modifier,
     // v7.9.15: el avance automático del destacado no corre si el
     // encabezado está colapsado/oculto.
@@ -285,20 +318,28 @@ private fun LibraryFeaturedHeaderContent(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(modifier = Modifier.height(10.dp))
-            // v7.9.15: "Seguir viendo" MÁS PEQUEÑO, QUE QUEPAN DOS EN
-            // LA FILA, NO TRES. La tarjeta pasa a ~la mitad del ancho
-            // del carrusel (dos a la vez, una al lado de la otra), con
-            // el MISMO diseño de lado y las MISMAS letras de la v7.9.14
-            // (título 15sp, datos 12sp, pie 11sp, `compact = true`).
-            // La portada y la columna de texto se ajustan
-            // proporcionalmente para caber: la portada es ~38% del
-            // interior de la tarjeta (padding 8dp + portada + 10dp +
-            // texto) y el resto es la columna de texto, que con ese
-            // reparto deja sitio justo para la insignia "Nuevo
-            // capítulo/episodio" con su padding.
+            // v7.9.16: "Seguir viendo" con la portada del MISMO TAMAÑO
+            // que las de la cuadrícula de la biblioteca (el usuario:
+            // "quiero que esta portada tenga el mismo tamaño que las
+            // otras"), con el MISMO diseño de lado y las MISMAS letras
+            // de siempre (título 15sp, datos 12sp, pie 11sp,
+            // `compact = true`). La anchura disponible aquí (maxWidth)
+            // ES la de la rejilla (ver el comentario de arriba), así
+            // que la celda se calcula con la fórmula de LazyLibraryGrid:
+            // columnas fijas con 4dp entre celdas (GridHorizontalSpacer)
+            // o, sin columnas fijas, tantas celdas de adaptiveMinCellDp
+            // como quepan (igual que GridCells.Adaptive). La tarjeta es
+            // la portada + la columna de texto (156dp, como en la
+            // v7.9.14): quepan las que quepan, aunque sean dos. El
+            // destacado grande no se toca.
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val cardWidth = (maxWidth - 12.dp) / 2
-                val coverWidth = (cardWidth - 8.dp - 8.dp - 10.dp) * 0.38f
+                val cellWidth = if (columns > 0) {
+                    (maxWidth - 4.dp * (columns - 1)) / columns
+                } else {
+                    val count = ((maxWidth + 4.dp) / (adaptiveMinCellDp.dp + 4.dp))
+                        .toInt().coerceAtLeast(1)
+                    (maxWidth - 4.dp * (count - 1)) / count
+                }
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -318,8 +359,8 @@ private fun LibraryFeaturedHeaderContent(
                             status = entry.status,
                             hasNew = entry.hasNew,
                             onClick = entry.onContinueClick,
-                            modifier = Modifier.width(cardWidth),
-                            coverWidth = coverWidth,
+                            modifier = Modifier.width(cellWidth + 156.dp),
+                            coverWidth = cellWidth,
                             compact = true,
                         )
                     }
