@@ -27,10 +27,13 @@ import eu.kanade.core.util.ifMangaSourcesLoaded
 import eu.kanade.domain.entries.manga.interactor.UpdateManga
 import eu.kanade.domain.entries.manga.model.hasCustomCover
 import eu.kanade.domain.entries.manga.model.toSManga
+import eu.kanade.domain.metadata.interactor.normalizeMetadataSearchQuery
+import eu.kanade.domain.metadata.interactor.parseOriginalTitle
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.presentation.category.components.ChangeCategoryDialog
 import eu.kanade.presentation.components.NavigatorAdaptiveSheet
 import eu.kanade.presentation.entries.EditCoverAction
+import eu.kanade.presentation.entries.components.AlternativeCoverPickerDialog
 import eu.kanade.presentation.entries.components.AuthRequiredDialog
 import eu.kanade.presentation.entries.components.DeleteItemsDialog
 import eu.kanade.presentation.entries.components.DuplicateEntryDialog
@@ -374,6 +377,7 @@ class MangaScreen(
                         if (it == null) return@rememberLauncherForActivityResult
                         sm.editCover(context, it)
                     }
+                    var showCoverSearch by remember { mutableStateOf(false) }
                     MangaCoverDialog(
                         manga = manga!!,
                         snackbarHostState = sm.snackbarHostState,
@@ -386,8 +390,25 @@ class MangaScreen(
                                 EditCoverAction.DELETE -> sm.deleteCustomCover(context)
                             }
                         },
+                        onSearchCoversClick = { showCoverSearch = true },
                         onDismissRequest = onDismissRequest,
                     )
+                    if (showCoverSearch) {
+                        AlternativeCoverPickerDialog(
+                            title = manga!!.title,
+                            alternativeTitles = listOfNotNull(
+                                normalizeMetadataSearchQuery(manga!!.title)
+                                    .takeIf { it != manga!!.title },
+                                parseOriginalTitle(manga!!.description),
+                            ).distinct(),
+                            isManga = true,
+                            onCoverSelected = { url ->
+                                sm.setCoverFromUrl(context, url)
+                                showCoverSearch = false
+                            },
+                            onDismissRequest = { showCoverSearch = false },
+                        )
+                    }
                 } else {
                     LoadingScreen(Modifier.systemBarsPadding())
                 }

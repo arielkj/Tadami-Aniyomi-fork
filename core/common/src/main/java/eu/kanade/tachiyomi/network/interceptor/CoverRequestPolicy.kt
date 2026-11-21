@@ -10,6 +10,14 @@ object CoverRequestPolicy {
     const val HEADER_COVER_FALLBACK_URL = "X-Aurora-Cover-Fallback-Url"
     const val HEADER_COVER_ATTEMPT = "X-Aurora-Cover-Attempt"
 
+    /**
+     * v7.9.20: marca una petición de variante mejorada («sonda»). La sonda
+     * prueba si existe una versión mayor de la portada; su 404 NO es un
+     * fallo del host (la variante simplemente no existe) y no debe contar
+     * para la lista negra — ver [CoverRecoveryInterceptor].
+     */
+    const val HEADER_COVER_PROBE = "X-Aurora-Cover-Probe"
+
     private const val FAILURE_THRESHOLD = 2
 
     private data class HostState(
@@ -46,6 +54,21 @@ object CoverRequestPolicy {
             builder.header(HEADER_COVER_FALLBACK_URL, fallbackUrl.toAsciiUrl())
         }
         return builder
+    }
+
+    /**
+     * v7.9.20: marca la petición como sonda de variante mejorada (ver
+     * [HEADER_COVER_PROBE]). La sonda sigue siendo una petición de
+     * portada (sin WebView de Cloudflare), pero su fallo no ensucia
+     * la lista negra del host.
+     */
+    fun markCoverProbe(builder: Request.Builder): Request.Builder {
+        builder.header(HEADER_COVER_PROBE, "1")
+        return builder
+    }
+
+    fun isCoverProbe(request: Request): Boolean {
+        return request.header(HEADER_COVER_PROBE) == "1"
     }
 
     fun isRecoverableResponseCode(code: Int): Boolean {

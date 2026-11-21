@@ -16,6 +16,8 @@ import eu.kanade.tachiyomi.data.cache.AnimeCoverCache
 import eu.kanade.tachiyomi.data.saver.Image
 import eu.kanade.tachiyomi.data.saver.ImageSaver
 import eu.kanade.tachiyomi.data.saver.Location
+import eu.kanade.tachiyomi.network.NetworkHelper
+import eu.kanade.tachiyomi.network.awaitSuccess
 import eu.kanade.tachiyomi.util.editBackground
 import eu.kanade.tachiyomi.util.editCover
 import eu.kanade.tachiyomi.util.system.getBitmapOrNull
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import logcat.LogPriority
+import okhttp3.Request
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withIOContext
@@ -36,6 +39,7 @@ import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.ByteArrayInputStream
 
 class AnimeImageScreenModel(
     private val animeId: Long,
@@ -166,6 +170,29 @@ class AnimeImageScreenModel(
                 } else {
                     backgroundCache.deleteCustomBackground(animeId)
                     updateAnime.awaitUpdateBackgroundLastModified(animeId)
+                }
+                notifyImageUpdated(context)
+            } catch (e: Exception) {
+                notifyFailedImageUpdate(context, e)
+            }
+        }
+    }
+
+    /**
+     * Download a cover from a URL (e.g. a Kitsu original poster) and set
+     * it as this anime's custom cover.
+     */
+    fun setCoverFromUrl(context: Context, url: String) {
+        val anime = state.value ?: return
+        screenModelScope.launchIO {
+            try {
+                val client = Injekt.get<NetworkHelper>().client
+                val request = Request.Builder().url(url).build()
+                val bytes = client.newCall(request).awaitSuccess().use { response ->
+                    response.body.bytes()
+                }
+                ByteArrayInputStream(bytes).use {
+                    anime.editCover(Injekt.get(), it, updateAnime, coverCache)
                 }
                 notifyImageUpdated(context)
             } catch (e: Exception) {

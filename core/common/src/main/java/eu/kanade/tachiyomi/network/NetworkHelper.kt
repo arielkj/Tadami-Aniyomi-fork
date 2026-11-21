@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.network
 import android.content.Context
 import eu.kanade.tachiyomi.network.interceptor.CloudflareInterceptor
 import eu.kanade.tachiyomi.network.interceptor.CoverRecoveryInterceptor
+import eu.kanade.tachiyomi.network.interceptor.MangaDexUserAgentInterceptor
 import eu.kanade.tachiyomi.network.interceptor.UncaughtExceptionInterceptor
 import eu.kanade.tachiyomi.network.interceptor.UserAgentInterceptor
 import okhttp3.Cache
@@ -55,6 +56,11 @@ class NetworkHelper(
             )
             .addInterceptor(UncaughtExceptionInterceptor())
             .addInterceptor(UserAgentInterceptor(::defaultUserAgentProvider))
+            // v7.9.21: MangaDex desafía el UA WebView con una página de
+            // verificación JS; solo sus hosts llevan un UA plano (ver
+            // MangaDexUserAgentInterceptor). Después del de UA para
+            // sobrescribir el que este puso.
+            .addInterceptor(MangaDexUserAgentInterceptor())
             .addInterceptor(CoverRecoveryInterceptor())
             // OkHttp 5 + KeiSource (extensions-lib 1.6): compression is an *application*
             // interceptor. Network-level IgnoreGzipInterceptor/BrotliInterceptor are rejected

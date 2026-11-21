@@ -98,6 +98,14 @@
     <string name="delete_category_confirmation">¿Quieres borrar la categoría «%s»?</string>
     <string name="delete_category">Borrar categoría</string>
     <string name="action_edit_cover">Editar la portada</string>
+    <string name="search_covers">Buscar portadas</string>
+    <string name="alternative_covers">Portadas alternativas</string>
+    <string name="no_covers_found">No se encontraron portadas</string>
+    <string name="covers_search_failed">No se pudieron buscar las portadas</string>
+    <string name="alternative_covers_search_hint">Buscar por título…</string>
+    <string name="alternative_covers_searched_as">Resultados para: %s</string>
+    <string name="alternative_covers_no_results_in">Sin resultados en: %s</string>
+    <string name="alternative_covers_tmdb_key_missing">TMDB necesita la clave API (Ajustes → Seguimiento → Películas y series)</string>
     <string name="action_view_chapters">Ver capítulos</string>
     <string name="action_pause">Pausar</string>
     <string name="action_play">Reproducir</string>

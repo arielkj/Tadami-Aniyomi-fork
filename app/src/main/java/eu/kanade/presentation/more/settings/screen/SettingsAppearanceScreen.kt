@@ -606,6 +606,24 @@ object SettingsAppearanceScreen : SearchableSettings {
                         title = stringResource(AYMR.strings.pref_title_screen_style),
                     ),
                 )
+                // v7.9.19 Fase 1: filtro de portadas grandes del detalle
+                // (Apagado / Suave por defecto / Intenso). Solo afecta a
+                // las portadas grandes del detalle, no a las miniaturas
+                // de la cuadrícula.
+                add(
+                    Preference.PreferenceItem.ListPreference(
+                        preference = uiPreferences.auroraCoverFilter(),
+                        entries = persistentMapOf(
+                            "off" to stringResource(AYMR.strings.aurora_cover_filter_off),
+                            "soft" to stringResource(AYMR.strings.aurora_cover_filter_soft),
+                            "intense" to stringResource(
+                                AYMR.strings.aurora_cover_filter_intense,
+                            ),
+                        ),
+                        title = stringResource(AYMR.strings.aurora_cover_filter),
+                        subtitle = stringResource(AYMR.strings.aurora_cover_filter_summary),
+                    ),
+                )
                 add(
                     Preference.PreferenceItem.SwitchPreference(
                         preference = uiPreferences.titleScreenAnimation(),

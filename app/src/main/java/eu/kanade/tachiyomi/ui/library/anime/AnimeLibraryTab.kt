@@ -307,6 +307,17 @@ data object AnimeLibraryTab : Tab {
     private val auroraScrollPositions =
         mutableMapOf<Triple<Section, Long, LibraryDisplayMode>, Pair<Int, Int>>()
 
+    // v7.9.21: retención del colapso del encabezado (destacado + "Seguir
+    // viendo") por sección. El estado vivía en `remember` y moría con la
+    // composición al abrir un detalle (Voyager dispone el árbol del tab al
+    // cubrirlo otra pantalla): al volver, el encabezado se recreaba
+    // expandido (offsetPx = 0) aunque la cuadrícula sí restauraba su
+    // posición desde auroraScrollPositions, y la biblioteca aparecía
+    // arriba. Mismo patrón que H15: el mapa vive en el objeto y sobrevive
+    // a los pushes del navegador. La clave es la sección (Anime/Manga);
+    // Novela no tiene encabezado colapsable.
+    private val auroraHeaderOffsets = mutableMapOf<Section, Float>()
+
     // H19-S2: holders for cross-section UI state that used to live in the Content scope as
     // mutableStateOf - every write (continue tap, novel picker dialog open) invalidated the
     // whole screen. Plain/snapshot state in object holders scopes the invalidation to the
@@ -830,7 +841,10 @@ data object AnimeLibraryTab : Tab {
                         ]
                     }
                 }
-                val animeHeaderState = rememberAuroraCollapsingHeaderState()
+                val animeHeaderState = rememberAuroraCollapsingHeaderState(
+                    section = Section.Anime,
+                    savedOffsets = auroraHeaderOffsets,
+                )
                 LaunchedEffect(showAnimeFeaturedHeader) {
                     if (!showAnimeFeaturedHeader) {
                         // v7.9.12: también se reinicia la altura — si
@@ -1114,7 +1128,10 @@ data object AnimeLibraryTab : Tab {
                         ]
                     }
                 }
-                val mangaHeaderState = rememberAuroraCollapsingHeaderState()
+                val mangaHeaderState = rememberAuroraCollapsingHeaderState(
+                    section = Section.Manga,
+                    savedOffsets = auroraHeaderOffsets,
+                )
                 LaunchedEffect(showMangaFeaturedHeader) {
                     if (!showMangaFeaturedHeader) {
                         // v7.9.12: también se reinicia la altura (ver el
@@ -3710,12 +3727,25 @@ internal fun shouldSyncAuroraLibraryCategoryIndex(
 
 private const val AURORA_COLLAPSING_HEADER_SLOT = "library_collapsing_header"
 
-private class AuroraCollapsingHeaderState {
+private class AuroraCollapsingHeaderState(
+    private val section: AnimeLibraryTab.Section,
+    private val savedOffsets: MutableMap<AnimeLibraryTab.Section, Float>,
+) {
     /** Alto total del encabezado en px (con el hueco superior incluido). */
     var heightPx: Int = 0
 
     /** Desplazamiento vertical actual en px: 0 = visible, -heightPx = oculto. */
-    var offsetPx by mutableFloatStateOf(0f)
+    // v7.9.21: el offset se restaura del mapa del objeto (sobrevive a los
+    // pushes del navegador, igual que auroraScrollPositions) y cada
+    // escritura lo guarda ahí: al volver del detalle el encabezado aparece
+    // tal como estaba, no expandido.
+    private var offsetBacking by mutableFloatStateOf(savedOffsets[section] ?: 0f)
+    var offsetPx: Float
+        get() = offsetBacking
+        set(value) {
+            offsetBacking = value
+            savedOffsets[section] = value
+        }
 
     val nestedScrollConnection: NestedScrollConnection = object : NestedScrollConnection {
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -3741,8 +3771,11 @@ private class AuroraCollapsingHeaderState {
 }
 
 @Composable
-private fun rememberAuroraCollapsingHeaderState(): AuroraCollapsingHeaderState {
-    return remember { AuroraCollapsingHeaderState() }
+private fun rememberAuroraCollapsingHeaderState(
+    section: AnimeLibraryTab.Section,
+    savedOffsets: MutableMap<AnimeLibraryTab.Section, Float>,
+): AuroraCollapsingHeaderState {
+    return remember(section) { AuroraCollapsingHeaderState(section, savedOffsets) }
 }
 
 @Composable
@@ -3790,6 +3823,11 @@ private fun AuroraCollapsingLibraryHeader(
         }
         val fullHeight = placeables.maxOfOrNull { it.height } ?: 0
         state.heightPx = fullHeight
+        // v7.9.21: el offset restaurado puede superar la altura actual si
+        // el contenido cambió (p. ej. sin destacado): sin limitarlo, el
+        // encabezado no podría volver a aparecer al bajar (el presupuesto
+        // de ocultación offsetPx + heightPx quedaría negativo).
+        state.offsetPx = state.offsetPx.coerceIn(-fullHeight.toFloat(), 0f)
         val visibleHeight = (fullHeight + state.offsetPx.roundToInt()).coerceAtLeast(0)
         layout(constraints.maxWidth, visibleHeight) {
             placeables.forEach { it.place(0, state.offsetPx.roundToInt()) }

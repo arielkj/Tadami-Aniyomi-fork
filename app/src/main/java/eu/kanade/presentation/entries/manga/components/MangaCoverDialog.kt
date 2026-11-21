@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -48,6 +49,7 @@ fun MangaCoverDialog(
     onShareClick: () -> Unit,
     onSaveClick: () -> Unit,
     onEditClick: ((EditCoverAction) -> Unit)?,
+    onSearchCoversClick: (() -> Unit)? = null,
     onDismissRequest: () -> Unit,
 ) {
     AuroraPosterDialog(
@@ -110,6 +112,15 @@ fun MangaCoverDialog(
                         tint = contentColor,
                         contentDescription = stringResource(MR.strings.action_share),
                     )
+                }
+                if (onSearchCoversClick != null) {
+                    IconButton(onClick = onSearchCoversClick) {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            tint = contentColor,
+                            contentDescription = stringResource(MR.strings.search_covers),
+                        )
+                    }
                 }
             }
         },

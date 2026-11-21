@@ -11,8 +11,10 @@ import coil3.request.Options
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.interceptor.CoverRequestPolicy
 import eu.kanade.tachiyomi.network.toAsciiUrl
+import eu.kanade.tachiyomi.network.withCoverTimeouts
 import okhttp3.Call
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.Buffer
 import okio.FileSystem
@@ -59,6 +61,10 @@ class AuroraPosterRequestKeyer : Keyer<AuroraPosterRequest> {
             if (data.customCoverFile?.exists() == true) {
                 append(";custom")
             }
+            // v7.9.20: el nivel del filtro forma parte de la clave, como
+            // en la clave de disco — si no, cambiar el ajuste serviría
+            // el bitmap viejo de la caché de memoria.
+            append(CoverFilter.cacheKeyFragment())
         }
     }
 }
@@ -76,6 +82,10 @@ class AuroraPosterRequestFetcher(
             append(data.primaryUrl.orEmpty())
             append(';')
             append(data.fallbackUrl.orEmpty())
+            // v7.9.19 Fase 1 (Capa 2): el nivel del filtro forma parte de
+            // la clave — al cambiar el ajuste, la portada se vuelve a
+            // bajar y a filtrar en vez de servir la versión vieja.
+            append(CoverFilter.cacheKeyFragment())
         }
 
     override suspend fun fetch(): FetchResult {
@@ -127,11 +137,23 @@ class AuroraPosterRequestFetcher(
      * available on offline starts. Returns null only before the source has
      * been consumed (caching disabled), so the caller can fall back to the
      * original result safely.
+     *
+     * v7.9.19 Fase 1 (Capa 2): antes de guardar, los bytes pasan por el
+     * filtro suave de portadas del detalle. Se aplica UNA vez aquí (hilo
+     * de IO de Coil) y el resultado filtrado es lo que queda en caché,
+     * así que al hacer scroll o al reabrir el detalle no se recalcula
+     * nada. Si el filtro está apagado o falla, se guardan los bytes
+     * originales sin tocar.
      */
     private fun writeToDiskCache(fetched: SourceFetchResult): FetchResult? {
         if (!options.diskCachePolicy.writeEnabled) return null
         val diskCache = imageLoader.diskCache ?: return null
-        val bytes = fetched.source.use { it.source().readByteArray() }
+        val originalBytes = fetched.source.use { it.source().readByteArray() }
+        val filteredBytes = CoverFilter.filter(originalBytes)
+        val bytes = filteredBytes ?: originalBytes
+        // Los bytes filtrados se re-codifican como JPEG: el tipo MIME
+        // tiene que decirlo, o el decodificador recibiría una pista falsa.
+        val mimeType = if (filteredBytes != null) "image/jpeg" else fetched.mimeType
         val snapshot = runCatching {
             val editor = diskCache.openEditor(diskCacheKey) ?: return@runCatching null
             try {
@@ -154,7 +176,7 @@ class AuroraPosterRequestFetcher(
         }
         return SourceFetchResult(
             source = source,
-            mimeType = fetched.mimeType,
+            mimeType = mimeType,
             dataSource = fetched.dataSource,
         )
     }
@@ -182,17 +204,43 @@ internal suspend fun loadAuroraPosterSource(
     fileSystem: FileSystem,
     request: AuroraPosterRequest,
 ): FetchResult {
-    val candidates = buildList {
-        request.primaryUrl?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
-        request.fallbackUrl?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
+    // v7.9.19 Fase 1 (Capa 1): si la dirección de la portada permite
+    // pedir una variante más grande, se prueba esa primero y la original
+    // queda como respaldo inmediato — si la grande da 404 o falla, cae
+    // a la que había sin que se note. Cuando no hay variante mayor, la
+    // lista queda igual que antes ([primary, fallback]).
+    //
+    // v7.9.20: la variante mejorada es una SONDA (isProbe = true): su
+    // 404 no ensucia la lista negra del host (ver CoverRequestPolicy).
+    // Antes, cada póster de anime sumaba un fallo del host por la sonda
+    // y con dos fallos el CDN entero quedaba bloqueado para el proceso.
+    val candidates: List<Pair<String, Boolean>> = buildList {
+        request.primaryUrl?.trim()?.takeIf { it.isNotBlank() }?.let { url ->
+            upgradePosterUrl(url)?.let { add(it to true) }
+            add(url to false)
+        }
+        request.fallbackUrl?.trim()?.takeIf { it.isNotBlank() }?.let { url ->
+            upgradePosterUrl(url)?.let { add(it to true) }
+            add(url to false)
+        }
     }.distinct()
+
+    // v7.9.20: timeouts de portada (25 s por intento) como AnimeImageFetcher.
+    // El fetcher usaba el cliente tal cual (hasta 2 min por intento): con
+    // 4 candidatos, un póster atascado retenía el detalle minutos.
+    val effectiveCallFactory = if (callFactory is OkHttpClient) {
+        callFactory.withCoverTimeouts()
+    } else {
+        callFactory
+    }
 
     var lastError: IOException? = null
 
     for ((attemptIndex, candidate) in candidates.withIndex()) {
-        val httpUrl = candidate.toHttpUrlOrNull()
+        val (candidateUrl, isProbe) = candidate
+        val httpUrl = candidateUrl.toHttpUrlOrNull()
         if (httpUrl == null) {
-            lastError = IOException("Invalid poster url: $candidate")
+            lastError = IOException("Invalid poster url: $candidateUrl")
             continue
         }
         if (CoverRequestPolicy.isBlacklisted(httpUrl.host)) {
@@ -205,6 +253,9 @@ internal suspend fun loadAuroraPosterSource(
             fallbackUrl = request.fallbackUrl,
             attempt = attemptIndex,
         )
+        if (isProbe) {
+            CoverRequestPolicy.markCoverProbe(requestBuilder)
+        }
 
         request.headers?.forEach { (name, value) ->
             requestBuilder.header(name, value)
@@ -214,7 +265,7 @@ internal suspend fun loadAuroraPosterSource(
         }
 
         val response = try {
-            callFactory.newCall(requestBuilder.build()).await()
+            effectiveCallFactory.newCall(requestBuilder.build()).await()
         } catch (e: IOException) {
             lastError = e
             continue
@@ -233,9 +284,58 @@ internal suspend fun loadAuroraPosterSource(
             )
         }
 
-        lastError = IOException("HTTP ${response.code} for $candidate")
+        lastError = IOException("HTTP ${response.code} for $candidateUrl")
         response.close()
     }
 
     throw (lastError ?: IOException("Failed to load poster"))
 }
+
+/**
+ * v7.9.19 Fase 1 (Capa 1): devuelve la variante más grande de una
+ * dirección de portada cuando el CDN la ofrece cambiando un segmento
+ * de la ruta, o null si no hay variante mayor que pedir. La variante
+ * se prueba primero y la original queda como respaldo (ver
+ * [loadAuroraPosterSource]), así que un 404 no rompe nada: solo cuesta
+ * una petición fallida antes de cargar la de siempre.
+ *
+ * Variantes que se conocen:
+ * - AniList CDN: /medium/ -> /large/ (la extraLarge vive bajo /large/).
+ * - Shikimori: /preview/ -> /original/.
+ * - MangaDex: cover.256.jpg / cover.512.jpg -> cover original.
+ * - MyAnimeList CDN: ...123t.jpg -> ...123.jpg (la `t` marca miniatura).
+ * - Genérico: /small/ -> /large/, /thumb(s)/ -> /original/,
+ *   /thumbnail/ -> /large/.
+ *
+ * Nota: los títulos con metadatos (AniList/Shikimori) ya traen la
+ * extraLarge o la original desde la propia API, así que esto solo
+ * ayuda a las portadas que vienen de la fuente sin metadatos. El
+ * bannerImage de AniList (~1900 px panorámico) NO se usa aquí: el
+ * fondo del detalle es vertical y con recorte solo se vería una
+ * franja del banner; la portada vertical grande es la imagen correcta.
+ */
+internal fun upgradePosterUrl(url: String): String? {
+    val value = url.trim()
+    if (value.isEmpty()) return null
+    val upgraded = when {
+        "/medium/" in value -> value.replace("/medium/", "/large/")
+        "/preview/" in value -> value.replace("/preview/", "/original/")
+        MANGADEX_SIZED_COVER_REGEX.containsMatchIn(value) ->
+            value.replace(MANGADEX_SIZED_COVER_REGEX, "$2")
+        value.contains("cdn.myanimelist.net") &&
+            MAL_THUMBNAIL_REGEX.containsMatchIn(value) ->
+            value.replace(MAL_THUMBNAIL_REGEX, "$1$2")
+        "/small/" in value -> value.replace("/small/", "/large/")
+        "/thumb/" in value -> value.replace("/thumb/", "/original/")
+        "/thumbs/" in value -> value.replace("/thumbs/", "/original/")
+        "/thumbnail/" in value -> value.replace("/thumbnail/", "/large/")
+        else -> return null
+    }
+    return upgraded.takeIf { it != value }
+}
+
+private val MANGADEX_SIZED_COVER_REGEX =
+    Regex("""\.(256|512)(\.(jpe?g|png|webp))$""", RegexOption.IGNORE_CASE)
+
+private val MAL_THUMBNAIL_REGEX =
+    Regex("""(\d)t(\.(jpe?g|png|webp))$""", RegexOption.IGNORE_CASE)

@@ -22,7 +22,16 @@ class CoverRecoveryInterceptor : Interceptor {
             if (response.isSuccessful) {
                 CoverRequestPolicy.clear(host)
             } else if (CoverRequestPolicy.isRecoverableResponseCode(response.code)) {
-                CoverRequestPolicy.recordFailure(host)
+                // v7.9.20: un 404/403 de una sonda de variante mejorada no
+                // es un fallo del host — la variante simplemente no existe.
+                // Antes, cada póster de anime probaba la variante primero y
+                // su 404 sumaba un fallo; con dos fallos el host entero
+                // (p. ej. el CDN de AniList) quedaba en lista negra para
+                // todo el proceso y ninguna portada de ese host volvía a
+                // cargar. Solo las URLs reales cuentan para la lista negra.
+                if (!CoverRequestPolicy.isCoverProbe(request)) {
+                    CoverRequestPolicy.recordFailure(host)
+                }
             }
             response
         } catch (e: IOException) {

@@ -28,6 +28,8 @@ import eu.kanade.domain.entries.anime.interactor.UpdateAnime
 import eu.kanade.domain.entries.anime.model.hasCustomBackground
 import eu.kanade.domain.entries.anime.model.hasCustomCover
 import eu.kanade.domain.entries.anime.model.toSAnime
+import eu.kanade.domain.metadata.interactor.normalizeMetadataSearchQuery
+import eu.kanade.domain.metadata.interactor.parseOriginalTitle
 import eu.kanade.presentation.category.components.ChangeCategoryDialog
 import eu.kanade.presentation.components.NavigatorAdaptiveSheet
 import eu.kanade.presentation.entries.EditCoverAction
@@ -37,6 +39,7 @@ import eu.kanade.presentation.entries.anime.EpisodeOptionsDialogScreen
 import eu.kanade.presentation.entries.anime.EpisodeSettingsDialog
 import eu.kanade.presentation.entries.anime.SeasonSettingsDialog
 import eu.kanade.presentation.entries.anime.components.AnimeImagesDialog
+import eu.kanade.presentation.entries.components.AlternativeCoverPickerDialog
 import eu.kanade.presentation.entries.components.DeleteItemsDialog
 import eu.kanade.presentation.entries.components.DuplicateEntryDialog
 import eu.kanade.presentation.entries.components.EditMetadataSheet
@@ -415,6 +418,7 @@ class AnimeScreen(
                         if (it == null) return@rememberLauncherForActivityResult
                         sm.editImage(context, it)
                     }
+                    var showCoverSearch by remember { mutableStateOf(false) }
                     AnimeImagesDialog(
                         anime = anime!!,
                         snackbarHostState = sm.snackbarHostState,
@@ -429,8 +433,25 @@ class AnimeScreen(
                                 EditCoverAction.DELETE -> sm.deleteCustomImage(context)
                             }
                         },
+                        onSearchCoversClick = { showCoverSearch = true },
                         onDismissRequest = onDismissRequest,
                     )
+                    if (showCoverSearch) {
+                        AlternativeCoverPickerDialog(
+                            title = anime!!.title,
+                            alternativeTitles = listOfNotNull(
+                                normalizeMetadataSearchQuery(anime!!.title)
+                                    .takeIf { it != anime!!.title },
+                                parseOriginalTitle(anime!!.description),
+                            ).distinct(),
+                            isManga = false,
+                            onCoverSelected = { url ->
+                                sm.setCoverFromUrl(context, url)
+                                showCoverSearch = false
+                            },
+                            onDismissRequest = { showCoverSearch = false },
+                        )
+                    }
                 } else {
                     LoadingScreen(Modifier.systemBarsPadding())
                 }
