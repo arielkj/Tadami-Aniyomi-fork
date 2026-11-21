@@ -28,6 +28,12 @@ if(NOT EXISTS "${NCNN_PREBUILT_DIR}/${ANDROID_ABI}/lib/cmake/ncnn/ncnnConfig.cma
         "unzip it into ${NCNN_PREBUILT_DIR} (see the CI workflow).")
 endif()
 list(APPEND CMAKE_PREFIX_PATH "${NCNN_PREBUILT_DIR}/${ANDROID_ABI}")
+# El toolchain de Android pone CMAKE_FIND_ROOT_PATH_MODE_PACKAGE en ONLY,
+# asi que find_package IGNORA CMAKE_PREFIX_PATH fuera del sysroot del NDK.
+# Las variables <Package>_DIR se consultan antes y van directas: sin
+# ellas, find_package(glslang) y find_package(ncnn) no ven el prebuilt.
+set(glslang_DIR "${NCNN_PREBUILT_DIR}/${ANDROID_ABI}/lib/cmake/glslang")
+set(ncnn_DIR "${NCNN_PREBUILT_DIR}/${ANDROID_ABI}/lib/cmake/ncnn")
 
 find_package(Threads)
 # glslang first: the ncnn config requires its targets to exist.
