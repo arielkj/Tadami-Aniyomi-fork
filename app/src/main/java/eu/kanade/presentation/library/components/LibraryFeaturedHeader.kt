@@ -4,6 +4,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -59,6 +60,14 @@ import kotlin.random.Random
  * (TitleCardSide): el usuario pidió que las recomendaciones lleven ese
  * formato, no la tarjeta vertical. TitleCardTop se eliminó (quedó sin
  * uso) y el fondo ancho (backdropData) ya no se usa para el destacado.
+ *
+ * v7.9.13 — "Seguir viendo" del MISMO TAMAÑO que las tarjetas de la
+ * cuadrícula de cada categoría ("para no tener varios tamaños"): el
+ * carrusel ya no usa la tarjeta grande de lado (320dp), sino
+ * TitleCardContinueGrid, con la anchura de una celda de la rejilla
+ * (la calcula el encabezado con las columnas: mismo ancho y misma
+ * proporción 2:3 que las de abajo). El destacado sigue siendo
+ * TitleCardSide (grande).
  */
 
 // Valores de UiPreferences.auroraLibraryFeaturedSource().
@@ -92,6 +101,8 @@ fun AnimeLibraryFeaturedHeader(
     items: List<AnimeLibraryItem>,
     featuredSource: String,
     seed: Int,
+    columns: Int,
+    adaptiveMinCellDp: Int,
     onDetailsClick: (AnimeLibraryItem) -> Unit,
     onContinueClick: (AnimeLibraryItem) -> Unit,
     modifier: Modifier = Modifier,
@@ -140,6 +151,8 @@ fun AnimeLibraryFeaturedHeader(
     LibraryFeaturedHeaderContent(
         featuredEntries = featuredEntries,
         continueEntries = continueEntries,
+        columns = columns,
+        adaptiveMinCellDp = adaptiveMinCellDp,
         modifier = modifier,
     )
 }
@@ -149,6 +162,8 @@ fun MangaLibraryFeaturedHeader(
     items: List<MangaLibraryItem>,
     featuredSource: String,
     seed: Int,
+    columns: Int,
+    adaptiveMinCellDp: Int,
     onDetailsClick: (MangaLibraryItem) -> Unit,
     onContinueClick: (MangaLibraryItem) -> Unit,
     modifier: Modifier = Modifier,
@@ -186,6 +201,8 @@ fun MangaLibraryFeaturedHeader(
     LibraryFeaturedHeaderContent(
         featuredEntries = featuredEntries,
         continueEntries = continueEntries,
+        columns = columns,
+        adaptiveMinCellDp = adaptiveMinCellDp,
         modifier = modifier,
     )
 }
@@ -194,6 +211,8 @@ fun MangaLibraryFeaturedHeader(
 private fun LibraryFeaturedHeaderContent(
     featuredEntries: List<LibraryFeaturedEntry>,
     continueEntries: List<LibraryFeaturedEntry>,
+    columns: Int,
+    adaptiveMinCellDp: Int,
     modifier: Modifier = Modifier,
 ) {
     if (featuredEntries.isEmpty() && continueEntries.isEmpty()) return
@@ -210,27 +229,40 @@ private fun LibraryFeaturedHeaderContent(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(modifier = Modifier.height(10.dp))
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(
-                    items = continueEntries,
-                    key = { it.key },
-                    contentType = { "library_continue_card" },
-                ) { entry ->
-                    TitleCardSide(
-                        cover = entry.coverData,
-                        title = entry.title,
-                        type = entry.type,
-                        genre = entry.genre,
-                        total = entry.total,
-                        current = entry.current,
-                        status = entry.status,
-                        hasNew = entry.hasNew,
-                        onClick = entry.onContinueClick,
-                        modifier = Modifier.width(320.dp),
-                    )
+            // v7.9.13: la anchura de cada tarjeta es la de una celda de
+            // la rejilla — el encabezado ocupa el mismo ancho que la
+            // cuadrícula (mismo contentPadding + 8dp), así que la
+            // fórmula es la de LazyLibraryGrid: columnas fijas con 4dp
+            // entre celdas, o la celda mínima adaptable si no hay
+            // columnas fijas (modo adaptable).
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val cellWidth = if (columns > 0) {
+                    (maxWidth - 4.dp * (columns - 1)) / columns
+                } else {
+                    adaptiveMinCellDp.dp
+                }
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    items(
+                        items = continueEntries,
+                        key = { it.key },
+                        contentType = { "library_continue_card" },
+                    ) { entry ->
+                        TitleCardContinueGrid(
+                            cover = entry.coverData,
+                            title = entry.title,
+                            type = entry.type,
+                            genre = entry.genre,
+                            total = entry.total,
+                            current = entry.current,
+                            status = entry.status,
+                            hasNew = entry.hasNew,
+                            onClick = entry.onContinueClick,
+                            modifier = Modifier.width(cellWidth),
+                        )
+                    }
                 }
             }
         }

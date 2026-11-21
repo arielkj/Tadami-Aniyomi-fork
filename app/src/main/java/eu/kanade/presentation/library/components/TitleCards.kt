@@ -1,6 +1,7 @@
 package eu.kanade.presentation.library.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -142,6 +143,82 @@ fun TitleCardSide(
     }
 }
 
+/**
+ * v7.9.13 — "Seguir viendo" del MISMO TAMAÑO que las tarjetas de la
+ * cuadrícula de cada categoría ("para no tener varios tamaños"): la
+ * anchura es la de una celda de la rejilla (la calcula el encabezado
+ * con las columnas) y la portada es 2:3, como las de abajo. Portada
+ * arriba con la insignia de contenido nuevo y la barra de progreso
+ * fina en su borde inferior; debajo, el título y "Ep./Cap. X de Y · %".
+ * El tap va directo al episodio/capítulo, como antes. El destacado
+ * sigue siendo TitleCardSide (grande); solo cambia el carrusel.
+ */
+@Composable
+fun TitleCardContinueGrid(
+    cover: Any?,
+    title: String,
+    type: String,
+    genre: String?,
+    total: Int,
+    current: Int,
+    status: String,
+    hasNew: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = AuroraTheme.colors
+    val isManga = type == stringResource(AYMR.strings.label_manga)
+    // genre y status no caben a este tamaño: la tarjeta es la misma que
+    // una celda de la rejilla (portada + título + progreso); el género
+    // y el estado ya salen en la tarjeta del destacado.
+    Column(
+        modifier = modifier.clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(0.66f)
+                .clip(RoundedCornerShape(12.dp)),
+        ) {
+            TitleCardCoverImage(
+                cover = cover,
+                variant = AuroraCoverPlaceholderVariant.Portrait,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (hasNew) {
+                TitleCardNewBadgeCompact(
+                    isManga = isManga,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp),
+                )
+            }
+            TitleCardProgressBar(
+                progress = titleCardProgress(current, total),
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = title,
+            color = colors.textPrimary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            lineHeight = 16.sp,
+        )
+        Text(
+            text = "${titleCardProgressLabel(isManga, current, total)} · " +
+                titleCardProgressPercent(current, total),
+            color = colors.textSecondary,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 @Composable
 private fun TitleCardCoverImage(
     cover: Any?,
@@ -187,6 +264,33 @@ private fun TitleCardNewBadge(
             color = Color.White,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun TitleCardNewBadgeCompact(
+    isManga: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF1E88E5))
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+    ) {
+        Text(
+            text = stringResource(
+                if (isManga) {
+                    AYMR.strings.aurora_library_featured_new_chapter
+                } else {
+                    AYMR.strings.aurora_library_featured_new_episode
+                },
+            ),
+            color = Color.White,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
         )
     }
 }
@@ -272,6 +376,29 @@ private fun TitleCardSidePreview() {
                 modifier = Modifier
                     .padding(16.dp)
                     .width(320.dp),
+            )
+        }
+    }
+}
+
+@PreviewLightDark
+@Composable
+private fun TitleCardContinueGridPreview() {
+    TachiyomiPreviewTheme {
+        Surface {
+            TitleCardContinueGrid(
+                cover = "https://example.com/cover.jpg",
+                title = "Odisea en la Mazmorra",
+                type = "Manga",
+                genre = null,
+                total = 75,
+                current = 6,
+                status = "En progreso",
+                hasNew = true,
+                onClick = {},
+                modifier = Modifier
+                    .padding(16.dp)
+                    .width(112.dp),
             )
         }
     }
