@@ -199,6 +199,10 @@ fun MangaLibraryAuroraContent(
                     searchQuery = searchQuery,
                     onGlobalSearchClicked = onGlobalSearchClicked,
                     state = gridState,
+                    // v7.9.8: la rejilla compacta con tarjetas Estándar
+                    // también recibe el destacado y las píldoras.
+                    headerContent = headerContent,
+                    categoryTabsContent = categoryTabsContent,
                 )
             }
         }

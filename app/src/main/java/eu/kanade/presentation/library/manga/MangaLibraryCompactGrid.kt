@@ -2,7 +2,9 @@ package eu.kanade.presentation.library.manga
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.item
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
@@ -39,6 +41,11 @@ internal fun MangaLibraryCompactGrid(
     onTogglePinned: (MangaLibraryItem) -> Unit,
     searchQuery: String?,
     onGlobalSearchClicked: () -> Unit,
+    // v7.9.8: el destacado + carrusel y las píldoras también salen en la
+    // rejilla compacta con tarjetas Estándar — antes esta rejilla ni
+    // siquiera los recibía y era la causa de que en Títulos no saliera nada.
+    headerContent: (@Composable () -> Unit)? = null,
+    categoryTabsContent: (@Composable () -> Unit)? = null,
 ) {
     LazyLibraryGrid(
         state = state,
@@ -47,6 +54,28 @@ internal fun MangaLibraryCompactGrid(
         contentPadding = contentPadding,
     ) {
         globalSearchItem(searchQuery, onGlobalSearchClicked)
+
+        // v7.9.8: destacado + carrusel arriba y las píldoras debajo, TODO
+        // como ítems normales que se desplazan con el contenido (igual que
+        // en MangaLibraryAuroraCardGrid): al bajar desaparecen y al subir
+        // vuelven; nada queda fijo.
+        if (headerContent != null) {
+            item(
+                span = { GridItemSpan(maxLineSpan) },
+                contentType = "library_featured_header",
+            ) {
+                headerContent()
+            }
+        }
+
+        if (categoryTabsContent != null) {
+            item(
+                span = { GridItemSpan(maxLineSpan) },
+                contentType = "library_category_tabs",
+            ) {
+                categoryTabsContent()
+            }
+        }
 
         items(
             items = items,
