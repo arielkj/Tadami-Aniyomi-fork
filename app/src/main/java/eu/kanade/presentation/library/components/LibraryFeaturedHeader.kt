@@ -1,29 +1,23 @@
 package eu.kanade.presentation.library.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.animateContentSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,23 +25,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil3.compose.AsyncImage
-import com.tadami.aurora.R
-import eu.kanade.presentation.components.AuroraCoverPlaceholderVariant
-import eu.kanade.presentation.components.buildAuroraCoverImageRequest
-import eu.kanade.presentation.components.rememberCoverReloadTick
-import eu.kanade.presentation.components.rememberThemeAwareCoverErrorPainter
-import eu.kanade.presentation.entries.components.aurora.rememberAuroraPosterColorFilter
 import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.ui.home.prefetchHomeHubCovers
@@ -65,17 +45,15 @@ import kotlin.random.Random
  * usuario el 20 Nov: banner grande arriba, carrusel debajo, secciones
  * debajo del carrusel). La misma estructura para Anime y Manga.
  *
- * El banner muestra UN título en curso como recordatorio: la portada de
- * fondo, el título, la línea de datos (tipo • género • episodios • estado),
- * el botón blanco "Ver detalles" y los puntos de las páginas. La tanda del
- * banner se baraja con una semilla que cambia cada vez que se vuelve a
- * entrar a Títulos, así el destacado rota solo.
- *
- * El carrusel "Seguir viendo" ordena los títulos en curso por lo último
- * visto/leído: tarjeta ancha con portada, etiqueta T1 E13 (anime) o
- * Capítulo N (manga), barra fina de progreso e insignia azul "Nuevo
- * episodio"/"Nuevo capítulo" cuando hay algo sin ver/leer. Tocar la
- * tarjeta va DIRECTO a ese episodio/capítulo (no a la pantalla de detalle).
+ * v7.9.10 — las tarjetas son las nuevas TitleCardTop (recomendaciones) y
+ * TitleCardSide ("Seguir viendo"), con barra de progreso: el banner ya no
+ * es una imagen a sangre con el título encima, sino una tarjeta con la
+ * portada 4:3 arriba y los datos debajo; el carrusel ya no es una tarjeta
+ * ancha con la portada arriba, sino una tarjeta de lado con la portada
+ * vertical a la izquierda. El paginador del destacado (hasta 8, con
+ * puntos) y el orden del carrusel (lo último visto/leído primero) no
+ * cambian. Tocar la tarjeta del destacado abre los detalles; tocar una
+ * del carrusel va DIRECTO a ese episodio/capítulo (no al detalle).
  */
 
 // Valores de UiPreferences.auroraLibraryFeaturedSource().
@@ -93,14 +71,14 @@ private const val MAX_CONTINUE_ITEMS = 12
 data class LibraryFeaturedEntry(
     val key: Long,
     val title: String,
-    val infoLine: String,
+    val type: String,
+    val genre: String?,
+    val total: Int,
+    val current: Int,
+    val status: String,
     val coverData: Any?,
     val backdropData: Any?,
-    val progressLabel: String,
-    val seasonEpisodeLabel: String?,
-    val progress: Float,
     val hasNew: Boolean,
-    val newBadgeText: String,
     val onDetailsClick: () -> Unit,
     val onContinueClick: () -> Unit,
 )
@@ -237,7 +215,18 @@ private fun LibraryFeaturedHeaderContent(
                     key = { it.key },
                     contentType = { "library_continue_card" },
                 ) { entry ->
-                    LibraryContinueCard(entry = entry)
+                    TitleCardSide(
+                        cover = entry.coverData,
+                        title = entry.title,
+                        type = entry.type,
+                        genre = entry.genre,
+                        total = entry.total,
+                        current = entry.current,
+                        status = entry.status,
+                        hasNew = entry.hasNew,
+                        onClick = entry.onContinueClick,
+                        modifier = Modifier.width(320.dp),
+                    )
                 }
             }
         }
@@ -249,14 +238,31 @@ private fun LibraryFeaturedBanner(entries: List<LibraryFeaturedEntry>) {
     val colors = AuroraTheme.colors
     val pagerState = rememberPagerState { entries.size }
     Column(modifier = Modifier.fillMaxWidth()) {
+        // v7.9.10: cada página del destacado es una TitleCardTop (la
+        // portada 4:3 arriba y los datos con la barra debajo). La altura
+        // del paginador la marca el contenido (el título puede ocupar 1 o
+        // 2 líneas) y animateContentSize suaviza el cambio de altura al
+        // pasar de página, en vez de dar el salto.
         HorizontalPager(
             state = pagerState,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(272.dp)
-                .clip(RoundedCornerShape(20.dp)),
+                .wrapContentHeight()
+                .animateContentSize(),
         ) { page ->
-            LibraryFeaturedBannerPage(entry = entries[page])
+            val entry = entries[page]
+            TitleCardTop(
+                cover = entry.backdropData,
+                title = entry.title,
+                type = entry.type,
+                genre = entry.genre,
+                total = entry.total,
+                current = entry.current,
+                status = entry.status,
+                hasNew = entry.hasNew,
+                onClick = entry.onDetailsClick,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
         if (entries.size > 1) {
             Row(
@@ -290,186 +296,6 @@ private fun LibraryFeaturedBanner(entries: List<LibraryFeaturedEntry>) {
     }
 }
 
-@Composable
-private fun LibraryFeaturedBannerPage(entry: LibraryFeaturedEntry) {
-    val context = LocalContext.current
-    val reloadTick = rememberCoverReloadTick()
-    val request = remember(context, entry.backdropData, reloadTick) {
-        buildAuroraCoverImageRequest(context, entry.backdropData)
-    }
-    val fallbackPainter = rememberThemeAwareCoverErrorPainter(
-        AuroraCoverPlaceholderVariant.Wide,
-    )
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clickable { entry.onDetailsClick() },
-    ) {
-        AsyncImage(
-            model = request,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            colorFilter = rememberAuroraPosterColorFilter(),
-            modifier = Modifier.fillMaxSize(),
-            error = fallbackPainter,
-            fallback = fallbackPainter,
-        )
-        // Degradado para que el título se lea sobre cualquier portada.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colorStops = arrayOf(
-                            0.00f to Color.Transparent,
-                            0.45f to Color.Transparent,
-                            0.75f to Color.Black.copy(alpha = 0.55f),
-                            1.00f to Color.Black.copy(alpha = 0.88f),
-                        ),
-                    ),
-                ),
-        )
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 16.dp),
-        ) {
-            Text(
-                text = entry.title,
-                color = Color.White,
-                fontSize = 24.sp,
-                fontFamily = FontFamily(Font(R.font.montserrat_bold)),
-                lineHeight = 29.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = entry.infoLine,
-                color = Color.White.copy(alpha = 0.85f),
-                fontSize = 13.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = entry.onDetailsClick,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White,
-                    contentColor = Color.Black,
-                ),
-                shape = RoundedCornerShape(24.dp),
-                contentPadding = PaddingValues(horizontal = 22.dp, vertical = 10.dp),
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            ) {
-                Text(
-                    text = stringResource(AYMR.strings.aurora_library_featured_view_details),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LibraryContinueCard(entry: LibraryFeaturedEntry) {
-    val colors = AuroraTheme.colors
-    val context = LocalContext.current
-    val reloadTick = rememberCoverReloadTick()
-    val request = remember(context, entry.coverData, reloadTick) {
-        buildAuroraCoverImageRequest(context, entry.coverData)
-    }
-    val fallbackPainter = rememberThemeAwareCoverErrorPainter(
-        AuroraCoverPlaceholderVariant.Portrait,
-    )
-    Card(
-        onClick = entry.onContinueClick,
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = colors.cardBackground),
-        modifier = Modifier
-            .width(264.dp)
-            .height(196.dp),
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(112.dp),
-            ) {
-                AsyncImage(
-                    model = request,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    colorFilter = rememberAuroraPosterColorFilter(),
-                    modifier = Modifier.fillMaxSize(),
-                    error = fallbackPainter,
-                    fallback = fallbackPainter,
-                )
-                if (entry.hasNew) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFF1E88E5))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    ) {
-                        Text(
-                            text = entry.newBadgeText,
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                if (entry.seasonEpisodeLabel != null) {
-                    Text(
-                        text = entry.seasonEpisodeLabel,
-                        color = colors.textSecondary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                    )
-                }
-                Text(
-                    text = entry.title,
-                    color = colors.textPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = entry.progressLabel,
-                    color = colors.textSecondary,
-                    fontSize = 12.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                LinearProgressIndicator(
-                    progress = { entry.progress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = colors.accent,
-                    trackColor = colors.textSecondary.copy(alpha = 0.25f),
-                )
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Resolución de entradas (anime / manga)
 // ---------------------------------------------------------------------------
@@ -480,19 +306,7 @@ private fun AnimeLibraryItem.toFeaturedEntry(
     onContinueClick: (AnimeLibraryItem) -> Unit,
 ): LibraryFeaturedEntry {
     val anime = coverAnime ?: libraryAnime.anime
-    // El siguiente episodio es el primero sin ver; el número que se muestra
-    // (vistos + 1) coincide en el caso normal de ver en orden, y al tocar
-    // se abre el episodio real sin ver (getNextUnseenEpisode), así que el
-    // destino siempre es correcto aunque se haya saltado alguno.
-    val nextNumber = seenCount + 1
-    val season = anime.seasonNumber.takeIf { it > 0.0 }?.toInt() ?: 1
     val genre = anime.displayGenre?.firstOrNull()
-    val infoParts = buildList {
-        add(stringResource(AYMR.strings.label_anime))
-        if (!genre.isNullOrBlank()) add(genre)
-        if (totalEpisodes > 0) add("$totalEpisodes ep.")
-        add(auroraLibraryEntryStatusText(anime.status))
-    }
     val coverData = remember(
         anime.id,
         anime.source,
@@ -511,20 +325,16 @@ private fun AnimeLibraryItem.toFeaturedEntry(
     return LibraryFeaturedEntry(
         key = id,
         title = title,
-        infoLine = infoParts.joinToString(" • "),
+        type = stringResource(AYMR.strings.label_anime),
+        genre = genre,
+        total = totalEpisodes,
+        current = seenCount,
+        status = auroraLibraryEntryStatusText(anime.status),
         coverData = coverData,
-        // El fondo del banner usa la imagen de fondo cuando la fuente la
-        // trae; si no, la portada recortada.
+        // La tarjeta del destacado usa la imagen de fondo cuando la
+        // fuente la trae; si no, la portada recortada.
         backdropData = anime.backgroundUrl?.takeIf { it.isNotBlank() } ?: coverData,
-        progressLabel = stringResource(AYMR.strings.display_mode_episode, nextNumber.toString()),
-        seasonEpisodeLabel = "T$season E$nextNumber",
-        progress = if (totalEpisodes > 0) {
-            (seenCount.toFloat() / totalEpisodes.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
-        },
         hasNew = unseenCount > 0,
-        newBadgeText = stringResource(AYMR.strings.aurora_library_featured_new_episode),
         onDetailsClick = { onDetailsClick(this) },
         onContinueClick = { onContinueClick(this) },
     )
@@ -536,14 +346,7 @@ private fun MangaLibraryItem.toFeaturedEntry(
     onContinueClick: (MangaLibraryItem) -> Unit,
 ): LibraryFeaturedEntry {
     val manga = coverManga ?: libraryManga.manga
-    val nextNumber = readCount + 1
     val genre = manga.displayGenre?.firstOrNull()
-    val infoParts = buildList {
-        add(stringResource(AYMR.strings.label_manga))
-        if (!genre.isNullOrBlank()) add(genre)
-        if (totalChapters > 0) add("$totalChapters cap.")
-        add(auroraLibraryEntryStatusText(manga.status))
-    }
     val coverData = remember(
         manga.id,
         manga.source,
@@ -562,18 +365,14 @@ private fun MangaLibraryItem.toFeaturedEntry(
     return LibraryFeaturedEntry(
         key = id,
         title = title,
-        infoLine = infoParts.joinToString(" • "),
+        type = stringResource(AYMR.strings.label_manga),
+        genre = genre,
+        total = totalChapters,
+        current = readCount,
+        status = auroraLibraryEntryStatusText(manga.status),
         coverData = coverData,
         backdropData = coverData,
-        progressLabel = stringResource(MR.strings.display_mode_chapter, nextNumber.toString()),
-        seasonEpisodeLabel = null,
-        progress = if (totalChapters > 0) {
-            (readCount.toFloat() / totalChapters.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
-        },
         hasNew = unreadCount > 0,
-        newBadgeText = stringResource(AYMR.strings.aurora_library_featured_new_chapter),
         onDetailsClick = { onDetailsClick(this) },
         onContinueClick = { onContinueClick(this) },
     )
