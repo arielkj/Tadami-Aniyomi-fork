@@ -6,7 +6,7 @@ import android.net.NetworkCapabilities
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
-import logcat.logcat
+import tachiyomi.core.common.util.system.logcat
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File

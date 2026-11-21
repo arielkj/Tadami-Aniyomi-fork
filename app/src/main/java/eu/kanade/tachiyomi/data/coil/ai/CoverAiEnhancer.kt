@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import androidx.core.graphics.drawable.toBitmap
 import coil3.BitmapImage
+import coil3.DrawableImage
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
@@ -19,7 +20,7 @@ import eu.kanade.tachiyomi.network.NetworkHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
-import logcat.logcat
+import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.ByteArrayOutputStream
@@ -220,14 +221,16 @@ object CoverAiEnhancer {
         return runCatching {
             val request = ImageRequest.Builder(context)
                 .data(url)
-                .allowHardware(false)
+                // Coil 3 no tiene allowHardware: el decodificador devuelve
+                // un bitmap de software (ARGB_8888) legible con getPixels.
                 .size(Size.ORIGINAL)
                 .build()
             val result = context.imageLoader.execute(request)
             val image = (result as? SuccessResult)?.image ?: return null
             when (image) {
                 is BitmapImage -> image.bitmap
-                else -> image.asDrawable(context.resources)?.toBitmap()
+                is DrawableImage -> image.drawable.toBitmap()
+                else -> null
             }
         }.onFailure {
             logcat(LogPriority.WARN, it) { "AI enhance: cover load failed for $url" }

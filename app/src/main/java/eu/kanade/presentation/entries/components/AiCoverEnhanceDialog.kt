@@ -34,6 +34,7 @@ import eu.kanade.tachiyomi.data.coil.ai.CoverAiEnhancer
 import eu.kanade.tachiyomi.data.coil.ai.RealEsrganModelDownloader
 import kotlinx.coroutines.launch
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
 
 /**
@@ -79,12 +80,12 @@ fun AiCoverEnhanceDialog(
                 success = result
                 Phase.Compare
             }
-            CoverAiEnhancer.Result.Disabled -> Phase.Error(MR.strings.ai_cover_unsupported)
-            CoverAiEnhancer.Result.UnsupportedDevice -> Phase.Error(MR.strings.ai_cover_unsupported)
-            CoverAiEnhancer.Result.ModelDownloadNeedsWifi -> Phase.Error(MR.strings.ai_cover_needs_wifi)
-            CoverAiEnhancer.Result.ModelDownloadFailed -> Phase.Error(MR.strings.ai_cover_download_failed)
-            CoverAiEnhancer.Result.CoverLoadFailed -> Phase.Error(MR.strings.ai_cover_load_failed)
-            CoverAiEnhancer.Result.EnhanceFailed -> Phase.Error(MR.strings.ai_cover_enhance_failed)
+            CoverAiEnhancer.Result.Disabled -> Phase.Error(AYMR.strings.ai_cover_unsupported)
+            CoverAiEnhancer.Result.UnsupportedDevice -> Phase.Error(AYMR.strings.ai_cover_unsupported)
+            CoverAiEnhancer.Result.ModelDownloadNeedsWifi -> Phase.Error(AYMR.strings.ai_cover_needs_wifi)
+            CoverAiEnhancer.Result.ModelDownloadFailed -> Phase.Error(AYMR.strings.ai_cover_download_failed)
+            CoverAiEnhancer.Result.CoverLoadFailed -> Phase.Error(AYMR.strings.ai_cover_load_failed)
+            CoverAiEnhancer.Result.EnhanceFailed -> Phase.Error(AYMR.strings.ai_cover_enhance_failed)
         }
     }
 
@@ -105,15 +106,15 @@ fun AiCoverEnhanceDialog(
                                     onSaved()
                                     onDismissRequest()
                                 } else {
-                                    phase = Phase.Error(MR.strings.ai_cover_enhance_failed)
+                                    phase = Phase.Error(AYMR.strings.ai_cover_enhance_failed)
                                 }
                             }
                         },
                     ) {
-                        Text(text = stringResource(MR.strings.ai_cover_keep))
+                        Text(text = stringResource(AYMR.strings.ai_cover_keep))
                     }
                 }
-                Phase.Error -> {
+                is Phase.Error -> {
                     TextButton(onClick = onDismissRequest) {
                         Text(text = stringResource(MR.strings.action_ok))
                     }
@@ -125,10 +126,10 @@ fun AiCoverEnhanceDialog(
             when (phase) {
                 Phase.Compare -> {
                     TextButton(onClick = onDismissRequest) {
-                        Text(text = stringResource(MR.strings.ai_cover_discard))
+                        Text(text = stringResource(AYMR.strings.ai_cover_discard))
                     }
                 }
-                Phase.Error, Phase.Running -> {
+                is Phase.Error, Phase.Running -> {
                     TextButton(onClick = onDismissRequest) {
                         Text(text = stringResource(MR.strings.action_cancel))
                     }
@@ -136,7 +137,7 @@ fun AiCoverEnhanceDialog(
             }
         },
         title = {
-            Text(text = stringResource(MR.strings.ai_cover_improve))
+            Text(text = stringResource(AYMR.strings.ai_cover_improve))
         },
         text = {
             when (val currentPhase = phase) {
@@ -150,9 +151,9 @@ fun AiCoverEnhanceDialog(
                         Text(
                             text = stringResource(
                                 if (downloadingModel) {
-                                    MR.strings.ai_cover_downloading_model
+                                    AYMR.strings.ai_cover_downloading_model
                                 } else {
-                                    MR.strings.ai_cover_enhancing
+                                    AYMR.strings.ai_cover_enhancing
                                 },
                             ),
                         )
@@ -174,26 +175,26 @@ fun AiCoverEnhanceDialog(
                                         onClick = { showAfter = false },
                                         modifier = Modifier.weight(1f),
                                     ) {
-                                        Text(text = stringResource(MR.strings.ai_cover_before))
+                                        Text(text = stringResource(AYMR.strings.ai_cover_before))
                                     }
                                     Button(
                                         onClick = {},
                                         modifier = Modifier.weight(1f),
                                     ) {
-                                        Text(text = stringResource(MR.strings.ai_cover_after))
+                                        Text(text = stringResource(AYMR.strings.ai_cover_after))
                                     }
                                 } else {
                                     Button(
                                         onClick = {},
                                         modifier = Modifier.weight(1f),
                                     ) {
-                                        Text(text = stringResource(MR.strings.ai_cover_before))
+                                        Text(text = stringResource(AYMR.strings.ai_cover_before))
                                     }
                                     OutlinedButton(
                                         onClick = { showAfter = true },
                                         modifier = Modifier.weight(1f),
                                     ) {
-                                        Text(text = stringResource(MR.strings.ai_cover_after))
+                                        Text(text = stringResource(AYMR.strings.ai_cover_after))
                                     }
                                 }
                             }
@@ -207,7 +208,7 @@ fun AiCoverEnhanceDialog(
                                     .height(360.dp),
                             )
                             Text(
-                                text = stringResource(MR.strings.ai_cover_note),
+                                text = stringResource(AYMR.strings.ai_cover_note),
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(top = 4.dp),
                             )

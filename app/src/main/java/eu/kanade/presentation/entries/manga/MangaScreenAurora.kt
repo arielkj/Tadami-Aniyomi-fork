@@ -800,6 +800,7 @@ fun MangaScreenAuroraImpl(
             MangaAuroraTopBar(
                 heroThreshold = heroThreshold,
                 state = state,
+                resolvedCoverUrl = resolvedCover.coverUrl,
                 chapters = chapters,
                 titleScreenStyle = titleScreenStyle,
                 scrollOffsetState = scrollOffsetState,
@@ -2019,6 +2020,7 @@ private fun BoxScope.MangaAuroraHeroOverlay(
 private fun MangaAuroraTopBar(
     heroThreshold: Int,
     state: MangaScreenModel.State.Success,
+    resolvedCoverUrl: String? = null,
     chapters: List<ChapterList>,
     titleScreenStyle: TitleScreenStyle,
     scrollOffsetState: State<Int>,
@@ -2059,6 +2061,10 @@ private fun MangaAuroraTopBar(
     // The lens densifies as the hero scrolls away, so list rows passing
     // under the top bar no longer blend into the buttons.
     val isPosterMode = titleScreenStyle == TitleScreenStyle.POSTER_IMMERSIVE
+    // v7.9.20 Fase 2: el menú ⋮ vive en este top bar, no en
+    // MangaScreenAuroraImpl, así que el contexto y el scope se sacan aquí.
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Row(
         modifier = Modifier
@@ -2135,8 +2141,8 @@ private fun MangaAuroraTopBar(
         val aiSupported = remember {
             CoverAiEnhancer.currentMode() != AiCoverMode.OFF && RealEsrganBridge.isSupported()
         }
-        val hasAiCover = remember(manga.id, aiCoverVersion) {
-            CoverAiEnhancer.hasEnhancedCover(context, CoverAiEnhancer.Kind.MANGA, manga.id)
+        val hasAiCover = remember(state.manga.id, aiCoverVersion) {
+            CoverAiEnhancer.hasEnhancedCover(context, CoverAiEnhancer.Kind.MANGA, state.manga.id)
         }
         Box(contentAlignment = Alignment.TopEnd) {
             AuroraActionButton(
@@ -2155,7 +2161,7 @@ private fun MangaAuroraTopBar(
                 // «Volver a la original» cuando ya hay una mejorada.
                 if (aiSupported) {
                     AuroraEntryDropdownMenuItem(
-                        text = stringResource(MR.strings.ai_cover_improve),
+                        text = stringResource(AYMR.strings.ai_cover_improve),
                         onClick = {
                             showAiDialog = true
                             showMenu = false
@@ -2164,14 +2170,14 @@ private fun MangaAuroraTopBar(
                 }
                 if (hasAiCover) {
                     AuroraEntryDropdownMenuItem(
-                        text = stringResource(MR.strings.ai_cover_revert),
+                        text = stringResource(AYMR.strings.ai_cover_revert),
                         onClick = {
                             showMenu = false
                             scope.launch {
                                 CoverAiEnhancer.deleteEnhanced(
                                     context,
                                     CoverAiEnhancer.Kind.MANGA,
-                                    manga.id,
+                                    state.manga.id,
                                 )
                                 aiCoverVersion++
                             }
@@ -2250,9 +2256,9 @@ private fun MangaAuroraTopBar(
         if (showAiDialog) {
             AiCoverEnhanceDialog(
                 kind = CoverAiEnhancer.Kind.MANGA,
-                entryId = manga.id,
-                coverUrl = resolvedCover.coverUrl,
-                fallbackCoverUrl = manga.thumbnailUrl,
+                entryId = state.manga.id,
+                coverUrl = resolvedCoverUrl,
+                fallbackCoverUrl = state.manga.thumbnailUrl,
                 onDismissRequest = { showAiDialog = false },
                 onSaved = { aiCoverVersion++ },
             )

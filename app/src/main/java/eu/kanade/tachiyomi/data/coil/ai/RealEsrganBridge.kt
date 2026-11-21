@@ -2,7 +2,7 @@ package eu.kanade.tachiyomi.data.coil.ai
 
 import android.graphics.Bitmap
 import logcat.LogPriority
-import logcat.logcat
+import tachiyomi.core.common.util.system.logcat
 
 /**
  * v7.9.20 — Kotlin side of the on-device Real-ESRGAN cover upscaler
