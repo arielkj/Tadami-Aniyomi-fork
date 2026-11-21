@@ -81,6 +81,14 @@ import kotlin.random.Random
  * esquinas de las tres tarjetas (destacado, Seguir viendo, biblioteca)
  * quedan iguales: 4.dp, el radio de las tarjetas de la cuadrícula.
  *
+ * v7.9.18 — la v7.9.16 calculaba la CELDA y la usaba como portada,
+ * pero la portada de la cuadrícula es 8dp más estrecha que su celda:
+ * GridItemSelectable mete 4dp de padding a cada lado dentro de cada
+ * ítem compacto (y la tarjeta GlowContour tiene el mismo 4dp). La
+ * portada del carrusel es ahora la celda menos esos 8dp (~120dp en el
+ * teléfono del usuario, medida 296px frente a 276px en sus capturas).
+ * El diseño de lado no se toca.
+ *
  * v7.9.16 — "Seguir viendo" con la portada del MISMO TAMAÑO que las
  * de la cuadrícula de la biblioteca (el usuario: "quiero que esta
  * portada tenga el mismo tamaño que las otras", con las letras al lado).
@@ -318,28 +326,32 @@ private fun LibraryFeaturedHeaderContent(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(modifier = Modifier.height(10.dp))
-            // v7.9.16: "Seguir viendo" con la portada del MISMO TAMAÑO
-            // que las de la cuadrícula de la biblioteca (el usuario:
-            // "quiero que esta portada tenga el mismo tamaño que las
-            // otras"), con el MISMO diseño de lado y las MISMAS letras
-            // de siempre (título 15sp, datos 12sp, pie 11sp,
-            // `compact = true`). La anchura disponible aquí (maxWidth)
-            // ES la de la rejilla (ver el comentario de arriba), así
-            // que la celda se calcula con la fórmula de LazyLibraryGrid:
-            // columnas fijas con 4dp entre celdas (GridHorizontalSpacer)
-            // o, sin columnas fijas, tantas celdas de adaptiveMinCellDp
-            // como quepan (igual que GridCells.Adaptive). La tarjeta es
-            // la portada + la columna de texto (156dp, como en la
-            // v7.9.14): quepan las que quepan, aunque sean dos. El
-            // destacado grande no se toca.
+            // v7.9.18: "Seguir viendo" con la portada del MISMO TAMAÑO
+            // que las de la cuadrícula (medido en las capturas del
+            // usuario: la portada del carrusel 296px y la de la
+            // cuadrícula 276px, ~7% más grande). La v7.9.16 calculaba
+            // la CELDA (129dp) y la usaba como portada, pero la portada
+            // de la cuadrícula es 8dp más estrecha que su celda:
+            // GridItemSelectable (CommonEntryItem.kt) mete 4dp de
+            // padding a cada lado dentro de cada ítem compacto — y la
+            // tarjeta GlowContour tiene el mismo 4dp en su superficie.
+            // La anchura disponible sí es la misma que la de la
+            // rejilla (mismo contentPadding + 8dp por lado), así que la
+            // celda se calcula igual que antes y la portada es la celda
+            // menos esos 8dp. El alto sigue la proporción 2:3. El
+            // diseño de lado no se toca (misma columna de texto 156dp,
+            // mismas letras 15/12/11sp, `compact = true`).
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val cellWidth = if (columns > 0) {
+                val gridCellWidth = if (columns > 0) {
                     (maxWidth - 4.dp * (columns - 1)) / columns
                 } else {
                     val count = ((maxWidth + 4.dp) / (adaptiveMinCellDp.dp + 4.dp))
                         .toInt().coerceAtLeast(1)
                     (maxWidth - 4.dp * (count - 1)) / count
                 }
+                // La portada de la cuadrícula no llena su celda: cada
+                // ítem lleva 4dp de padding por lado (GridItemSelectable).
+                val coverWidth = (gridCellWidth - 8.dp).coerceAtLeast(0.dp)
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -359,8 +371,8 @@ private fun LibraryFeaturedHeaderContent(
                             status = entry.status,
                             hasNew = entry.hasNew,
                             onClick = entry.onContinueClick,
-                            modifier = Modifier.width(cellWidth + 156.dp),
-                            coverWidth = cellWidth,
+                            modifier = Modifier.width(coverWidth + 156.dp),
+                            coverWidth = coverWidth,
                             compact = true,
                         )
                     }
