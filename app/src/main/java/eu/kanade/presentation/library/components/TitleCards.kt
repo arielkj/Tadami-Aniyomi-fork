@@ -1,14 +1,12 @@
 package eu.kanade.presentation.library.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -30,6 +28,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.PreviewLightDark
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -54,6 +54,22 @@ import kotlin.math.roundToInt
  * v7.9.12 — el destacado usa TitleCardSide (el usuario pidió el formato
  * de lado, no la tarjeta vertical TitleCardTop, que se eliminó).
  *
+ * v7.9.14 — "Seguir viendo" vuelve al formato DE LADO de la v7.9.12
+ * (TitleCardSide), solo MÁS PEQUEÑO: la portada tiene el MISMO tamaño
+ * que las de la biblioteca (la anchura de una celda de la rejilla, que
+ * pasa el encabezado como `coverWidth`) y la tarjeta se achica alrededor
+ * (`compact = true`: menos padding, textos un poco más chicos, insignia
+ * compacta). La v7.9.13 lo cambió al formato de cuadrícula
+ * (TitleCardContinueGrid, eliminado) y el usuario lo rechazó: solo había
+ * que bajarle el tamaño, no cambiarle el formato.
+ *
+ * v7.9.14 (esquinas) — el usuario notó que el destacado, el Seguir
+ * viendo y las tarjetas de la biblioteca tenían radios distintos. Las
+ * tres quedan con el MISMO radio que las tarjetas de la biblioteca:
+ * 4.dp — el de `ItemCover.Book` (`MaterialTheme.shapes.extraSmall`,
+ * sin override en el tema), tanto la tarjeta como la portada dentro
+ * de ella.
+ *
  * Nota sobre `cover: Any?`: la especificación lo pedía como String, pero
  * en esta app la portada viaja como AnimeCover/MangaCover (o la URL del
  * fondo) para que la petición pase por la caché V7 (clave de portada +
@@ -62,10 +78,24 @@ import kotlin.math.roundToInt
  */
 
 /**
- * Seguir viendo: tarjeta horizontal. Portada vertical a la izquierda
- * (144dp de ancho, 2:3, esquinas de 24dp); a la derecha, insignia de
+ * Radio de esquina de las tres tarjetas (v7.9.14): el MISMO que las
+ * tarjetas de la cuadrícula de la biblioteca — 4.dp, el de
+ * `ItemCover.Book` (MaterialTheme.shapes.extraSmall). Se aplica igual
+ * a la tarjeta y a la portada dentro de ella, en el destacado y en el
+ * "Seguir viendo" compacto.
+ */
+private val TITLE_CARD_CORNER = 4.dp
+
+/**
+ * Seguir viendo / destacado: tarjeta horizontal. Portada vertical a la
+ * izquierda (144dp de ancho por defecto, 2:3); a la derecha, insignia de
  * contenido nuevo, título, dos líneas de datos, barra de progreso y
  * "Ep. X de Y" con el porcentaje.
+ *
+ * `compact = true` (v7.9.14, solo el carrusel de "Seguir viendo"): el
+ * MISMO diseño, solo más pequeño — la portada pasa a `coverWidth` (el
+ * tamaño de las de la biblioteca), menos padding y textos un poco más
+ * chicos. El destacado usa los valores grandes de siempre.
  */
 @Composable
 fun TitleCardSide(
@@ -79,29 +109,33 @@ fun TitleCardSide(
     hasNew: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    coverWidth: Dp = 144.dp,
+    compact: Boolean = false,
 ) {
     val colors = AuroraTheme.colors
     val isManga = type == stringResource(AYMR.strings.label_manga)
     val quantity = titleCardQuantityText(isManga, total)
     val firstLine = listOfNotNull(type, genre).joinToString(" · ")
     val secondLine = listOfNotNull(quantity, status).joinToString(" · ")
+    val padding = if (compact) 8.dp else 10.dp
+    val spacing = if (compact) 10.dp else 14.dp
     Card(
         onClick = onClick,
-        shape = RoundedCornerShape(32.dp),
+        shape = RoundedCornerShape(TITLE_CARD_CORNER),
         colors = CardDefaults.cardColors(containerColor = colors.cardBackground),
         modifier = modifier,
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(padding),
+            horizontalArrangement = Arrangement.spacedBy(spacing),
         ) {
             TitleCardCoverImage(
                 cover = cover,
                 variant = AuroraCoverPlaceholderVariant.Portrait,
                 modifier = Modifier
-                    .width(144.dp)
+                    .width(coverWidth)
                     .aspectRatio(2f / 3f)
-                    .clip(RoundedCornerShape(24.dp)),
+                    .clip(RoundedCornerShape(TITLE_CARD_CORNER)),
             )
             Column(
                 modifier = Modifier
@@ -109,13 +143,17 @@ fun TitleCardSide(
                     .align(Alignment.CenterVertically),
             ) {
                 if (hasNew) {
-                    TitleCardNewBadge(isManga = isManga)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    if (compact) {
+                        TitleCardNewBadgeCompact(isManga = isManga)
+                    } else {
+                        TitleCardNewBadge(isManga = isManga)
+                    }
+                    Spacer(modifier = Modifier.height(if (compact) 6.dp else 8.dp))
                 }
                 Text(
                     text = title,
                     color = colors.textPrimary,
-                    fontSize = 17.sp,
+                    fontSize = if (compact) 15.sp else 17.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
@@ -124,99 +162,28 @@ fun TitleCardSide(
                 Text(
                     text = firstLine,
                     color = colors.textSecondary,
-                    fontSize = 13.sp,
+                    fontSize = if (compact) 12.sp else 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = secondLine,
                     color = colors.textSecondary,
-                    fontSize = 13.sp,
+                    fontSize = if (compact) 12.sp else 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(if (compact) 8.dp else 10.dp))
                 TitleCardProgressBar(progress = titleCardProgress(current, total))
                 Spacer(modifier = Modifier.height(6.dp))
-                TitleCardProgressFooter(isManga = isManga, current = current, total = total)
-            }
-        }
-    }
-}
-
-/**
- * v7.9.13 — "Seguir viendo" del MISMO TAMAÑO que las tarjetas de la
- * cuadrícula de cada categoría ("para no tener varios tamaños"): la
- * anchura es la de una celda de la rejilla (la calcula el encabezado
- * con las columnas) y la portada es 2:3, como las de abajo. Portada
- * arriba con la insignia de contenido nuevo y la barra de progreso
- * fina en su borde inferior; debajo, el título y "Ep./Cap. X de Y · %".
- * El tap va directo al episodio/capítulo, como antes. El destacado
- * sigue siendo TitleCardSide (grande); solo cambia el carrusel.
- */
-@Composable
-fun TitleCardContinueGrid(
-    cover: Any?,
-    title: String,
-    type: String,
-    genre: String?,
-    total: Int,
-    current: Int,
-    status: String,
-    hasNew: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = AuroraTheme.colors
-    val isManga = type == stringResource(AYMR.strings.label_manga)
-    // genre y status no caben a este tamaño: la tarjeta es la misma que
-    // una celda de la rejilla (portada + título + progreso); el género
-    // y el estado ya salen en la tarjeta del destacado.
-    Column(
-        modifier = modifier.clickable(onClick = onClick),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.66f)
-                .clip(RoundedCornerShape(12.dp)),
-        ) {
-            TitleCardCoverImage(
-                cover = cover,
-                variant = AuroraCoverPlaceholderVariant.Portrait,
-                modifier = Modifier.fillMaxSize(),
-            )
-            if (hasNew) {
-                TitleCardNewBadgeCompact(
+                TitleCardProgressFooter(
                     isManga = isManga,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp),
+                    current = current,
+                    total = total,
+                    fontSize = if (compact) 11.sp else 12.sp,
                 )
             }
-            TitleCardProgressBar(
-                progress = titleCardProgress(current, total),
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
         }
-        Spacer(modifier = Modifier.height(6.dp))
-        Text(
-            text = title,
-            color = colors.textPrimary,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            lineHeight = 16.sp,
-        )
-        Text(
-            text = "${titleCardProgressLabel(isManga, current, total)} · " +
-                titleCardProgressPercent(current, total),
-            color = colors.textSecondary,
-            fontSize = 11.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
     }
 }
 
@@ -318,6 +285,7 @@ private fun TitleCardProgressFooter(
     isManga: Boolean,
     current: Int,
     total: Int,
+    fontSize: TextUnit = 12.sp,
 ) {
     val colors = AuroraTheme.colors
     Row(
@@ -327,13 +295,13 @@ private fun TitleCardProgressFooter(
         Text(
             text = titleCardProgressLabel(isManga, current, total),
             color = colors.textSecondary,
-            fontSize = 12.sp,
+            fontSize = fontSize,
             maxLines = 1,
         )
         Text(
             text = titleCardProgressPercent(current, total),
             color = colors.textSecondary,
-            fontSize = 12.sp,
+            fontSize = fontSize,
             maxLines = 1,
         )
     }
@@ -384,10 +352,10 @@ private fun TitleCardSidePreview() {
 
 @PreviewLightDark
 @Composable
-private fun TitleCardContinueGridPreview() {
+private fun TitleCardSideCompactPreview() {
     TachiyomiPreviewTheme {
         Surface {
-            TitleCardContinueGrid(
+            TitleCardSide(
                 cover = "https://example.com/cover.jpg",
                 title = "Odisea en la Mazmorra",
                 type = "Manga",
@@ -399,7 +367,9 @@ private fun TitleCardContinueGridPreview() {
                 onClick = {},
                 modifier = Modifier
                     .padding(16.dp)
-                    .width(112.dp),
+                    .width(272.dp),
+                coverWidth = 112.dp,
+                compact = true,
             )
         }
     }

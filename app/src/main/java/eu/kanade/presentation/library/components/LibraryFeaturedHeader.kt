@@ -68,6 +68,15 @@ import kotlin.random.Random
  * (la calcula el encabezado con las columnas: mismo ancho y misma
  * proporción 2:3 que las de abajo). El destacado sigue siendo
  * TitleCardSide (grande).
+ *
+ * v7.9.14 — el usuario rechazó el cambio de formato de la v7.9.13:
+ * "Seguir viendo" vuelve al formato DE LADO (TitleCardSide, letras al
+ * lado de la portada, todo el contenido de antes), solo MÁS PEQUEÑO:
+ * la portada tiene el MISMO tamaño que las de la biblioteca (la
+ * anchura de una celda de la rejilla) y la tarjeta se achica alrededor
+ * (`compact = true`). TitleCardContinueGrid se eliminó. Además las
+ * esquinas de las tres tarjetas (destacado, Seguir viendo, biblioteca)
+ * quedan iguales: 4.dp, el radio de las tarjetas de la cuadrícula.
  */
 
 // Valores de UiPreferences.auroraLibraryFeaturedSource().
@@ -229,12 +238,16 @@ private fun LibraryFeaturedHeaderContent(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(modifier = Modifier.height(10.dp))
-            // v7.9.13: la anchura de cada tarjeta es la de una celda de
-            // la rejilla — el encabezado ocupa el mismo ancho que la
-            // cuadrícula (mismo contentPadding + 8dp), así que la
-            // fórmula es la de LazyLibraryGrid: columnas fijas con 4dp
-            // entre celdas, o la celda mínima adaptable si no hay
-            // columnas fijas (modo adaptable).
+            // v7.9.14: "Seguir viendo" vuelve al formato DE LADO de la
+            // v7.9.12 (TitleCardSide, letras al lado de la portada, todo
+            // el contenido de antes), solo más pequeño: la portada tiene
+            // el MISMO tamaño que las de la biblioteca (la anchura de
+            // una celda de la rejilla) y la tarjeta se achica alrededor.
+            // La anchura de la tarjeta es la de la portada + el texto
+            // (padding 8dp + portada + 10dp + ~130dp de texto). La
+            // fórmula de la celda es la de LazyLibraryGrid: columnas
+            // fijas con 4dp entre celdas, o la celda mínima adaptable
+            // si no hay columnas fijas (modo adaptable).
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 val cellWidth = if (columns > 0) {
                     (maxWidth - 4.dp * (columns - 1)) / columns
@@ -250,7 +263,7 @@ private fun LibraryFeaturedHeaderContent(
                         key = { it.key },
                         contentType = { "library_continue_card" },
                     ) { entry ->
-                        TitleCardContinueGrid(
+                        TitleCardSide(
                             cover = entry.coverData,
                             title = entry.title,
                             type = entry.type,
@@ -260,7 +273,9 @@ private fun LibraryFeaturedHeaderContent(
                             status = entry.status,
                             hasNew = entry.hasNew,
                             onClick = entry.onContinueClick,
-                            modifier = Modifier.width(cellWidth),
+                            modifier = Modifier.width(cellWidth + 156.dp),
+                            coverWidth = cellWidth,
+                            compact = true,
                         )
                     }
                 }
