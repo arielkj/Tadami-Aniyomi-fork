@@ -17,16 +17,20 @@ import androidx.compose.animation.graphics.res.rememberAnimatedVectorPainter
 import androidx.compose.animation.graphics.vector.AnimatedImageVector
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.ScrollScope
+import androidx.compose.foundation.gestures.ScrollableState
+import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -35,6 +39,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
@@ -72,14 +77,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -747,9 +753,54 @@ data object AnimeLibraryTab : Tab {
                 val showAnimeFeaturedHeader = state.searchQuery == null &&
                     !state.hasActiveFilters &&
                     animeSectionItems.isNotEmpty()
+                // v7.9.12 — por qué el encabezado NO va en una LazyColumn:
+                // una lista vertical anidada dentro de otra consume el
+                // desplazamiento en `onPostScroll` (su `onPreScroll`
+                // devuelve cero): la cuadrícula se desplazaría primero y
+                // el encabezado solo se iría al llegar al final de la
+                // cuadrícula, y un arrastre empezado sobre el encabezado
+                // moriría al colapsar este sin bajar nunca la cuadrícula.
+                // Por eso el encabezado sigue siendo un hermano no
+                // desplazable sobre el paginador (v7.9.9) y su colapso lo
+                // mueve la conexión anidada de abajo: al bajar, el
+                // encabezado colapsa primero y luego baja la cuadrícula.
+                //
+                // Lo que faltaba en la v7.9.9 era que los arrastres que
+                // empezaban SOBRE el encabezado no llegaban a ningún
+                // desplazable y morían ahí (el encabezado ocupa gran
+                // parte de la pantalla: de ahí el "no detecta el touch
+                // para bajar"). El arreglo es el reenviador de abajo: el
+                // encabezado es un `scrollable` vertical que le pasa sus
+                // arrastres a la cuadrícula/lista de la página actual —
+                // la conexión anidada ya consumió antes (pre-scroll) lo
+                // que colapsa el encabezado, así que el orden se
+                // mantiene: primero colapsa el encabezado y luego baja
+                // la cuadrícula, empiece el arrastre donde empiece.
+                // Las páginas registran su estado en este mapa al
+                // componerse; la retención duradera sigue en
+                // auroraScrollPositions.
+                val retainedAnimeScrollStates = remember {
+                    mutableMapOf<Triple<Section, Long, LibraryDisplayMode>, ScrollableState>()
+                }
+                val animeHeaderDragState = remember {
+                    AuroraHeaderScrollForwarder {
+                        val page = pagerState.currentPage
+                        val categoryId = state.categories.getOrNull(page)?.id ?: -1L
+                        retainedAnimeScrollStates[
+                            Triple(Section.Anime, categoryId, animeDisplayMode)
+                        ]
+                    }
+                }
                 val animeHeaderState = rememberAuroraCollapsingHeaderState()
                 LaunchedEffect(showAnimeFeaturedHeader) {
-                    if (!showAnimeFeaturedHeader) animeHeaderState.offsetPx = 0f
+                    if (!showAnimeFeaturedHeader) {
+                        // v7.9.12: también se reinicia la altura — si
+                        // quedaba la vieja (~800px), la conexión se
+                        // comía el desplazamiento en búsqueda/filtros
+                        // ocultando un encabezado que no estaba.
+                        animeHeaderState.offsetPx = 0f
+                        animeHeaderState.heightPx = 0
+                    }
                 }
                 Column(
                     modifier = Modifier
@@ -761,6 +812,7 @@ data object AnimeLibraryTab : Tab {
                             state = animeHeaderState,
                             contentPadding = contentPadding,
                             listMaxWidthDp = auroraAdaptiveSpec.listMaxWidthDp,
+                            dragState = animeHeaderDragState,
                         ) {
                             AnimeLibraryFeaturedHeader(
                                 items = animeSectionItems,
@@ -828,6 +880,17 @@ data object AnimeLibraryTab : Tab {
                             }
                             auroraScrollPositions[scrollKey] = index to offset
                         }
+                    }
+                    // v7.9.12: la página activa registra su estado para
+                    // el reenviador de arrastres del encabezado (la
+                    // lista o la cuadrícula según el modo de vista).
+                    SideEffect {
+                        retainedAnimeScrollStates[scrollKey] =
+                            if (animeDisplayMode == LibraryDisplayMode.List) {
+                                retainedListState
+                            } else {
+                                retainedGridState
+                            }
                     }
                     AnimeLibraryAuroraContent(
                         items = items,
@@ -940,9 +1003,32 @@ data object AnimeLibraryTab : Tab {
                 val showMangaFeaturedHeader = mangaState.searchQuery == null &&
                     !mangaState.hasActiveFilters &&
                     mangaSectionItems.isNotEmpty()
+                // v7.9.12: igual que en anime — el encabezado sigue
+                // siendo un hermano no desplazable sobre el paginador y
+                // su colapso lo mueve la conexión anidada (ver el
+                // comentario del destacado de anime); el reenviador de
+                // abajo le pasa sus arrastres a la cuadrícula/lista de
+                // la página actual de manga.
+                val retainedMangaScrollStates = remember {
+                    mutableMapOf<Triple<Section, Long, LibraryDisplayMode>, ScrollableState>()
+                }
+                val mangaHeaderDragState = remember {
+                    AuroraHeaderScrollForwarder {
+                        val page = pagerState.currentPage
+                        val categoryId = mangaState.categories.getOrNull(page)?.id ?: -1L
+                        retainedMangaScrollStates[
+                            Triple(Section.Manga, categoryId, mangaDisplayMode)
+                        ]
+                    }
+                }
                 val mangaHeaderState = rememberAuroraCollapsingHeaderState()
                 LaunchedEffect(showMangaFeaturedHeader) {
-                    if (!showMangaFeaturedHeader) mangaHeaderState.offsetPx = 0f
+                    if (!showMangaFeaturedHeader) {
+                        // v7.9.12: también se reinicia la altura (ver el
+                        // comentario del reinicio del destacado de anime).
+                        mangaHeaderState.offsetPx = 0f
+                        mangaHeaderState.heightPx = 0
+                    }
                 }
                 Column(
                     modifier = Modifier
@@ -954,6 +1040,7 @@ data object AnimeLibraryTab : Tab {
                             state = mangaHeaderState,
                             contentPadding = contentPadding,
                             listMaxWidthDp = auroraAdaptiveSpec.listMaxWidthDp,
+                            dragState = mangaHeaderDragState,
                         ) {
                             MangaLibraryFeaturedHeader(
                                 items = mangaSectionItems,
@@ -1042,6 +1129,17 @@ data object AnimeLibraryTab : Tab {
                             }
                             auroraScrollPositions[scrollKey] = index to offset
                         }
+                    }
+                    // v7.9.12: la página activa registra su estado para
+                    // el reenviador de arrastres del encabezado (la
+                    // lista o la cuadrícula según el modo de vista).
+                    SideEffect {
+                        retainedMangaScrollStates[scrollKey] =
+                            if (mangaDisplayMode == LibraryDisplayMode.List) {
+                                retainedListState
+                            } else {
+                                retainedGridState
+                            }
                     }
                     MangaLibraryAuroraContent(
                         items = items,
@@ -1481,7 +1579,17 @@ data object AnimeLibraryTab : Tab {
                             if (randomItem is eu.kanade.presentation.library.novel.NovelLibraryItem.Series) {
                                 navigator.push(NovelSeriesScreen(randomItem.librarySeries.id))
                             } else {
-                                navigator.push(NovelScreen(randomItem.coverNovel!!.id))
+                                // v7.9.12: sin `!!` — si una novela suelta
+                                // no trae portada, no se abre nada en vez
+                                // de romper la app.
+                                val coverNovel = randomItem.coverNovel
+                                if (coverNovel != null) {
+                                    navigator.push(NovelScreen(coverNovel.id))
+                                } else {
+                                    snackbarHostState.showSnackbar(
+                                        context.stringResource(MR.strings.information_no_entries_found),
+                                    )
+                                }
                             }
                         } else {
                             snackbarHostState.showSnackbar(
@@ -3134,6 +3242,12 @@ internal fun shouldSyncAuroraLibraryCategoryIndex(
 // cuadrícula para ocultar el encabezado, y lo que sobra al llegar la
 // cuadrícula arriba lo vuelve a mostrar. Las píldoras de categoría NO van
 // aquí: siguen dentro de cada página, con su comportamiento actual.
+//
+// v7.9.12 — `dragState`: el encabezado también es un `scrollable`
+// vertical que reenvía sus arrastres a la cuadrícula/lista de la página
+// actual (ver AuroraHeaderScrollForwarder). Sin él, los arrastres que
+// empezaban sobre el encabezado no llegaban a ningún desplazable y la
+// cuadrícula no bajaba.
 // ---------------------------------------------------------------------------
 
 private const val AURORA_COLLAPSING_HEADER_SLOT = "library_collapsing_header"
@@ -3178,9 +3292,22 @@ private fun AuroraCollapsingLibraryHeader(
     state: AuroraCollapsingHeaderState,
     contentPadding: PaddingValues,
     listMaxWidthDp: Int?,
+    dragState: ScrollableState? = null,
     content: @Composable () -> Unit,
 ) {
     val layoutDirection = LocalLayoutDirection.current
+    // v7.9.12: el reenviador de arrastres (si lo hay) va como `scrollable`
+    // vertical del encabezado: los toques verticales que empiezan sobre
+    // él (paginador del destacado, carrusel) llegan aquí y se le pasan a
+    // la cuadrícula/lista de la página actual. La conexión anidada de la
+    // columna ya consumió antes (pre-scroll) lo que colapsa el
+    // encabezado, así que el orden no cambia: primero colapsa el
+    // encabezado y luego baja la cuadrícula.
+    val dragModifier = if (dragState != null) {
+        Modifier.scrollable(dragState, Orientation.Vertical)
+    } else {
+        Modifier
+    }
     SubcomposeLayout(
         modifier = Modifier
             .fillMaxWidth()
@@ -3189,7 +3316,8 @@ private fun AuroraCollapsingLibraryHeader(
                 start = contentPadding.calculateStartPadding(layoutDirection) + 8.dp,
                 end = contentPadding.calculateEndPadding(layoutDirection) + 8.dp,
             )
-            .clipToBounds(),
+            .clipToBounds()
+            .then(dragModifier),
     ) { constraints ->
         // El hueco superior de 8dp va DENTRO del contenido medido (igual
         // que el que tenía dentro de la rejilla), para que también se
@@ -3208,5 +3336,42 @@ private fun AuroraCollapsingLibraryHeader(
         layout(constraints.maxWidth, visibleHeight) {
             placeables.forEach { it.place(0, state.offsetPx.roundToInt()) }
         }
+    }
+}
+
+/**
+ * v7.9.12 — reenviador de arrastres del encabezado de Títulos.
+ *
+ * El encabezado (destacado + "Seguir viendo") vive fuera de la
+ * cuadrícula, como hermano del paginador: un arrastre vertical que
+ * empieza sobre él no llega a ningún desplazable y moriría ahí. Este
+ * estado es el `scrollable` vertical del encabezado: cada arrastre se
+ * le pasa a la cuadrícula/lista de la página actual (la que devuelve
+ * [getCurrentState]), que es la que sabe desplazarse. La conexión
+ * anidada de la columna ya consumió antes (pre-scroll) la parte que
+ * colapsa el encabezado, así que el orden se mantiene: primero
+ * colapsa el encabezado y luego baja la cuadrícula, empiece el
+ * arrastre donde empiece. Si la página actual aún no registró su
+ * estado, no se consume nada y el arrastre sigue su curso normal.
+ */
+private class AuroraHeaderScrollForwarder(
+    private val getCurrentState: () -> ScrollableState?,
+) : ScrollableState {
+    override suspend fun scrollBy(value: Float): Float {
+        return getCurrentState()?.scrollBy(value) ?: 0f
+    }
+
+    override suspend fun scroll(
+        scrollPriority: MutatePriority,
+        block: suspend ScrollScope.() -> Unit,
+    ) {
+        getCurrentState()?.scroll(scrollPriority, block)
+    }
+
+    override val isScrollInProgress: Boolean
+        get() = getCurrentState()?.isScrollInProgress ?: false
+
+    override fun dispatchRawDelta(delta: Float): Float {
+        return getCurrentState()?.dispatchRawDelta(delta) ?: 0f
     }
 }

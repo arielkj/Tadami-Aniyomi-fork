@@ -54,6 +54,11 @@ import kotlin.random.Random
  * puntos) y el orden del carrusel (lo último visto/leído primero) no
  * cambian. Tocar la tarjeta del destacado abre los detalles; tocar una
  * del carrusel va DIRECTO a ese episodio/capítulo (no al detalle).
+ *
+ * v7.9.12 — el destacado usa el MISMO formato de lado que el carrusel
+ * (TitleCardSide): el usuario pidió que las recomendaciones lleven ese
+ * formato, no la tarjeta vertical. TitleCardTop se eliminó (quedó sin
+ * uso) y el fondo ancho (backdropData) ya no se usa para el destacado.
  */
 
 // Valores de UiPreferences.auroraLibraryFeaturedSource().
@@ -77,7 +82,6 @@ data class LibraryFeaturedEntry(
     val current: Int,
     val status: String,
     val coverData: Any?,
-    val backdropData: Any?,
     val hasNew: Boolean,
     val onDetailsClick: () -> Unit,
     val onContinueClick: () -> Unit,
@@ -238,10 +242,11 @@ private fun LibraryFeaturedBanner(entries: List<LibraryFeaturedEntry>) {
     val colors = AuroraTheme.colors
     val pagerState = rememberPagerState { entries.size }
     Column(modifier = Modifier.fillMaxWidth()) {
-        // v7.9.10: cada página del destacado es una TitleCardTop (la
-        // portada 4:3 arriba y los datos con la barra debajo). La altura
-        // del paginador la marca el contenido (el título puede ocupar 1 o
-        // 2 líneas) y animateContentSize suaviza el cambio de altura al
+        // v7.9.12: cada página del destacado es una TitleCardSide (la
+        // portada vertical a la izquierda y los datos con la barra a la
+        // derecha), el mismo formato que el carrusel de "Seguir viendo":
+        // así lo pidió el usuario. La altura del paginador la marca el
+        // contenido y animateContentSize suaviza el cambio de altura al
         // pasar de página, en vez de dar el salto.
         HorizontalPager(
             state = pagerState,
@@ -251,8 +256,8 @@ private fun LibraryFeaturedBanner(entries: List<LibraryFeaturedEntry>) {
                 .animateContentSize(),
         ) { page ->
             val entry = entries[page]
-            TitleCardTop(
-                cover = entry.backdropData,
+            TitleCardSide(
+                cover = entry.coverData,
                 title = entry.title,
                 type = entry.type,
                 genre = entry.genre,
@@ -331,9 +336,6 @@ private fun AnimeLibraryItem.toFeaturedEntry(
         current = seenCount.toInt(),
         status = auroraLibraryEntryStatusText(anime.status),
         coverData = coverData,
-        // La tarjeta del destacado usa la imagen de fondo cuando la
-        // fuente la trae; si no, la portada recortada.
-        backdropData = anime.backgroundUrl?.takeIf { it.isNotBlank() } ?: coverData,
         hasNew = unseenCount > 0,
         onDetailsClick = { onDetailsClick(this) },
         onContinueClick = { onContinueClick(this) },
@@ -371,7 +373,6 @@ private fun MangaLibraryItem.toFeaturedEntry(
         current = readCount.toInt(),
         status = auroraLibraryEntryStatusText(manga.status),
         coverData = coverData,
-        backdropData = coverData,
         hasNew = unreadCount > 0,
         onDetailsClick = { onDetailsClick(this) },
         onContinueClick = { onContinueClick(this) },

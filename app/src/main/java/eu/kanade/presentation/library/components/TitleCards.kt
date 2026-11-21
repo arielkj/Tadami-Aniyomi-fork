@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -45,10 +44,13 @@ import kotlin.math.roundToInt
 
 /**
  * v7.9.10 — tarjetas de Títulos con barra de progreso (diseño del usuario,
- * 20 Nov): TitleCardTop para las recomendaciones (el destacado de arriba)
- * y TitleCardSide para "Seguir viendo". La misma estructura para anime y
- * manga; solo cambia "Episodio"/"Capítulo" y la insignia de contenido
- * nuevo, que se derivan del tipo ("Anime"/"Manga").
+ * 20 Nov): TitleCardSide para el destacado de arriba y para "Seguir
+ * viendo". La misma estructura para anime y manga; solo cambia
+ * "Episodio"/"Capítulo" y la insignia de contenido nuevo, que se derivan
+ * del tipo ("Anime"/"Manga").
+ *
+ * v7.9.12 — el destacado usa TitleCardSide (el usuario pidió el formato
+ * de lado, no la tarjeta vertical TitleCardTop, que se eliminó).
  *
  * Nota sobre `cover: Any?`: la especificación lo pedía como String, pero
  * en esta app la portada viaja como AnimeCover/MangaCover (o la URL del
@@ -56,87 +58,6 @@ import kotlin.math.roundToInt
  * lastModified + recarga). Un String pelado perdería esa clave y las
  * portadas parpadearían al remontar la tarjeta.
  */
-
-/**
- * Recomendaciones: tarjeta vertical. Portada arriba a todo el ancho (4:3,
- * esquinas de 24dp) con la insignia de contenido nuevo en la esquina
- * superior derecha; debajo, título, línea de datos, barra de progreso y
- * "Ep. X de Y" con el porcentaje.
- */
-@Composable
-fun TitleCardTop(
-    cover: Any?,
-    title: String,
-    type: String,
-    genre: String?,
-    total: Int,
-    current: Int,
-    status: String,
-    hasNew: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = AuroraTheme.colors
-    val isManga = type == stringResource(AYMR.strings.label_manga)
-    val quantity = titleCardQuantityText(isManga, total)
-    val dataLine = listOfNotNull(type, genre, quantity, status).joinToString(" · ")
-    Card(
-        onClick = onClick,
-        shape = RoundedCornerShape(32.dp),
-        colors = CardDefaults.cardColors(containerColor = colors.cardBackground),
-        modifier = modifier,
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(4f / 3f)
-                    .clip(RoundedCornerShape(24.dp)),
-            ) {
-                TitleCardCoverImage(
-                    cover = cover,
-                    variant = AuroraCoverPlaceholderVariant.Wide,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                if (hasNew) {
-                    TitleCardNewBadge(
-                        isManga = isManga,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(10.dp),
-                    )
-                }
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
-                    .padding(top = 10.dp, bottom = 2.dp),
-            ) {
-                Text(
-                    text = title,
-                    color = colors.textPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = dataLine,
-                    color = colors.textSecondary,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                TitleCardProgressBar(progress = titleCardProgress(current, total))
-                Spacer(modifier = Modifier.height(6.dp))
-                TitleCardProgressFooter(isManga = isManga, current = current, total = total)
-            }
-        }
-    }
-}
 
 /**
  * Seguir viendo: tarjeta horizontal. Portada vertical a la izquierda
@@ -331,27 +252,6 @@ private fun titleCardProgressPercent(current: Int, total: Int): String {
 private fun titleCardQuantityText(isManga: Boolean, total: Int): String? {
     if (total <= 0) return null
     return if (isManga) "$total cap." else "$total ep."
-}
-
-@PreviewLightDark
-@Composable
-private fun TitleCardTopPreview() {
-    TachiyomiPreviewTheme {
-        Surface {
-            TitleCardTop(
-                cover = "https://example.com/cover.jpg",
-                title = "Tensei Goblin dakedo Shitsumon Aru?",
-                type = "Anime",
-                genre = "Fantasía",
-                total = 7,
-                current = 3,
-                status = "En publicación",
-                hasNew = true,
-                onClick = {},
-                modifier = Modifier.padding(16.dp),
-            )
-        }
-    }
 }
 
 @PreviewLightDark
