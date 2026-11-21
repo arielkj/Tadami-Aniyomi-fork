@@ -20,12 +20,14 @@ android {
         applicationId = "com.tadami.aurora"
         versionCode = 230
 
-        versionName = "0.63.13"
+        versionName = "0.63.13-portadas"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
         buildConfigField("String", "BUILD_TIME", "\"${getBuildTime(useLastCommitTime = false)}\"")
-        buildConfigField("boolean", "UPDATER_ENABLED", "${Config.enableUpdater}")
+        // Portadas variant: never offer the normal app's updates
+        // (updater points at the upstream repo). Always off here.
+        buildConfigField("boolean", "UPDATER_ENABLED", "false")
         buildConfigField("boolean", "PRIVATE_GEMINI_BRIDGE_ENABLED", "$hasPrivateGeminiBridge")
 
         // Put these fields in acra.properties
@@ -60,14 +62,10 @@ android {
             isMinifyEnabled = Config.enableCodeShrink
             isShrinkResources = Config.enableCodeShrink
 
-            // SOLO BUILD (prueba release v7.8): mismo sufijo que debug para
-            // que esta release instale ENCIMA de la debug (.localdev) y
-            // conserve la biblioteca; sin esto el paquete seria
-            // com.tadami.aurora y no instalaria sobre la debug (paquete
-            // distinto, biblioteca vacia) ni junto a la Tadami original
-            // (mismo paquete, firma distinta). Quitar al volver a una
-            // release normal.
-            applicationIdSuffix = ".localdev"
+            // Variante Portadas: sufijo propio (".portadas") para que
+            // instale JUNTO a la Tadami normal (paquete distinto) en
+            // lugar de encima de ella.
+            applicationIdSuffix = ".portadas"
 
             proguardFiles("proguard-android-optimize.txt", "proguard-rules.pro")
 

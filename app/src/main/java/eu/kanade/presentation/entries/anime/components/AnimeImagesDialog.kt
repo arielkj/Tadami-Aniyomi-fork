@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -57,6 +58,7 @@ fun AnimeImagesDialog(
     onShareClick: () -> Unit,
     onSaveClick: () -> Unit,
     onEditClick: ((EditCoverAction) -> Unit)?,
+    onSearchCoversClick: (() -> Unit)? = null,
     onDismissRequest: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -147,6 +149,17 @@ fun AnimeImagesDialog(
                         tint = contentColor,
                         contentDescription = stringResource(MR.strings.action_share),
                     )
+                }
+                // Only for the cover page: alternative covers come from
+                // Kitsu posters. Backgrounds are out of scope.
+                if (isCover && onSearchCoversClick != null) {
+                    IconButton(onClick = onSearchCoversClick) {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            tint = contentColor,
+                            contentDescription = stringResource(MR.strings.search_covers),
+                        )
+                    }
                 }
             }
         },

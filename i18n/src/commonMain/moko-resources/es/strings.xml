@@ -1,6 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name" translatable="false">Tadami</string>
+    <string name="app_name" translatable="false">Tadami Portadas</string>
     <!-- Generic strings -->
     <string name="on">Sí</string>
     <string name="off">No</string>
@@ -98,6 +98,10 @@
     <string name="delete_category_confirmation">¿Quieres borrar la categoría «%s»?</string>
     <string name="delete_category">Borrar categoría</string>
     <string name="action_edit_cover">Editar la portada</string>
+    <string name="search_covers">Buscar portadas</string>
+    <string name="alternative_covers">Portadas alternativas</string>
+    <string name="no_covers_found">No se encontraron portadas</string>
+    <string name="covers_search_failed">No se pudieron buscar las portadas</string>
     <string name="action_view_chapters">Ver capítulos</string>
     <string name="action_pause">Pausar</string>
     <string name="action_play">Reproducir</string>

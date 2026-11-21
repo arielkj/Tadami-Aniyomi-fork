@@ -1,18 +1,18 @@
-name: Build release APK (v3)
+name: Build release APK (portadas)
 
 on:
   workflow_dispatch:
   push:
-    branches: [tadami-v3]
+    branches: [tadami-v3-portadas]
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout tadami-v3
+      - name: Checkout tadami-v3-portadas
         uses: actions/checkout@v4
         with:
-          ref: tadami-v3
+          ref: tadami-v3-portadas
 
       - name: Set up JDK 17 (Temurin)
         uses: actions/setup-java@v4
