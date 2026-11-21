@@ -92,6 +92,12 @@ fun FullscreenPosterBackground(
     val customCoverFile = remember(manga.id, manga.coverLastModified) {
         coverCache.getCustomCoverFile(manga.id).takeIf { it.exists() }
     }
+    // v7.9.20 Fase 2: la portada mejorada con IA (guardada por el usuario
+    // con «Mejorar portada») también se muestra aquí; nunca gana a la
+    // personalizada de arriba.
+    val enhancedCoverFile = remember(manga.id, manga.coverLastModified) {
+        coverCache.getEnhancedCoverFile(manga.id).takeIf { it.exists() }
+    }
     val posterRequest = remember(
         resolvedCoverUrl,
         resolvedCoverUrlFallback,
@@ -100,6 +106,7 @@ fun FullscreenPosterBackground(
         sourceClient,
         manga.thumbnailUrl,
         customCoverFile,
+        enhancedCoverFile,
         manga.coverLastModified,
     ) {
         AuroraPosterRequest(
@@ -109,10 +116,12 @@ fun FullscreenPosterBackground(
             headers = sourceHeaders,
             client = sourceClient,
             customCoverFile = customCoverFile,
+            enhancedCoverFile = enhancedCoverFile,
             coverLastModified = manga.coverLastModified,
         )
     }
     val posterModel = posterRequest.primaryUrl ?: posterRequest.fallbackUrl ?: posterRequest.customCoverFile?.path
+        ?: posterRequest.enhancedCoverFile?.path
     val posterColorFilter = rememberAuroraPosterColorFilter()
 
     val hasScrolledAway = firstVisibleItemIndex > 0 || scrollOffset > 100
@@ -151,7 +160,9 @@ fun FullscreenPosterBackground(
     val placeholderPosterUrl = resolvedCoverUrlFallback?.takeIf { it.isNotBlank() } ?: manga.thumbnailUrl
     // Stable preview from manga's thumbnail (the one visible in library/browse grid).
     // Full/resolves poster will fade in over it.
-    val previewCoverModel = remember(manga.id) {
+    // v7.9.20 Fase 2: la clave incluye coverLastModified para que la vista
+    // previa se recargue al guardar o borrar la portada mejorada con IA.
+    val previewCoverModel = remember(manga.id, manga.coverLastModified) {
         MangaCover(
             mangaId = manga.id,
             sourceId = manga.source,

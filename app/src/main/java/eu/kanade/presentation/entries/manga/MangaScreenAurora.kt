@@ -82,12 +82,14 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.ui.UiPreferences
+import eu.kanade.domain.ui.model.AiCoverMode
 import eu.kanade.domain.ui.model.TitleScreenStyle
 import eu.kanade.presentation.components.AuroraBackground
 import eu.kanade.presentation.components.EntryDownloadDropdownMenu
 import eu.kanade.presentation.components.relativeDateTimeText
 import eu.kanade.presentation.entries.DownloadAction
 import eu.kanade.presentation.entries.TitleFastScrollOverlayAccumulator
+import eu.kanade.presentation.entries.components.AiCoverEnhanceDialog
 import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenu
 import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenuItem
 import eu.kanade.presentation.entries.components.AuroraEntryHoldToRefresh
@@ -135,6 +137,8 @@ import eu.kanade.presentation.theme.aurora.adaptive.AuroraDeviceClass
 import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
 import eu.kanade.presentation.theme.aurora.adaptive.resolveAuroraAdaptiveSpec
 import eu.kanade.presentation.theme.auroraHeaderIconSurface
+import eu.kanade.tachiyomi.data.coil.ai.CoverAiEnhancer
+import eu.kanade.tachiyomi.data.coil.ai.RealEsrganBridge
 import eu.kanade.tachiyomi.data.download.manga.model.MangaDownload
 import eu.kanade.tachiyomi.source.manga.getNameForMangaInfo
 import eu.kanade.tachiyomi.source.model.SManga
@@ -2123,6 +2127,17 @@ private fun MangaAuroraTopBar(
 
         // More menu - Aurora glassmorphism style
         var showMenu by remember { mutableStateOf(false) }
+        // v7.9.20 Fase 2: mejora de portada con IA (manual, Real-ESRGAN x2).
+        // aiSupported se calcula una sola vez: sin Vulkan (o modo OFF) el
+        // botón no existe, en vez de mostrar un error al tocarlo.
+        var showAiDialog by remember { mutableStateOf(false) }
+        var aiCoverVersion by remember { mutableStateOf(0) }
+        val aiSupported = remember {
+            CoverAiEnhancer.currentMode() != AiCoverMode.OFF && RealEsrganBridge.isSupported()
+        }
+        val hasAiCover = remember(manga.id, aiCoverVersion) {
+            CoverAiEnhancer.hasEnhancedCover(context, CoverAiEnhancer.Kind.MANGA, manga.id)
+        }
         Box(contentAlignment = Alignment.TopEnd) {
             AuroraActionButton(
                 onClick = { showMenu = !showMenu },
@@ -2136,6 +2151,33 @@ private fun MangaAuroraTopBar(
                 expanded = showMenu,
                 onDismissRequest = { showMenu = false },
             ) {
+                // v7.9.20 Fase 2: «Mejorar portada» (IA, manual) y
+                // «Volver a la original» cuando ya hay una mejorada.
+                if (aiSupported) {
+                    AuroraEntryDropdownMenuItem(
+                        text = stringResource(MR.strings.ai_cover_improve),
+                        onClick = {
+                            showAiDialog = true
+                            showMenu = false
+                        },
+                    )
+                }
+                if (hasAiCover) {
+                    AuroraEntryDropdownMenuItem(
+                        text = stringResource(MR.strings.ai_cover_revert),
+                        onClick = {
+                            showMenu = false
+                            scope.launch {
+                                CoverAiEnhancer.deleteEnhanced(
+                                    context,
+                                    CoverAiEnhancer.Kind.MANGA,
+                                    manga.id,
+                                )
+                                aiCoverVersion++
+                            }
+                        },
+                    )
+                }
                 val downloadedChapters = remember(chapters) {
                     chapters.filterIsInstance<ChapterList.Item>().count { it.isDownloaded }
                 }
@@ -2203,6 +2245,17 @@ private fun MangaAuroraTopBar(
                     )
                 }
             }
+        }
+        // v7.9.20 Fase 2: diálogo antes/después de la mejora con IA.
+        if (showAiDialog) {
+            AiCoverEnhanceDialog(
+                kind = CoverAiEnhancer.Kind.MANGA,
+                entryId = manga.id,
+                coverUrl = resolvedCover.coverUrl,
+                fallbackCoverUrl = manga.thumbnailUrl,
+                onDismissRequest = { showAiDialog = false },
+                onSaved = { aiCoverVersion++ },
+            )
         }
     }
 }

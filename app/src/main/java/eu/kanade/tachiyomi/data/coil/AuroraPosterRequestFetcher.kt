@@ -45,6 +45,12 @@ data class AuroraPosterRequest(
      * it always wins over [primaryUrl]/[fallbackUrl] (issue #154).
      */
     val customCoverFile: File? = null,
+    /**
+     * v7.9.20 Fase 2: the entry's AI-enhanced cover (Real-ESRGAN x2),
+     * saved by the user with «Mejorar portada». Wins over the network
+     * poster, but never over [customCoverFile].
+     */
+    val enhancedCoverFile: File? = null,
     /** Entry cover timestamp so cache keys change after cover edits. */
     val coverLastModified: Long = 0L,
 )
@@ -60,6 +66,9 @@ class AuroraPosterRequestKeyer : Keyer<AuroraPosterRequest> {
             append(data.coverLastModified)
             if (data.customCoverFile?.exists() == true) {
                 append(";custom")
+            }
+            if (data.enhancedCoverFile?.exists() == true) {
+                append(";ai")
             }
             // v7.9.20: el nivel del filtro forma parte de la clave, como
             // en la clave de disco — si no, cambiar el ajuste serviría
@@ -92,6 +101,10 @@ class AuroraPosterRequestFetcher(
         // Issue #154: a user-set custom cover must always win over URL-resolved
         // posters and over the URL-keyed poster disk cache.
         data.customCoverFile?.takeIf { it.exists() }?.let { file ->
+            return customCoverLoader(file)
+        }
+        // v7.9.20 Fase 2: la portada mejorada con IA gana a la de red.
+        data.enhancedCoverFile?.takeIf { it.exists() }?.let { file ->
             return customCoverLoader(file)
         }
         readFromDiskCache()?.let { return it }

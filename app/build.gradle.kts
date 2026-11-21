@@ -48,6 +48,22 @@ android {
         resourceConfigurations += "es"
     }
 
+    // v7.9.20 Fase 2: puente JNI Real-ESRGAN (mejora de portadas con IA,
+    // ncnn + Vulkan). CONDICIONAL: solo se compila el .so cuando el
+    // prebuilt de ncnn está presente (lo descarga el workflow de release
+    // en CI). Sin él — builds locales, debug, PRs — el proyecto compila
+    // igual, pero sin la librería nativa, y el botón de IA se oculta
+    // (RealEsrganBridge.isSupported() = false). No se pone abiFilters:
+    // el resto de .so (ffmpeg, etc.) deben seguir en los 4 ABI.
+    if (file("src/main/cpp/ncnn-android/arm64-v8a/lib/cmake/ncnn/ncnnConfig.cmake").exists()) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+                version = "3.22.1"
+            }
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             applicationIdSuffix = ".localdev"

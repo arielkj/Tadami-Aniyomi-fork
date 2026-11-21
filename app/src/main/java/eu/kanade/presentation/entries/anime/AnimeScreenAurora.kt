@@ -94,6 +94,7 @@ import eu.kanade.domain.entries.anime.model.seasonsFiltered
 import eu.kanade.domain.metadata.model.MetadataLoadError
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.ui.UiPreferences
+import eu.kanade.domain.ui.model.AiCoverMode
 import eu.kanade.domain.ui.model.EpisodeListDensity
 import eu.kanade.domain.ui.model.TitleScreenStyle
 import eu.kanade.presentation.components.AuroraBackground
@@ -122,6 +123,7 @@ import eu.kanade.presentation.entries.anime.components.aurora.FullscreenPosterBa
 import eu.kanade.presentation.entries.anime.components.aurora.filterAnimeDescription
 import eu.kanade.presentation.entries.anime.components.aurora.resolveAnimeDetailsSnapshot
 import eu.kanade.presentation.entries.anime.components.resolveAnimeSeasonSwitcherItems
+import eu.kanade.presentation.entries.components.AiCoverEnhanceDialog
 import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenu
 import eu.kanade.presentation.entries.components.AuroraEntryDropdownMenuItem
 import eu.kanade.presentation.entries.components.AuroraEntryHoldToRefresh
@@ -160,6 +162,8 @@ import eu.kanade.tachiyomi.animesource.model.FetchType
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.source.anime.getNameForAnimeInfo
+import eu.kanade.tachiyomi.data.coil.ai.CoverAiEnhancer
+import eu.kanade.tachiyomi.data.coil.ai.RealEsrganBridge
 import eu.kanade.tachiyomi.data.download.anime.model.AnimeDownload
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreenModel
@@ -2848,6 +2852,17 @@ private fun AnimeAuroraTopBar(
 
         // More menu - Aurora glassmorphism style
         var showMenu by remember { mutableStateOf(false) }
+        // v7.9.20 Fase 2: mejora de portada con IA (manual, Real-ESRGAN x2).
+        // aiSupported se calcula una sola vez: sin Vulkan (o modo OFF) el
+        // botón no existe, en vez de mostrar un error al tocarlo.
+        var showAiDialog by remember { mutableStateOf(false) }
+        var aiCoverVersion by remember { mutableStateOf(0) }
+        val aiSupported = remember {
+            CoverAiEnhancer.currentMode() != AiCoverMode.OFF && RealEsrganBridge.isSupported()
+        }
+        val hasAiCover = remember(anime.id, aiCoverVersion) {
+            CoverAiEnhancer.hasEnhancedCover(context, CoverAiEnhancer.Kind.ANIME, anime.id)
+        }
         Box(contentAlignment = Alignment.TopEnd) {
             AuroraActionButton(
                 onClick = { showMenu = !showMenu },
@@ -2868,6 +2883,33 @@ private fun AnimeAuroraTopBar(
                         showMenu = false
                     },
                 )
+                // v7.9.20 Fase 2: «Mejorar portada» (IA, manual) y
+                // «Volver a la original» cuando ya hay una mejorada.
+                if (aiSupported) {
+                    AuroraEntryDropdownMenuItem(
+                        text = stringResource(MR.strings.ai_cover_improve),
+                        onClick = {
+                            showAiDialog = true
+                            showMenu = false
+                        },
+                    )
+                }
+                if (hasAiCover) {
+                    AuroraEntryDropdownMenuItem(
+                        text = stringResource(MR.strings.ai_cover_revert),
+                        onClick = {
+                            showMenu = false
+                            scope.launch {
+                                CoverAiEnhancer.deleteEnhanced(
+                                    context,
+                                    CoverAiEnhancer.Kind.ANIME,
+                                    anime.id,
+                                )
+                                aiCoverVersion++
+                            }
+                        },
+                    )
+                }
                 // WebView lived on the old action card; the definitive
                 // design removes that card from the mobile immersive
                 // screen, so it stays reachable from the ⋮ menu.
@@ -2971,6 +3013,17 @@ private fun AnimeAuroraTopBar(
                     )
                 }
             }
+        }
+        // v7.9.20 Fase 2: diálogo antes/después de la mejora con IA.
+        if (showAiDialog) {
+            AiCoverEnhanceDialog(
+                kind = CoverAiEnhancer.Kind.ANIME,
+                entryId = anime.id,
+                coverUrl = resolvedCover.coverUrl,
+                fallbackCoverUrl = anime.thumbnailUrl,
+                onDismissRequest = { showAiDialog = false },
+                onSaved = { aiCoverVersion++ },
+            )
         }
     }
 }

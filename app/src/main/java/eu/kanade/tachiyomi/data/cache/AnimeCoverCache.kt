@@ -20,6 +20,9 @@ class AnimeCoverCache(private val context: Context) {
     companion object {
         private const val COVERS_DIR = "animecovers"
         private const val CUSTOM_COVERS_DIR = "animecovers/custom"
+
+        /** v7.9.20 Fase 2: portadas mejoradas con IA (JPEG, una por título). */
+        private const val ENHANCED_COVERS_DIR = "animecovers/enhanced"
     }
 
     /**
@@ -28,6 +31,9 @@ class AnimeCoverCache(private val context: Context) {
     private val cacheDir = getCacheDir(COVERS_DIR)
 
     private val customCoverCacheDir = getCacheDir(CUSTOM_COVERS_DIR)
+
+    /** v7.9.20 Fase 2: carpeta de portadas mejoradas con IA. */
+    private val enhancedCoverCacheDir = getCacheDir(ENHANCED_COVERS_DIR)
 
     /**
      * Returns the cover from cache.
@@ -49,6 +55,22 @@ class AnimeCoverCache(private val context: Context) {
      */
     fun getCustomCoverFile(animeId: Long?): File {
         return File(customCoverCacheDir, DiskUtil.hashKeyForDisk(animeId.toString()))
+    }
+
+    /**
+     * v7.9.20 Fase 2: la portada mejorada con IA (Real-ESRGAN x2) de un
+     * título, guardada como JPEG en app-private storage. Gana a la
+     * portada de red en todo (detalle, cuadrícula, Seguir viendo), pero
+     * nunca a la personalizada del usuario (esa se comprueba antes).
+     */
+    fun getEnhancedCoverFile(animeId: Long?): File {
+        return File(enhancedCoverCacheDir, DiskUtil.hashKeyForDisk(animeId.toString()))
+    }
+
+    fun deleteEnhancedCover(animeId: Long?): Boolean {
+        return getEnhancedCoverFile(animeId).let {
+            it.exists() && it.delete()
+        }
     }
 
     /**

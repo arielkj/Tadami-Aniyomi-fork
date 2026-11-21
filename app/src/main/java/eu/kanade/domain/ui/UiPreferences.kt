@@ -1,5 +1,6 @@
 package eu.kanade.domain.ui
 
+import eu.kanade.domain.ui.model.AiCoverMode
 import eu.kanade.domain.ui.model.AppTheme
 import eu.kanade.domain.ui.model.BottomNavAppearance
 import eu.kanade.domain.ui.model.EInkProfile
@@ -98,6 +99,17 @@ class UiPreferences(
     fun auroraCoverFilter() = preferenceStore.getString(
         "aurora_cover_filter",
         "soft",
+    )
+
+    /**
+     * v7.9.20 — how the on-device AI cover enhancement behaves. MANUAL by
+     * default: only when the user taps «Mejorar portada» on a detail
+     * screen (the user chose manual-only, 21 Nov). No settings UI for
+     * this mode; OFF hides the button entirely.
+     */
+    fun auroraAiCoverMode() = preferenceStore.getEnum(
+        "aurora_ai_cover_mode",
+        AiCoverMode.MANUAL,
     )
 
     fun libraryUpdatePacingTimeoutSeconds() = preferenceStore.getInt(

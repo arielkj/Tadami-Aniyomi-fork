@@ -121,6 +121,28 @@ object CoverFilter {
     }
 
     /**
+     * v7.9.20 Fase 2: aplica SOLO la parte de color del filtro (vibrance/
+     * saturación + contraste + brillo + negros limpios, según el nivel
+     * actual) a un bitmap en memoria, SIN unsharp mask. La salida de la IA
+     * ya es nítida; un segundo realce de bordes añadiría halos. Devuelve
+     * un bitmap nuevo; la entrada queda intacta. Si el filtro está
+     * apagado, devuelve la entrada tal cual.
+     */
+    fun applyColorOnly(source: Bitmap): Bitmap {
+        val params = paramsFor(level()) ?: return source
+        return runCatching {
+            val w = source.width
+            val h = source.height
+            val pixels = IntArray(w * h)
+            source.getPixels(pixels, 0, w, 0, 0, w, h)
+            processPixels(pixels, w, h, params, sharpen = false)
+            val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            out.setPixels(pixels, 0, w, 0, 0, w, h)
+            out
+        }.getOrNull() ?: source
+    }
+
+    /**
      * Decodifica con downsampling si la imagen es enorme, para no gastar
      * memoria de más en el hilo de IO: el póster del detalle se pide a
      * 1080 px de ancho como mucho, así que por encima de 1600 px en el
@@ -160,12 +182,19 @@ object CoverFilter {
      * En el sitio: unsharp mask (box blur 3x3, 2 pasadas) + vibrance/
      * saturación + contraste suave + brillo +2% + negros limpios.
      * Una pasada por los píxeles; ~300k píxeles en una portada de 460x650.
+     * Con [sharpen] = false se salta el blur y el unsharp (solo color):
+     * lo usa la Fase 2, cuya salida de IA ya es nítida.
      */
-    private fun processPixels(pixels: IntArray, w: Int, h: Int, p: LevelParams) {
+    private fun processPixels(pixels: IntArray, w: Int, h: Int, p: LevelParams, sharpen: Boolean = true) {
         // --- 3x3 box blur, separable (horizontal y luego vertical), 2 pasadas ---
-        val blurred = IntArray(w * h)
-        boxBlur(pixels, blurred, w, h)
-        boxBlur(blurred, blurred, w, h)
+        val blurred = if (sharpen) {
+            val blurred = IntArray(w * h)
+            boxBlur(pixels, blurred, w, h)
+            boxBlur(blurred, blurred, w, h)
+            blurred
+        } else {
+            null
+        }
 
         val amount = p.unsharpAmount
         val vibrance = p.vibrance
@@ -176,19 +205,22 @@ object CoverFilter {
 
         for (i in pixels.indices) {
             val orig = pixels[i]
-            val blur = blurred[i]
             val a = orig ushr 24
             var r = (orig shr 16) and 0xFF
             var g = (orig shr 8) and 0xFF
             var b = orig and 0xFF
-            val br = (blur shr 16) and 0xFF
-            val bg = (blur shr 8) and 0xFF
-            val bb = blur and 0xFF
 
             // Unsharp mask: orig + amount * (orig - blur), por canal.
-            r = clamp(r + amount * (r - br))
-            g = clamp(g + amount * (g - bg))
-            b = clamp(b + amount * (b - bb))
+            // Se salta entero cuando sharpen = false (Fase 2).
+            if (sharpen) {
+                val blur = blurred!![i]
+                val br = (blur shr 16) and 0xFF
+                val bg = (blur shr 8) and 0xFF
+                val bb = blur and 0xFF
+                r = clamp(r + amount * (r - br))
+                g = clamp(g + amount * (g - bg))
+                b = clamp(b + amount * (b - bb))
+            }
 
             // Vibrance + saturación. El peso de vibrance es mayor en los
             // píxeles apagados y ~0 en los ya saturados, así los rojos no

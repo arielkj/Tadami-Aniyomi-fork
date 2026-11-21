@@ -187,3 +187,7 @@ lattice_scenario.local.json
 .vscode/
 *.skill
 tools/
+
+# v7.9.20 Fase 2: prebuilt de ncnn (descargado en CI, ver build-release.yml).
+# No se versiona: pesa ~33 MB y se verifica por SHA-256 al descargarlo.
+app/src/main/cpp/ncnn-android/

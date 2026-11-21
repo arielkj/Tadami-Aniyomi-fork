@@ -59,6 +59,7 @@ class MangaCoverFetcher(
     private val options: Options,
     private val coverFileProvider: (String?) -> File?,
     private val customCoverFileLazy: Lazy<File>,
+    private val enhancedCoverFileLazy: Lazy<File>? = null,
     private val diskCacheKeyProvider: (String?, Long?) -> String,
     private val metadataCoverUrlProvider: suspend () -> String? = { null },
     private val dbCoverProvider: suspend () -> Pair<String?, Long>? = { null },
@@ -77,6 +78,16 @@ class MangaCoverFetcher(
                 debugTitleCoverFlow(scope = "manga-fetcher", message = "custom-cover-hit file=${customCoverFile.name}")
                 return fileLoader(customCoverFile, diskCacheKey)
             }
+        }
+
+        // v7.9.20 Fase 2: la portada mejorada con IA (guardada por el
+        // usuario con «Mejorar portada») gana a la de red, pero nunca a
+        // la personalizada de arriba.
+        val enhancedCoverFile = enhancedCoverFileLazy?.value
+        if (enhancedCoverFile?.exists() == true) {
+            val diskCacheKey = diskCacheKeyProvider(url, null)
+            debugTitleCoverFlow(scope = "manga-fetcher", message = "ai-enhanced-cover-hit file=${enhancedCoverFile.name}")
+            return fileLoader(enhancedCoverFile, diskCacheKey)
         }
 
         // Metadata covers are only maintained for library entries; skip the
@@ -415,6 +426,7 @@ class MangaCoverFetcher(
                 options = options,
                 coverFileProvider = coverCache::getCoverFile,
                 customCoverFileLazy = lazy { coverCache.getCustomCoverFile(data.id) },
+                enhancedCoverFileLazy = lazy { coverCache.getEnhancedCoverFile(data.id) },
                 diskCacheKeyProvider = { effectiveUrl, lastModified ->
                     "manga;${data.id};$effectiveUrl;${lastModified ?: data.coverLastModified}"
                 },
@@ -443,6 +455,7 @@ class MangaCoverFetcher(
                 options = options,
                 coverFileProvider = coverCache::getCoverFile,
                 customCoverFileLazy = lazy { coverCache.getCustomCoverFile(data.mangaId) },
+                enhancedCoverFileLazy = lazy { coverCache.getEnhancedCoverFile(data.mangaId) },
                 diskCacheKeyProvider = { effectiveUrl, lastModified ->
                     "manga;${data.mangaId};$effectiveUrl;${lastModified ?: data.lastModified}"
                 },

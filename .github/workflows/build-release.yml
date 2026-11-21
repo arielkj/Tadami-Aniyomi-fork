@@ -37,6 +37,30 @@ jobs:
           "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
           yes | "$SDKMGR" --licenses
 
+      # v7.9.20 Fase 2: herramientas nativas + prebuilt de ncnn para el
+      # puente JNI Real-ESRGAN (mejora de portadas con IA). El CMakeLists
+      # espera el prebuilt en app/src/main/cpp/ncnn-android/<abi>/; sin
+      # él, el bloque externalNativeBuild de app/build.gradle.kts se salta
+      # y el .so no se compila (el botón de IA se oculta en la app).
+      # NDK 27.1.12297006 = AndroidConfig.NDK del proyecto. El zip se
+      # verifica por SHA-256 (versión 20260526, fijada) antes de
+      # descomprimirlo. glslangValidator compila los shaders .comp del
+      # puente a SPIR-V; no viene en el zip de ncnn, va por apt.
+      - name: Install NDK, CMake and ncnn prebuilt
+        run: |
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMGR" "ndk;27.1.12297006" "cmake;3.22.1"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq glslang-tools
+          curl -L -o /tmp/ncnn.zip \
+            https://github.com/Tencent/ncnn/releases/download/20260526/ncnn-20260526-android-vulkan.zip
+          echo "26909c92eed35afed4a966b5e9e503fcb0a529691ea3f910ec2c94a4fff52804  /tmp/ncnn.zip" | sha256sum -c -
+          unzip -q -o /tmp/ncnn.zip -d app/src/main/cpp/ncnn-android-tmp
+          mv app/src/main/cpp/ncnn-android-tmp/ncnn-20260526-android-vulkan app/src/main/cpp/ncnn-android
+          rmdir app/src/main/cpp/ncnn-android-tmp
+          ls app/src/main/cpp/ncnn-android/arm64-v8a/lib/cmake/ncnn/ncnnConfig.cmake
+          which glslangValidator
+
       # Release: R8 corre dentro del daemon Gradle y pesa mas que el dex
       # de debug (que ya dio OOM con 2g y se arreglo con 4g). Gradle 4g -> 6g;
       # Kotlin se queda en 8192m (6g + 8g = 14g dentro del runner de 16 GB).

@@ -60,6 +60,7 @@ class AnimeImageFetcher(
     private val options: Options,
     private val coverFileProvider: (String?) -> File?,
     private val customCoverFileLazy: Lazy<File>,
+    private val enhancedCoverFileLazy: Lazy<File>? = null,
     private val diskCacheKeyProvider: (String?, Long?) -> String,
     private val metadataCoverUrlProvider: suspend () -> String? = { null },
     private val dbCoverProvider: suspend () -> Pair<String?, Long>? = { null },
@@ -77,6 +78,19 @@ class AnimeImageFetcher(
                 val diskCacheKey = diskCacheKeyProvider(url, null)
                 debugTitleCoverFlow(scope = "anime-fetcher", message = "custom-cover-hit file=${customCoverFile.name}")
                 return fileLoader(customCoverFile, diskCacheKey)
+            }
+        }
+
+        // v7.9.20 Fase 2: la portada mejorada con IA (guardada por el
+        // usuario con «Mejorar portada») gana a la de red, pero nunca a
+        // la personalizada de arriba. Solo para portadas, no para el
+        // fondo del detalle.
+        if (!options.useBackground) {
+            val enhancedCoverFile = enhancedCoverFileLazy?.value
+            if (enhancedCoverFile?.exists() == true) {
+                val diskCacheKey = diskCacheKeyProvider(url, null)
+                debugTitleCoverFlow(scope = "anime-fetcher", message = "ai-enhanced-cover-hit file=${enhancedCoverFile.name}")
+                return fileLoader(enhancedCoverFile, diskCacheKey)
             }
         }
 
@@ -422,6 +436,14 @@ class AnimeImageFetcher(
                 lazy { coverCache.getCustomCoverFile(data.id) }
             }
 
+            // v7.9.20 Fase 2: solo la portada (no el fondo) puede ser la
+            // mejorada con IA.
+            val enhancedCoverCacheLazy = if (isBackground) {
+                null
+            } else {
+                lazy { coverCache.getEnhancedCoverFile(data.id) }
+            }
+
             return AnimeImageFetcher(
                 url = url,
                 isLibraryAnime = data.favorite,
@@ -436,6 +458,7 @@ class AnimeImageFetcher(
                     }
                 },
                 customCoverFileLazy = customCoverCacheLazy,
+                enhancedCoverFileLazy = enhancedCoverCacheLazy,
                 diskCacheKeyProvider = { effectiveUrl, lastModified ->
                     if (isBackground) {
                         "anime-bg;${data.id};$effectiveUrl;${lastModified ?: data.backgroundLastModified}"
@@ -479,6 +502,7 @@ class AnimeImageFetcher(
                 options = options,
                 coverFileProvider = coverCache::getCoverFile,
                 customCoverFileLazy = lazy { coverCache.getCustomCoverFile(data.animeId) },
+                enhancedCoverFileLazy = lazy { coverCache.getEnhancedCoverFile(data.animeId) },
                 diskCacheKeyProvider = { effectiveUrl, lastModified ->
                     "anime;${data.animeId};$effectiveUrl;${lastModified ?: data.lastModified}"
                 },
