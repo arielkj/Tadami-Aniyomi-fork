@@ -2965,6 +2965,20 @@ private fun AuroraLibraryCategoryTabs(
         // (the selected pill is SemiBold, slightly wider than Medium).
         withFrameNanos { }
 
+        // v7.9.14: esperar a que la selección se asiente antes de mover
+        // la fila. Al deslizar rápido por varias categorías la selección
+        // cambia cada ~100 ms: sin esta espera, cada cambio reiniciaba el
+        // efecto y cancelaba el animateScrollTo a mitad de camino, así que
+        // la fila saltaba y terminaba en un desplazamiento arbitrario (la
+        // cápsula, que sigue al paginador en vivo, quedaba en la píldora
+        // equivocada o fuera de la vista). Con la espera, durante el
+        // deslizamiento la fila NO se mueve y solo la cápsula se desliza;
+        // al asentarse la selección, la fila hace UN solo desplazamiento
+        // mínimo y suave para revelar la píldora. La espera también deja
+        // que el layout se asiente, así las medidas leídas abajo son las
+        // frescas (ancho SemiBold de la píldora seleccionada).
+        delay(150)
+
         // animTabPositionsX / animTabWidths are the same measurements the sliding
         // capsule uses: viewport-relative (they move with the row's scroll offset)
         // and the full pill size including its 14dp side padding.
