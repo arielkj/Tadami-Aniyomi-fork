@@ -771,6 +771,19 @@ class AnimeScreenModel(
                 }
             }
 
+            // v7.9.22: actualización híbrida al entrar al detalle. Solo para
+            // títulos ya inicializados con lista guardada (no es primera carga
+            // ni viene de la fuente): un chequeo liviano de episodios nuevos,
+            // sin ruedita y sin tocar los detalles. Si el título no está
+            // inicializado, viene de la fuente o la lista está vacía, se
+            // mantiene el comportamiento actual (carga completa).
+            if (anime.initialized && !isFromSource &&
+                ((anime.fetchType == FetchType.Episodes && rawEpisodes.isNotEmpty()) ||
+                    (anime.fetchType == FetchType.Seasons && seasons.isNotEmpty()))
+            ) {
+                screenModelScope.launchIO { checkNewEpisodesLight() }
+            }
+
             // PERF: apply default episode/season flags off the critical path; the UI already
             // rendered with the parallel snapshot above.
             screenModelScope.launchIO {
@@ -1462,6 +1475,62 @@ class AnimeScreenModel(
             // running; only the orchestrators (init/fetchAllFromSource) manage the flag.
             val newAnime = animeRepository.getAnimeById(animeId)
             updateSuccessState { it.copy(anime = newAnime) }
+        }
+    }
+
+    /**
+     * v7.9.22: actualización híbrida al entrar al detalle. Chequeo liviano:
+     * pide SOLO la lista de episodios/temporadas a la fuente y la compara con
+     * la guardada. Si hay episodios nuevos, los sincroniza (la lista y lo
+     * necesario para mostrarlos); si no hay nada nuevo, no toca nada. Nunca
+     * muestra la ruedita ni snackbar, nunca toca los detalles (sinopsis,
+     * portada, estado, géneros) ni las portadas personalizadas. Los detalles
+     * completos solo se actualizan con el refresh manual o en Actualizaciones.
+     * Sin trabajo nuevo en segundo plano: una sola petición, solo al entrar.
+     */
+    private suspend fun checkNewEpisodesLight() {
+        val state = successState ?: return
+        if (state.anime.isLocal()) return
+        try {
+            withIOContext {
+                startTorrentServerIfNeeded(state.source)
+                when (state.anime.fetchType) {
+                    FetchType.Episodes -> {
+                        val savedUrls = state.episodes.map { it.episode.url }.toSet()
+                        val fetched = state.source.getEpisodeList(state.anime.toSAnime())
+                        if (fetched.isEmpty()) return@withIOContext
+                        if (fetched.none { it.url !in savedUrls }) return@withIOContext
+                        val newEpisodes = syncEpisodesWithSource.await(
+                            fetched, state.anime, state.source, false,
+                        )
+                        updateNewEpisodeIds(
+                            addedIds = newEpisodes.asSequence()
+                                .filterNot { it.seen }
+                                .map { it.id }
+                                .toList(),
+                        )
+                    }
+                    FetchType.Seasons -> {
+                        val savedUrls = state.seasons.map { it.seasonAnime.anime.url }.toSet()
+                        val fetched = state.source.getSeasonList(state.anime.toSAnime())
+                        if (fetched.isEmpty()) return@withIOContext
+                        if (fetched.none { it.url !in savedUrls }) return@withIOContext
+                        // Hay temporadas nuevas: la ruta existente las sincroniza
+                        // y trae sus episodios (según la preferencia).
+                        val newSeasons = syncSeasonsWithSource.await(
+                            fetched, state.anime, state.source,
+                        )
+                        if (libraryPreferences.updateSeasonOnRefresh().get()) {
+                            fetchEpisodesFromSeasons(newSeasons, false)
+                        }
+                    }
+                }
+            }
+        } catch (e: Throwable) {
+            // Silencioso: el chequeo liviano nunca muestra snackbar ni ruedita;
+            // los datos guardados se quedan como están.
+            if (e is HttpException && e.code == 103) return
+            logcat(LogPriority.WARN, e) { "Light episode check failed" }
         }
     }
 

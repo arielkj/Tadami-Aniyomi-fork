@@ -655,6 +655,16 @@ class MangaScreenModel(
                 }
             }
 
+            // v7.9.22: actualización híbrida al entrar al detalle. Solo para
+            // títulos ya inicializados con capítulos guardados (no es primera
+            // carga ni viene de la fuente): un chequeo liviano de capítulos
+            // nuevos, sin ruedita y sin tocar los detalles. Si el título no
+            // está inicializado, viene de la fuente o la lista está vacía, se
+            // mantiene el comportamiento actual (carga completa).
+            if (manga.initialized && !isFromSource && rawChapters.isNotEmpty()) {
+                screenModelScope.launchIO { checkNewChaptersLight() }
+            }
+
             // Apply default chapter flags off the critical path so the DB write round-trip does not
             // delay the first frame (deferred pattern from AnimeScreenModel).
             if (shouldApplyDefaultChapterFlags(manga)) {
@@ -1330,6 +1340,53 @@ class MangaScreenModel(
                 downloadProgress = activeDownload?.progress ?: 0,
                 selected = chapter.id in selectedChapterIds,
             )
+        }
+    }
+
+    /**
+     * v7.9.22: actualización híbrida al entrar al detalle. Chequeo liviano:
+     * pide SOLO la lista de capítulos a la fuente (fetchDetails = false) y la
+     * compara con la guardada. Si hay capítulos nuevos, los sincroniza (la
+     * lista y lo necesario para mostrarlos); si no hay nada nuevo, no toca
+     * nada. Nunca muestra la ruedita ni snackbar ni diálogo, nunca toca los
+     * detalles (sinopsis, portada, estado, géneros) ni las portadas
+     * personalizadas. Los detalles completos solo se actualizan con el refresh
+     * manual o en Actualizaciones. Sin trabajo nuevo en segundo plano: una
+     * sola petición, solo al entrar.
+     */
+    private suspend fun checkNewChaptersLight() {
+        val state = successState ?: return
+        if (state.manga.isLocal()) return
+        try {
+            withIOContext {
+                // API combinada: solo capítulos, sin detalles (igual que el
+                // fetch normal de capítulos; en extensiones 1.6 llamar a
+                // getChapterList directo lanza).
+                val sourceChapters = sourceUpdateMutex.withLock {
+                    state.source.getMangaUpdate(
+                        manga = MangaMemoRepairHelper.getOrRepairMangaRequest(state.manga, state.source, updateManga),
+                        chapters = emptyList(),
+                        fetchDetails = false,
+                        fetchChapters = true,
+                    ).chapters
+                }
+                if (sourceChapters.isEmpty()) return@withIOContext
+                val savedUrls = state.chapters.map { it.chapter.url }.toSet()
+                if (sourceChapters.none { it.url !in savedUrls }) return@withIOContext
+                val newChapters = syncChaptersWithSource.await(
+                    sourceChapters, state.manga, state.source, false,
+                )
+                updateNewChapterIds(
+                    addedIds = newChapters.asSequence()
+                        .filterNot { it.read }
+                        .map { it.id }
+                        .toList(),
+                )
+            }
+        } catch (e: Throwable) {
+            // Silencioso: el chequeo liviano nunca muestra snackbar, diálogo ni
+            // ruedita; los datos guardados se quedan como están.
+            logcat(LogPriority.WARN, e) { "Light chapter check failed" }
         }
     }
 
