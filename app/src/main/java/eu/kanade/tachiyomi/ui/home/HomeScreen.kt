@@ -1574,45 +1574,15 @@ object HomeScreen : Screen() {
             noiseFactor(0.06f)
         }
         return if (colors.isDark) {
-            // V5: una sola sombra (antes dos: 10 dp + 3 dp); en AMOLED ninguna.
-            val shadowed = if (colors.isAmoled) {
-                this
-            } else {
-                this.shadow(
-                    elevation = 10.dp,
-                    shape = shape,
-                    ambientColor = Color.White.copy(alpha = 0.12f),
-                    spotColor = Color.White.copy(alpha = 0.08f),
-                )
-            }
-            shadowed
+            // v7.9.22: barra negra pura a petición del usuario — sin cristal:
+            // fondo sólido #000000, sin base translúcida (#1E1E1E al 82%),
+            // sin velo blanco del 8%, sin hazeBlur, sin borde rim-light y sin
+            // sombra. La cápsula y los iconos quedan como están. De paso quita
+            // el blur por frame en no-AMOLED: menos trabajo de GPU al hacer
+            // scroll (regla permanente: solo lo vital en segundo plano).
+            this
                 .clip(shape)
-                // Base bajo el cristal: en AMOLED gris muy oscuro translúcido
-                // (#1E1E1E al 82%) en vez de negro opaco; en los primeros
-                // frames (antes de que el haze capture contenido) la barra
-                // no parpadea transparente. En no-AMOLED sigue el fondo opaco.
-                .background(
-                    if (colors.isAmoled) {
-                        Color(0xFF1E1E1E).copy(alpha = 0.82f)
-                    } else {
-                        colors.background
-                    },
-                    shape,
-                )
-                .then(
-                    if (colors.isAmoled) {
-                        // V7.4: sin hazeBlur en AMOLED (ver comentario de
-                        // arriba): el velo blanco del 8% es una capa
-                        // translúcida sobre el cristal, no un blur.
-                        Modifier.background(Color.White.copy(alpha = 0.08f), shape)
-                    } else {
-                        Modifier.hazeBlur(input = HazeInput.Sources(hazeState), style = hazeStyle)
-                    },
-                )
-                .border(
-                    BorderStroke(width = 1.dp, brush = auroraMenuRimLightBrush(colors)),
-                    shape = shape,
-                )
+                .background(Color.Black, shape)
         } else {
             this
                 .shadow(elevation = 8.dp, shape = shape)
