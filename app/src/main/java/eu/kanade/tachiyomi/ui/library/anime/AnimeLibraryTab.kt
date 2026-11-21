@@ -69,6 +69,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -80,6 +81,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
@@ -97,13 +99,16 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastAll
@@ -147,6 +152,8 @@ import eu.kanade.presentation.library.novel.components.AddToSeriesDialog
 import eu.kanade.presentation.library.novel.components.CreateSeriesDialog
 import eu.kanade.presentation.more.onboarding.GETTING_STARTED_URL
 import eu.kanade.presentation.theme.AuroraTheme
+import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
+import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
 import eu.kanade.presentation.theme.auroraHeaderIconSurface
 import eu.kanade.presentation.util.LocalBottomNavVisibilityController
 import eu.kanade.presentation.util.Tab
@@ -217,6 +224,7 @@ import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 import java.text.NumberFormat
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlin.random.Random
 import eu.kanade.presentation.library.anime.components.AddToSeriesDialog as AnimeAddToSeriesDialog
 import eu.kanade.presentation.library.anime.components.CreateSeriesDialog as AnimeCreateSeriesDialog
@@ -691,6 +699,7 @@ data object AnimeLibraryTab : Tab {
             titleRes = AYMR.strings.label_anime,
             searchEnabled = true,
             content = { contentPadding, _ ->
+                val auroraAdaptiveSpec = rememberAuroraAdaptiveSpec()
                 // Per-section-page gate: a section that has never emitted shows its spinner INSIDE
                 // the page slot, so the pager, header and category row survive the first visit.
                 if (state.isLoading) {
@@ -719,25 +728,74 @@ data object AnimeLibraryTab : Tab {
                         pagerState.animateScrollToPage(animeCategoryIndex)
                     }
                 }
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    verticalAlignment = Alignment.Top,
-                    userScrollEnabled = swipeSwitchesCategories && state.categories.size > 1,
-                ) { page ->
+                // v7.9.9: el destacado y el carrusel son UN SOLO encabezado
+                // por sección, por encima del paginador de categorías: al
+                // deslizar de categoría no se mueve ni se recarga (antes
+                // vivía dentro de cada página y se iba con ella,
+                // reiniciando el banner y el carrusel). Al bajar, el
+                // encabezado se oculta con el contenido (nada fijo
+                // verticalmente): el desplazamiento vertical de la
+                // cuadrícula lo colapsa y al subir vuelve. La puerta sigue
+                // siendo de la sección (navegar, sin buscar ni filtrar, con
+                // títulos); si nada está empezado, el banner usa su
+                // respaldo (toda la sección).
+                val animeSectionItems = state.items
+                val showAnimeFeaturedHeader = state.searchQuery == null &&
+                    !state.hasActiveFilters &&
+                    animeSectionItems.isNotEmpty()
+                val animeHeaderState = rememberAuroraCollapsingHeaderState()
+                LaunchedEffect(showAnimeFeaturedHeader) {
+                    if (!showAnimeFeaturedHeader) animeHeaderState.offsetPx = 0f
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(animeHeaderState.nestedScrollConnection),
+                ) {
+                    if (showAnimeFeaturedHeader) {
+                        AuroraCollapsingLibraryHeader(
+                            state = animeHeaderState,
+                            contentPadding = contentPadding,
+                            listMaxWidthDp = auroraAdaptiveSpec.listMaxWidthDp,
+                        ) {
+                            AnimeLibraryFeaturedHeader(
+                                items = animeSectionItems,
+                                featuredSource = featuredSource,
+                                seed = featuredSeed,
+                                onDetailsClick = { item ->
+                                    when (item) {
+                                        is AnimeLibraryItem.Single -> {
+                                            navigator.push(AnimeScreen(item.libraryAnime.anime.id))
+                                        }
+                                        is AnimeLibraryItem.Series -> {
+                                            navigator.push(AnimeSeriesScreen(item.librarySeries.id))
+                                        }
+                                    }
+                                },
+                                onContinueClick = { item ->
+                                    if (!continueActionGuard.inFlight) {
+                                        continueActionGuard.inFlight = true
+                                        scope.launchIO {
+                                            try {
+                                                val episode = screenModel.getNextUnseenEpisode(item)
+                                                if (episode != null) openEpisode(episode)
+                                            } finally {
+                                                continueActionGuard.inFlight = false
+                                            }
+                                        }
+                                    }
+                                    Unit
+                                },
+                            )
+                        }
+                    }
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.Top,
+                        userScrollEnabled = swipeSwitchesCategories && state.categories.size > 1,
+                    ) { page ->
                     val items = state.getAnimelibItemsByPage(page)
-                    // v7.9.7: el destacado y el carrusel son de TODA la
-                    // sección (no solo de la categoría actual): salen en
-                    // Anime, Anime N, Anime F, Película… La puerta solo
-                    // exige navegar (sin buscar ni filtrar) y que la
-                    // sección tenga títulos; si nada está empezado, el
-                    // banner usa su respaldo (toda la sección). Como la
-                    // cabecera es la misma en todas las páginas, la
-                    // precomposición del pager ya no es un problema.
-                    val sectionItems = state.items
-                    val showAnimeFeaturedHeader = state.searchQuery == null &&
-                        !state.hasActiveFilters &&
-                        sectionItems.isNotEmpty()
                     val showAnimeCategoryTabs = shouldShowAuroraLibraryCategoryTabsRow(
                         section = Section.Anime,
                         categoryCount = state.categories.size,
@@ -804,41 +862,6 @@ data object AnimeLibraryTab : Tab {
                         libraryPreferences = screenModel.libraryPreferences,
                         listState = retainedListState,
                         gridState = retainedGridState,
-                        headerContent = if (showAnimeFeaturedHeader) {
-                            {
-                                AnimeLibraryFeaturedHeader(
-                                    items = sectionItems,
-                                    featuredSource = featuredSource,
-                                    seed = featuredSeed,
-                                    onDetailsClick = { item ->
-                                        when (item) {
-                                            is AnimeLibraryItem.Single -> {
-                                                navigator.push(AnimeScreen(item.libraryAnime.anime.id))
-                                            }
-                                            is AnimeLibraryItem.Series -> {
-                                                navigator.push(AnimeSeriesScreen(item.librarySeries.id))
-                                            }
-                                        }
-                                    },
-                                    onContinueClick = { item ->
-                                        if (!continueActionGuard.inFlight) {
-                                            continueActionGuard.inFlight = true
-                                            scope.launchIO {
-                                                try {
-                                                    val episode = screenModel.getNextUnseenEpisode(item)
-                                                    if (episode != null) openEpisode(episode)
-                                                } finally {
-                                                    continueActionGuard.inFlight = false
-                                                }
-                                            }
-                                        }
-                                        Unit
-                                    },
-                                )
-                            }
-                        } else {
-                            null
-                        },
                         categoryTabsContent = if (showAnimeCategoryTabs) {
                             {
                                 AuroraLibraryCategoryTabs(
@@ -869,12 +892,14 @@ data object AnimeLibraryTab : Tab {
                         },
                     )
                 }
+                }
             },
         )
         val mangaTab = TabContent(
             titleRes = AYMR.strings.label_manga,
             searchEnabled = true,
             content = { contentPadding, _ ->
+                val auroraAdaptiveSpec = rememberAuroraAdaptiveSpec()
                 // Per-section-page gate: a section that has never emitted shows its spinner INSIDE
                 // the page slot, so the pager, header and category row survive the first visit.
                 if (mangaState.isLoading) {
@@ -902,19 +927,90 @@ data object AnimeLibraryTab : Tab {
                         pagerState.animateScrollToPage(mangaCategoryIndex)
                     }
                 }
-                HorizontalPager(
-                    state = pagerState,
-                    modifier = Modifier.fillMaxSize(),
-                    verticalAlignment = Alignment.Top,
-                    userScrollEnabled = swipeSwitchesCategories && mangaState.categories.size > 1,
-                ) { page ->
+                // v7.9.9: igual que en anime — el destacado y el carrusel
+                // son UN SOLO encabezado por sección, por encima del
+                // paginador de categorías: al deslizar de categoría no se
+                // mueve ni se recarga. Al bajar, el encabezado se oculta
+                // con el contenido (nada fijo verticalmente).
+                val mangaSectionItems = mangaState.items
+                val showMangaFeaturedHeader = mangaState.searchQuery == null &&
+                    !mangaState.hasActiveFilters &&
+                    mangaSectionItems.isNotEmpty()
+                val mangaHeaderState = rememberAuroraCollapsingHeaderState()
+                LaunchedEffect(showMangaFeaturedHeader) {
+                    if (!showMangaFeaturedHeader) mangaHeaderState.offsetPx = 0f
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .nestedScroll(mangaHeaderState.nestedScrollConnection),
+                ) {
+                    if (showMangaFeaturedHeader) {
+                        AuroraCollapsingLibraryHeader(
+                            state = mangaHeaderState,
+                            contentPadding = contentPadding,
+                            listMaxWidthDp = auroraAdaptiveSpec.listMaxWidthDp,
+                        ) {
+                            MangaLibraryFeaturedHeader(
+                                items = mangaSectionItems,
+                                featuredSource = featuredSource,
+                                seed = featuredSeed,
+                                onDetailsClick = { item ->
+                                    when (item) {
+                                        is MangaLibraryItem.Single -> {
+                                            navigator.push(MangaScreen(item.libraryManga.manga.id))
+                                        }
+                                        is MangaLibraryItem.Series -> {
+                                            navigator.push(MangaSeriesScreen(item.librarySeries.id))
+                                        }
+                                    }
+                                },
+                                onContinueClick = { item ->
+                                    if (!continueActionGuard.inFlight) {
+                                        continueActionGuard.inFlight = true
+                                        scope.launchIO {
+                                            try {
+                                                val targetManga = when (item) {
+                                                    is MangaLibraryItem.Single -> item.libraryManga
+                                                    is MangaLibraryItem.Series -> {
+                                                        item.librarySeries.entries.firstOrNull {
+                                                            it.manga.id == item.librarySeries.activeManga?.id
+                                                        } ?: item.libraryManga
+                                                    }
+                                                }
+                                                val chapter = mangaScreenModel.getNextUnreadChapter(
+                                                    targetManga.manga,
+                                                )
+                                                if (chapter != null) {
+                                                    context.startActivity(
+                                                        ReaderActivity.newIntent(
+                                                            context,
+                                                            chapter.mangaId,
+                                                            chapter.id,
+                                                        ),
+                                                    )
+                                                } else {
+                                                    snackbarHostState.showSnackbar(
+                                                        context.stringResource(MR.strings.no_next_chapter),
+                                                    )
+                                                }
+                                            } finally {
+                                                continueActionGuard.inFlight = false
+                                            }
+                                        }
+                                    }
+                                    Unit
+                                },
+                            )
+                        }
+                    }
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.Top,
+                        userScrollEnabled = swipeSwitchesCategories && mangaState.categories.size > 1,
+                    ) { page ->
                     val items = mangaState.getLibraryItemsByPage(page)
-                    // v7.9.7: igual que en anime — destacado + carrusel de
-                    // TODA la sección de Manga, en todas las categorías.
-                    val mangaSectionItems = mangaState.items
-                    val showMangaFeaturedHeader = mangaState.searchQuery == null &&
-                        !mangaState.hasActiveFilters &&
-                        mangaSectionItems.isNotEmpty()
                     val showMangaCategoryTabs = shouldShowAuroraLibraryCategoryTabsRow(
                         section = Section.Manga,
                         categoryCount = mangaState.categories.size,
@@ -988,63 +1084,6 @@ data object AnimeLibraryTab : Tab {
                         libraryPreferences = mangaScreenModel.libraryPreferences,
                         listState = retainedListState,
                         gridState = retainedGridState,
-                        headerContent = if (showMangaFeaturedHeader) {
-                            {
-                                MangaLibraryFeaturedHeader(
-                                    items = mangaSectionItems,
-                                    featuredSource = featuredSource,
-                                    seed = featuredSeed,
-                                    onDetailsClick = { item ->
-                                        when (item) {
-                                            is MangaLibraryItem.Single -> {
-                                                navigator.push(MangaScreen(item.libraryManga.manga.id))
-                                            }
-                                            is MangaLibraryItem.Series -> {
-                                                navigator.push(MangaSeriesScreen(item.librarySeries.id))
-                                            }
-                                        }
-                                    },
-                                    onContinueClick = { item ->
-                                        if (!continueActionGuard.inFlight) {
-                                            continueActionGuard.inFlight = true
-                                            scope.launchIO {
-                                                try {
-                                                    val targetManga = when (item) {
-                                                        is MangaLibraryItem.Single -> item.libraryManga
-                                                        is MangaLibraryItem.Series -> {
-                                                            item.librarySeries.entries.firstOrNull {
-                                                                it.manga.id == item.librarySeries.activeManga?.id
-                                                            } ?: item.libraryManga
-                                                        }
-                                                    }
-                                                    val chapter = mangaScreenModel.getNextUnreadChapter(
-                                                        targetManga.manga,
-                                                    )
-                                                    if (chapter != null) {
-                                                        context.startActivity(
-                                                            ReaderActivity.newIntent(
-                                                                context,
-                                                                chapter.mangaId,
-                                                                chapter.id,
-                                                            ),
-                                                        )
-                                                    } else {
-                                                        snackbarHostState.showSnackbar(
-                                                            context.stringResource(MR.strings.no_next_chapter),
-                                                        )
-                                                    }
-                                                } finally {
-                                                    continueActionGuard.inFlight = false
-                                                }
-                                            }
-                                        }
-                                        Unit
-                                    },
-                                )
-                            }
-                        } else {
-                            null
-                        },
                         categoryTabsContent = if (showMangaCategoryTabs) {
                             {
                                 AuroraLibraryCategoryTabs(
@@ -1074,6 +1113,7 @@ data object AnimeLibraryTab : Tab {
                             null
                         },
                     )
+                }
                 }
             },
         )
@@ -3079,4 +3119,98 @@ internal fun shouldSyncAuroraLibraryCategoryIndex(
 ): Boolean {
     if (categoryCount <= 0) return false
     return currentIndex != targetIndex
+}
+
+// ---------------------------------------------------------------------------
+// v7.9.9 — encabezado colapsable de Títulos (destacado + "Seguir viendo").
+//
+// El encabezado es UN SOLO elemento por sección, por encima del paginador
+// de categorías: al deslizar de categoría no se mueve ni se recarga (antes
+// vivía dentro de cada página y se iba con ella, reiniciando el banner y el
+// carrusel). Al desplazar verticalmente hacia abajo, el encabezado se
+// oculta con el contenido — nada fijo ni anclado: el desplazamiento
+// vertical de la cuadrícula lo colapsa y al subir vuelve.
+//
+// Cómo colapsa: el contenido se mide sin límite de alto (SubcomposeLayout),
+// así su alto intrínseco no depende del colapso y nunca queda obsoleto
+// cuando el contenido cambia (p. ej. aparece el carrusel). La conexión de
+// desplazamiento anidado consume el desplazamiento vertical antes que la
+// cuadrícula para ocultar el encabezado, y lo que sobra al llegar la
+// cuadrícula arriba lo vuelve a mostrar. Las píldoras de categoría NO van
+// aquí: siguen dentro de cada página, con su comportamiento actual.
+// ---------------------------------------------------------------------------
+
+private const val AURORA_COLLAPSING_HEADER_SLOT = "library_collapsing_header"
+
+private class AuroraCollapsingHeaderState {
+    /** Alto total del encabezado en px (con el hueco superior incluido). */
+    var heightPx: Int = 0
+
+    /** Desplazamiento vertical actual en px: 0 = visible, -heightPx = oculto. */
+    var offsetPx by mutableFloatStateOf(0f)
+
+    val nestedScrollConnection: NestedScrollConnection = object : NestedScrollConnection {
+        override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+            // Al subir el contenido (available.y < 0) se oculta primero el
+            // encabezado, antes de que la cuadrícula se mueva.
+            if (available.y >= 0f || heightPx <= 0) return Offset.Zero
+            val hide = minOf(-available.y, offsetPx + heightPx)
+            if (hide <= 0f) return Offset.Zero
+            offsetPx -= hide
+            return Offset(0f, -hide)
+        }
+
+        override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+            // Al bajar, lo que sobra tras llegar la cuadrícula arriba
+            // vuelve a mostrar el encabezado.
+            if (available.y <= 0f || heightPx <= 0) return Offset.Zero
+            val reveal = minOf(available.y, -offsetPx)
+            if (reveal <= 0f) return Offset.Zero
+            offsetPx += reveal
+            return Offset(0f, reveal)
+        }
+    }
+}
+
+@Composable
+private fun rememberAuroraCollapsingHeaderState(): AuroraCollapsingHeaderState {
+    return remember { AuroraCollapsingHeaderState() }
+}
+
+@Composable
+private fun AuroraCollapsingLibraryHeader(
+    state: AuroraCollapsingHeaderState,
+    contentPadding: PaddingValues,
+    listMaxWidthDp: Int?,
+    content: @Composable () -> Unit,
+) {
+    val layoutDirection = LocalLayoutDirection.current
+    SubcomposeLayout(
+        modifier = Modifier
+            .fillMaxWidth()
+            .auroraCenteredMaxWidth(listMaxWidthDp)
+            .padding(
+                start = contentPadding.calculateStartPadding(layoutDirection) + 8.dp,
+                end = contentPadding.calculateEndPadding(layoutDirection) + 8.dp,
+            )
+            .clipToBounds(),
+    ) { constraints ->
+        // El hueco superior de 8dp va DENTRO del contenido medido (igual
+        // que el que tenía dentro de la rejilla), para que también se
+        // colapse y no quede una franja vacía con el encabezado oculto.
+        val placeables = subcompose(AURORA_COLLAPSING_HEADER_SLOT) {
+            Column {
+                Spacer(Modifier.height(8.dp))
+                content()
+            }
+        }.map {
+            it.measure(constraints.copy(maxHeight = Constraints.Infinity))
+        }
+        val fullHeight = placeables.maxOfOrNull { it.height } ?: 0
+        state.heightPx = fullHeight
+        val visibleHeight = (fullHeight + state.offsetPx.roundToInt()).coerceAtLeast(0)
+        layout(constraints.maxWidth, visibleHeight) {
+            placeables.forEach { it.place(0, state.offsetPx.roundToInt()) }
+        }
+    }
 }
