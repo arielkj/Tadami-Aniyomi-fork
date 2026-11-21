@@ -69,6 +69,26 @@ fun AlternativeCoverPickerDialog(
     var retry by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
 
+    fun selectCandidate(candidate: AlternativeCoverCandidate) {
+        selected = candidate
+        if (!isManga) {
+            // Kitsu: one poster per candidate, no second request needed.
+            covers = listOfNotNull(candidate.cover)
+            return
+        }
+        covers = null
+        scope.launch {
+            try {
+                covers = AlternativeCoverRepository.loadMangaDexCovers(
+                    candidate.sourceId ?: return@launch,
+                )
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e)
+                error = true
+            }
+        }
+    }
+
     fun loadCandidates() {
         loading = true
         error = false
@@ -91,26 +111,6 @@ fun AlternativeCoverPickerDialog(
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e)
                 loading = false
-                error = true
-            }
-        }
-    }
-
-    fun selectCandidate(candidate: AlternativeCoverCandidate) {
-        selected = candidate
-        if (!isManga) {
-            // Kitsu: one poster per candidate, no second request needed.
-            covers = listOfNotNull(candidate.cover)
-            return
-        }
-        covers = null
-        scope.launch {
-            try {
-                covers = AlternativeCoverRepository.loadMangaDexCovers(
-                    candidate.sourceId ?: return@launch,
-                )
-            } catch (e: Exception) {
-                logcat(LogPriority.ERROR, e)
                 error = true
             }
         }
