@@ -81,6 +81,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -2660,9 +2661,7 @@ private fun AuroraLibraryCategoryTabs(
     val menuBorderBrush = remember(colors) { auroraMenuRimLightBrush(colors) }
 
     val scrollState = rememberScrollState()
-    val tabWidths = remember(categories) { mutableMapOf<Int, Int>() }
     var containerWidthPx by remember { mutableIntStateOf(0) }
-    val density = LocalDensity.current
 
     // NOT keyed on `categories`: this row is shared by every library section, and the maps are
     // re-measured in the same layout pass that composes the new section's tabs. Keying them on the
@@ -2711,36 +2710,33 @@ private fun AuroraLibraryCategoryTabs(
         label = "tabY",
     )
 
-    // Auto-scroll to center the selected category (except first two which stay at start).
+    // Scroll only to reveal: the row stays put and only the selection capsule slides
+    // (TabLayout-style). The row moves just enough to bring the selected pill into
+    // view, and only when it is not fully visible already.
     // Keys: selection change, categories change, or container laid out (first time / resize).
     LaunchedEffect(coercedSelected, categories.size, containerWidthPx) {
         if (containerWidthPx <= 0) return@LaunchedEffect
 
-        if (coercedSelected <= 1) {
-            if (scrollState.value != 0) {
-                scrollState.animateScrollTo(0, animationSpec = tween(durationMillis = 350))
-            }
-            return@LaunchedEffect
-        }
+        // Let one frame pass so the pill measurements reflect the new selection
+        // (the selected pill is SemiBold, slightly wider than Medium).
+        withFrameNanos { }
 
-        val spacingPx = with(density) { 6.dp.toPx() }
-        val leftPaddingPx = with(density) { 6.dp.toPx() }
-        val tabContentWidth = tabWidths[coercedSelected] ?: 0
-        if (tabContentWidth == 0) return@LaunchedEffect
+        // animTabPositionsX / animTabWidths are the same measurements the sliding
+        // capsule uses: viewport-relative (they move with the row's scroll offset)
+        // and the full pill size including its 14dp side padding.
+        val tabLeft = animTabPositionsX[coercedSelected] ?: return@LaunchedEffect
+        val tabWidth = animTabWidths[coercedSelected] ?: return@LaunchedEffect
+        if (tabWidth <= 0f) return@LaunchedEffect
+        val tabRight = tabLeft + tabWidth
 
-        // tabWidths from onGloballyPositioned measure content only (no padding).
-        // Each tab occupies contentWidth + 14dp left + 14dp right (= 28dp total).
-        val tabPaddingTotalPx = with(density) { 14.dp.toPx() * 2 }
-        val accumulatedWidth = (0 until coercedSelected).sumOf {
-            (tabWidths[it] ?: 0) + tabPaddingTotalPx.toInt()
-        }
-        val currentTabFullWidth = tabContentWidth + tabPaddingTotalPx.toInt()
-        val numSpacers = coercedSelected
+        // Fully visible already: do not touch the scroll, the row stays fixed.
+        if (tabLeft >= 0f && tabRight <= containerWidthPx.toFloat()) return@LaunchedEffect
 
-        val tabCenter =
-            leftPaddingPx + accumulatedWidth + numSpacers * spacingPx + currentTabFullWidth / 2f
-        val targetScroll =
-            (tabCenter - containerWidthPx / 2f).coerceAtLeast(0f).toInt()
+        // Minimal reveal: shift just enough to bring the pill into view.
+        val targetScroll = when {
+            tabLeft < 0f -> scrollState.value + tabLeft
+            else -> scrollState.value + (tabRight - containerWidthPx.toFloat())
+        }.toInt().coerceAtLeast(0)
 
         if (scrollState.value != targetScroll) {
             scrollState.animateScrollTo(targetScroll, animationSpec = tween(durationMillis = 350))
@@ -2878,10 +2874,7 @@ private fun AuroraLibraryCategoryTabs(
                                 animTabPositionsX[index] = pos.x
                                 animTabPositionsY[index] = pos.y
                             }
-                            .padding(horizontal = 14.dp, vertical = 9.dp)
-                            .onGloballyPositioned { coordinates ->
-                                tabWidths[index] = coordinates.size.width
-                            },
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
