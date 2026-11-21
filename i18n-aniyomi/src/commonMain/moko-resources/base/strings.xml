@@ -110,6 +110,8 @@
     <string name="aurora_library_featured_source_in_progress">In progress</string>
     <string name="aurora_library_featured_source_all">Entire library</string>
     <string name="aurora_library_featured_source_pinned">Favorites</string>
+    <string name="aurora_library_featured_hidden_sources">Continue watching &amp; suggestions</string>
+    <string name="aurora_library_featured_hidden_sources_summary">Choose which sources may appear in Continue Watching and the featured banner. Unchecked sources never show up there, so private titles stay out of sight.</string>
     <string name="aurora_library_featured_view_details">View details</string>
     <string name="aurora_library_featured_new_episode">New episode</string>
     <string name="aurora_library_featured_new_chapter">New chapter</string>

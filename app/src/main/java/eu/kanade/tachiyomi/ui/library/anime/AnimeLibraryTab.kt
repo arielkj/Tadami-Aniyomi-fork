@@ -257,6 +257,10 @@ data object AnimeLibraryTab : Tab {
 
     private const val AURORA_LIBRARY_IDLE_PRELOAD_DELAY_MS = 2000L
 
+    // v7.9.15: cada cuánto se renueva la selección del destacado (las
+    // sugerencias): 6 horas.
+    private const val AURORA_FEATURED_SEED_REFRESH_MS = 6L * 60L * 60L * 1000L
+
     @OptIn(ExperimentalAnimationGraphicsApi::class)
     override val options: TabOptions
         @Composable
@@ -336,13 +340,32 @@ data object AnimeLibraryTab : Tab {
         val swipeSwitchesCategories by uiPreferences
             .auroraLibrarySwipeSwitchesCategories()
             .collectAsStateWithLifecycle()
-        // v7.9.6: semilla del destacado — remember del ámbito Content: muere
-        // con cada push del navegador (J1), así el destacado se baraja de
-        // nuevo cada vez que se vuelve a entrar a Títulos.
-        val featuredSeed = remember { Random.nextInt() }
         val featuredSource by uiPreferences
             .auroraLibraryFeaturedSource()
             .collectAsStateWithLifecycle()
+        // v7.9.15: fuentes ocultas de "Seguir viendo" y del destacado
+        // (Ajustes → "Seguir viendo y sugerencias", privacidad).
+        val featuredHiddenSources by uiPreferences
+            .auroraLibraryFeaturedHiddenSources()
+            .collectAsStateWithLifecycle()
+        // v7.9.15: semilla del destacado — ya NO es aleatoria a cada
+        // entrada (v7.9.6), sino guardada en preferencias y renovada
+        // cada 6 horas: las sugerencias se actualizan solas cada 6 h
+        // para no ser siempre las mismas. Al abrir Títulos, si pasaron
+        // 6 h desde la última renovación, se genera una semilla nueva
+        // (otra selección, si hay alternativas) y se guarda la hora.
+        // La semilla la leen el destacado de anime y el de manga.
+        val featuredSeed by uiPreferences
+            .auroraLibraryFeaturedSeed()
+            .collectAsStateWithLifecycle()
+        LaunchedEffect(Unit) {
+            val now = System.currentTimeMillis()
+            val lastRefresh = uiPreferences.auroraLibraryFeaturedSeedTime().get()
+            if (lastRefresh == 0L || now - lastRefresh >= AURORA_FEATURED_SEED_REFRESH_MS) {
+                uiPreferences.auroraLibraryFeaturedSeed().set(Random.nextInt())
+                uiPreferences.auroraLibraryFeaturedSeedTime().set(now)
+            }
+        }
         val bottomNavVisibilityController = LocalBottomNavVisibilityController.current
         val useSeparateDisplayModePerMedia by settingsScreenModel
             .libraryPreferences
@@ -834,8 +857,17 @@ data object AnimeLibraryTab : Tab {
                                 items = animeSectionItems,
                                 featuredSource = featuredSource,
                                 seed = featuredSeed,
-                                columns = animeColumns,
-                                adaptiveMinCellDp = auroraAdaptiveSpec.compactGridAdaptiveMinCellDp,
+                                // v7.9.15: fuentes ocultas en Ajustes
+                                // (privacidad) y avance automático del
+                                // destacado solo si el encabezado está
+                                // visible (offsetPx va de 0 visible a
+                                // -heightPx oculto; heightPx 0 = aún sin
+                                // medir, se asume visible).
+                                hiddenSourceKeys = featuredHiddenSources,
+                                headerVisible = {
+                                    animeHeaderState.heightPx <= 0 ||
+                                        animeHeaderState.offsetPx > -animeHeaderState.heightPx / 2f
+                                },
                                 onDetailsClick = { item ->
                                     when (item) {
                                         is AnimeLibraryItem.Single -> {
@@ -898,6 +930,10 @@ data object AnimeLibraryTab : Tab {
                                 // sigue escribiendo en el modelo, que anima
                                 // el paginador (ver LaunchedEffect abajo).
                                 selectedIndex = pagerState.currentPage,
+                                // v7.9.15: la cápsula sigue el deslizamiento
+                                // en vivo (currentPage + fracción), no solo
+                                // cuando la página se asienta.
+                                pageOffsetFractionProvider = { pagerState.currentPageOffsetFraction },
                                 onCategorySelected = { index ->
                                     screenModel.activeCategoryIndex = coerceAuroraLibraryCategoryIndex(
                                         requestedIndex = index,
@@ -1097,8 +1133,14 @@ data object AnimeLibraryTab : Tab {
                                 items = mangaSectionItems,
                                 featuredSource = featuredSource,
                                 seed = featuredSeed,
-                                columns = mangaColumns,
-                                adaptiveMinCellDp = auroraAdaptiveSpec.compactGridAdaptiveMinCellDp,
+                                // v7.9.15: igual que en anime — fuentes
+                                // ocultas y avance automático solo con el
+                                // encabezado visible.
+                                hiddenSourceKeys = featuredHiddenSources,
+                                headerVisible = {
+                                    mangaHeaderState.heightPx <= 0 ||
+                                        mangaHeaderState.offsetPx > -mangaHeaderState.heightPx / 2f
+                                },
                                 onDetailsClick = { item ->
                                     when (item) {
                                         is MangaLibraryItem.Single -> {
@@ -1170,6 +1212,9 @@ data object AnimeLibraryTab : Tab {
                                 // (currentPage), no el índice del modelo
                                 // (ver comentario en la llamada de anime).
                                 selectedIndex = pagerState.currentPage,
+                                // v7.9.15: la cápsula sigue el deslizamiento
+                                // en vivo (currentPage + fracción).
+                                pageOffsetFractionProvider = { pagerState.currentPageOffsetFraction },
                                 onCategorySelected = { index ->
                                     mangaScreenModel.activeCategoryIndex = coerceAuroraLibraryCategoryIndex(
                                         requestedIndex = index,
@@ -1363,6 +1408,9 @@ data object AnimeLibraryTab : Tab {
                             // sigue la página REAL del paginador
                             // (currentPage), no el índice del modelo.
                             selectedIndex = pagerState.currentPage,
+                            // v7.9.15: la cápsula sigue el deslizamiento
+                            // en vivo (currentPage + fracción).
+                            pageOffsetFractionProvider = { pagerState.currentPageOffsetFraction },
                             onCategorySelected = { index ->
                                 activeNovelScreenModel.activeCategoryIndex =
                                     coerceAuroraLibraryCategoryIndex(
@@ -2867,6 +2915,14 @@ private fun AuroraLibraryCategoryTabs(
     onCategoryLongSelected: ((Int) -> Unit)? = null,
     getCountForCategory: (Category) -> Int?,
     formatCountForCategory: (Int) -> String,
+    // v7.9.15: fracción de desplazamiento EN VIVO del paginador de
+    // categorías (currentPageOffsetFraction, ±0.5). La cápsula la lee
+    // para seguir al dedo mientras se desliza, no solo cuando la
+    // página se asienta (eso era lo que fallaba en la 7.9.14). Se pasa
+    // como lambda para que SOLO esta fila se suscriba a los cambios
+    // del paginador: leer la fracción en el llamador recompondría
+    // toda la sección a cada fotograma del deslizamiento.
+    pageOffsetFractionProvider: () -> Float = { 0f },
 ) {
     val colors = AuroraTheme.colors
     val appHaptics = LocalAppHaptics.current
@@ -2924,6 +2980,42 @@ private fun AuroraLibraryCategoryTabs(
     // targets above are all 0f and drawing would animate the pill into the row origin.
     val selectionMeasured = effWidth > 0f && effHeight > 0f
 
+    // v7.9.15: seguimiento EN VIVO de la cápsula. currentPage solo
+    // cambia cuando la página se asienta, así que la cápsula de la
+    // v7.9.14 se quedaba quieta durante el deslizamiento y saltaba
+    // después (en el teléfono "no iba al compás"). La posición
+    // continua es currentPage + currentPageOffsetFraction: un flotante
+    // que va de 5.0 a 6.0 al deslizar de la 5 a la 6 sin saltos (la
+    // fracción va en ±0.5 y currentPage cambia justo a la mitad, así
+    // que la suma es continua). La cápsula interpola su izquierda y su
+    // derecha entre las píldoras de los dos índices que rodean esa
+    // posición, así se desliza pegada al dedo mientras el usuario
+    // desliza. Si alguna de las dos píldoras aún no tiene medida, se
+    // cae a la cápsula animada de siempre (liveCapsule = null).
+    val liveOffset = pageOffsetFractionProvider()
+    val livePage = (coercedSelected + liveOffset)
+        .coerceIn(0f, (categories.size - 1).coerceAtLeast(0).toFloat())
+    val liveFromIndex = livePage.toInt().coerceIn(0, (categories.size - 1).coerceAtLeast(0))
+    val liveToIndex = (liveFromIndex + 1).coerceAtMost((categories.size - 1).coerceAtLeast(0))
+    val liveT = (livePage - liveFromIndex).coerceIn(0f, 1f)
+    val liveFromLeft = animTabPositionsX[liveFromIndex]
+    val liveFromWidth = animTabWidths[liveFromIndex]
+    val liveToLeft = animTabPositionsX[liveToIndex]
+    val liveToWidth = animTabWidths[liveToIndex]
+    val liveCapsule: Pair<Float, Float>? =
+        if (liveFromLeft != null && liveFromWidth != null &&
+            liveToLeft != null && liveToWidth != null &&
+            liveFromWidth > 0f && liveToWidth > 0f
+        ) {
+            val fromRight = liveFromLeft + liveFromWidth
+            val toRight = liveToLeft + liveToWidth
+            (liveFromLeft + (liveToLeft - liveFromLeft) * liveT) to
+                (fromRight + (toRight - fromRight) * liveT)
+        } else {
+            null
+        }
+    val isLiveTracking = liveOffset != 0f && liveCapsule != null
+
     val activeLeft = effX
     val activeRight = effX + effWidth
 
@@ -2953,6 +3045,14 @@ private fun AuroraLibraryCategoryTabs(
         animationSpec = bodySpring,
         label = "tabY",
     )
+
+    // v7.9.15: durante el deslizamiento, la cápsula se dibuja DIRECTO
+    // en la posición interpolada (sin pasar por el muelle: el muelle
+    // la dejaría atrás del dedo). Al asentarse (offset 0) vuelve la
+    // animación con muelle de siempre, que ya está cerca del destino
+    // y termina el recorrido sin salto.
+    val drawLeft = if (isLiveTracking && liveCapsule != null) liveCapsule.first else animatedLeft
+    val drawRight = if (isLiveTracking && liveCapsule != null) liveCapsule.second else animatedRight
 
     // Scroll only to reveal: the row stays put and only the selection capsule slides
     // (TabLayout-style). The row moves just enough to bring the selected pill into
@@ -3001,6 +3101,28 @@ private fun AuroraLibraryCategoryTabs(
         }
     }
 
+    // v7.9.15: la fila sigue a la cápsula EN VIVO. El revelado de
+    // arriba solo actúa cuando la selección se asienta (con su espera
+    // de 150 ms); durante el deslizamiento, la cápsula puede viajar
+    // hacia una píldora fuera de la vista y quedarse invisible. Este
+    // efecto corre tras cada composición — la fila se recompone a cada
+    // fotograma del deslizamiento, porque lee la fracción en vivo — y
+    // desplaza la fila lo mínimo e instantáneo (sin animación, para ir
+    // pegada al dedo) para mantener visible la cápsula en movimiento.
+    // Cuando no se está deslizando no hace nada (isLiveTracking) y el
+    // revelado asentado sigue de red de seguridad.
+    SideEffect {
+        if (!isLiveTracking) return@SideEffect
+        val capsule = liveCapsule ?: return@SideEffect
+        if (containerWidthPx <= 0) return@SideEffect
+        val (left, right) = capsule
+        if (left < 0f) {
+            scrollState.dispatchRawDelta(left)
+        } else if (right > containerWidthPx.toFloat()) {
+            scrollState.dispatchRawDelta(right - containerWidthPx.toFloat())
+        }
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -3043,16 +3165,19 @@ private fun AuroraLibraryCategoryTabs(
                 .padding(6.dp)
                 .drawBehind {
                     if (selectionMeasured &&
-                        animatedRight > animatedLeft &&
+                        drawRight > drawLeft &&
                         animatedHeight > 0f &&
                         colors.eInkProfile != EInkProfile.MONOCHROME
                     ) {
-                        val minWidth = minOf(effWidth, animatedHeight)
-                        val drawWidth = (animatedRight - animatedLeft).coerceAtLeast(minWidth)
-                        val drawX = if (animatedRight - animatedLeft < minWidth) {
-                            animatedLeft - (minWidth - (animatedRight - animatedLeft)) / 2f
+                        // v7.9.15: el ancho mínimo usa el ancho real de
+                        // la cápsula dibujada (interpolado en vivo),
+                        // no el de la píldora seleccionada.
+                        val minWidth = minOf(drawRight - drawLeft, animatedHeight)
+                        val drawWidth = (drawRight - drawLeft).coerceAtLeast(minWidth)
+                        val drawX = if (drawRight - drawLeft < minWidth) {
+                            drawLeft - (minWidth - (drawRight - drawLeft)) / 2f
                         } else {
-                            animatedLeft
+                            drawLeft
                         }
 
                         // v7.9.14: la cápsula de selección usa el mismo

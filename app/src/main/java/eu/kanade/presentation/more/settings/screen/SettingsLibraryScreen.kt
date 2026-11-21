@@ -1,5 +1,6 @@
 package eu.kanade.presentation.more.settings.screen
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
@@ -22,6 +23,7 @@ import eu.kanade.presentation.more.settings.Preference
 import eu.kanade.presentation.more.settings.PreferenceItem
 import eu.kanade.presentation.more.settings.customUpdateIntervalSubtitle
 import eu.kanade.presentation.more.settings.widget.CustomUpdateIntervalDialog
+import eu.kanade.presentation.more.settings.widget.SwitchPreferenceWidget
 import eu.kanade.presentation.more.settings.widget.TriStateListDialog
 import eu.kanade.tachiyomi.data.library.anime.AnimeLibraryUpdateJob
 import eu.kanade.tachiyomi.data.library.manga.MangaLibraryUpdateJob
@@ -39,6 +41,8 @@ import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.category.novel.interactor.GetNovelCategories
 import tachiyomi.domain.category.novel.model.NovelCategory
 import tachiyomi.domain.library.service.LibraryPreferences
+import tachiyomi.domain.source.anime.service.AnimeSourceManager
+import tachiyomi.domain.source.manga.service.MangaSourceManager
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.DEVICE_CHARGING
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.DEVICE_NETWORK_NOT_METERED
 import tachiyomi.domain.library.service.LibraryPreferences.Companion.DEVICE_ONLY_ON_WIFI
@@ -101,6 +105,9 @@ object SettingsLibraryScreen : SearchableSettings {
             getAnimeBehaviorGroup(libraryPreferences),
             getBehaviorGroup(libraryPreferences),
             getAuroraGroup(uiPreferences, libraryPreferences),
+            // v7.9.15: qué fuentes pueden aparecer en "Seguir viendo" y
+            // en el destacado (privacidad).
+            getFeaturedSourcesGroup(uiPreferences),
         )
     }
 
@@ -737,6 +744,89 @@ object SettingsLibraryScreen : SearchableSettings {
             title = stringResource(AYMR.strings.theme_aurora),
             preferenceItems = preferenceItems.toImmutableList(),
         )
+    }
+
+    // v7.9.15: apartado "Seguir viendo y sugerencias" — el usuario
+    // elige qué fuentes (extensiones) pueden aparecer en "Seguir
+    // viendo" y en el destacado, para que lo privado no salga ahí.
+    // Por defecto todas pueden aparecer; las desmarcadas no salen en
+    // ninguno de los dos sitios (ver LibraryFeaturedHeader).
+    @Composable
+    private fun getFeaturedSourcesGroup(
+        uiPreferences: UiPreferences,
+    ): Preference.PreferenceGroup {
+        return Preference.PreferenceGroup(
+            title = stringResource(AYMR.strings.aurora_library_featured_hidden_sources),
+            preferenceItems = persistentListOf(
+                Preference.PreferenceItem.InfoPreference(
+                    title = stringResource(
+                        AYMR.strings.aurora_library_featured_hidden_sources_summary,
+                    ),
+                ),
+                Preference.PreferenceItem.CustomPreference(
+                    title = stringResource(
+                        AYMR.strings.aurora_library_featured_hidden_sources,
+                    ),
+                    content = { FeaturedHiddenSourcesContent(uiPreferences) },
+                ),
+            ),
+        )
+    }
+
+    @Composable
+    private fun FeaturedHiddenSourcesContent(uiPreferences: UiPreferences) {
+        val hidden by uiPreferences.auroraLibraryFeaturedHiddenSources()
+            .collectAsStateWithLifecycle()
+        val scope = rememberCoroutineScope()
+        // Las fuentes instaladas (catálogo): anime y manga. Se leen una
+        // vez al abrir los ajustes; si se instala una extensión nueva,
+        // sale al volver a entrar. Ordenadas por nombre para
+        // encontrarlas rápido; el subtítulo (Anime/Manga) distingue
+        // dos fuentes con el mismo nombre.
+        val animeSources = remember {
+            runCatching { Injekt.get<AnimeSourceManager>().getCatalogueSources() }
+                .getOrDefault(emptyList())
+                .sortedBy { it.name.lowercase() }
+        }
+        val mangaSources = remember {
+            runCatching { Injekt.get<MangaSourceManager>().getCatalogueSources() }
+                .getOrDefault(emptyList())
+                .sortedBy { it.name.lowercase() }
+        }
+        val animeLabel = stringResource(AYMR.strings.label_anime)
+        val mangaLabel = stringResource(AYMR.strings.label_manga)
+        Column {
+            animeSources.forEach { source ->
+                val key = "a:${source.id}"
+                SwitchPreferenceWidget(
+                    title = source.name,
+                    subtitle = animeLabel,
+                    checked = key !in hidden,
+                    onCheckedChanged = { checked ->
+                        scope.launch {
+                            val newHidden = hidden.toMutableSet()
+                            if (checked) newHidden.remove(key) else newHidden.add(key)
+                            uiPreferences.auroraLibraryFeaturedHiddenSources().set(newHidden)
+                        }
+                    },
+                )
+            }
+            mangaSources.forEach { source ->
+                val key = "m:${source.id}"
+                SwitchPreferenceWidget(
+                    title = source.name,
+                    subtitle = mangaLabel,
+                    checked = key !in hidden,
+                    onCheckedChanged = { checked ->
+                        scope.launch {
+                            val newHidden = hidden.toMutableSet()
+                            if (checked) newHidden.remove(key) else newHidden.add(key)
+                            uiPreferences.auroraLibraryFeaturedHiddenSources().set(newHidden)
+                        }
+                    },
+                )
+            }
+        }
     }
 
     @Composable

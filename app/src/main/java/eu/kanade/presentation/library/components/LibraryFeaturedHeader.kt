@@ -17,12 +17,18 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.animateScrollToPage
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -71,12 +77,27 @@ import kotlin.random.Random
  *
  * v7.9.14 — el usuario rechazó el cambio de formato de la v7.9.13:
  * "Seguir viendo" vuelve al formato DE LADO (TitleCardSide, letras al
- * lado de la portada, todo el contenido de antes), solo MÁS PEQUEÑO:
- * la portada tiene el MISMO tamaño que las de la biblioteca (la
- * anchura de una celda de la rejilla) y la tarjeta se achica alrededor
+ * lado de la portada, todo el contenido de antes), solo MÁS PEQUEÑO
  * (`compact = true`). TitleCardContinueGrid se eliminó. Además las
  * esquinas de las tres tarjetas (destacado, Seguir viendo, biblioteca)
  * quedan iguales: 4.dp, el radio de las tarjetas de la cuadrícula.
+ *
+ * v7.9.15 — (1) "Seguir viendo" MÁS PEQUEÑO, QUE QUEPAN DOS EN LA
+ * FILA, NO TRES: la tarjeta pasa a ~la mitad del ancho del carrusel
+ * (dos a la vez, una al lado de la otra), con el MISMO diseño de lado
+ * y las MISMAS letras (15/12/11sp); la portada y la columna de texto
+ * se ajustan proporcionalmente para caber (portada ~38% del interior
+ * de la tarjeta, para que quepa la insignia "Nuevo capítulo" con su
+ * padding). (2) El destacado se desliza SOLO cada ~4 s, en bucle,
+ * como un catálogo; pausa mientras el usuario toca/arrastra (y
+ * reanuda 4 s después del último cambio de página) y no avanza si el
+ * encabezado está colapsado/oculto. El diseño no se toca. (3) Filtro
+ * de privacidad: las fuentes desmarcadas en Ajustes → "Seguir viendo
+ * y sugerencias" no aparecen ni en "Seguir viendo" ni en el
+ * destacado (`hiddenSourceKeys`, claves "a:<id>" / "m:<id>").
+ * (4) La semilla del barajado ya no es aleatoria a cada entrada: la
+ * guarda UiPreferences y se renueva cada 6 h (ver AnimeLibraryTab),
+ * así las sugerencias cambian solas cada 6 horas.
  */
 
 // Valores de UiPreferences.auroraLibraryFeaturedSource().
@@ -110,28 +131,43 @@ fun AnimeLibraryFeaturedHeader(
     items: List<AnimeLibraryItem>,
     featuredSource: String,
     seed: Int,
-    columns: Int,
-    adaptiveMinCellDp: Int,
     onDetailsClick: (AnimeLibraryItem) -> Unit,
     onContinueClick: (AnimeLibraryItem) -> Unit,
     modifier: Modifier = Modifier,
+    // v7.9.15: fuentes ocultas por el usuario en Ajustes ("a:<id>");
+    // no aparecen ni en "Seguir viendo" ni en el destacado.
+    hiddenSourceKeys: Set<String> = emptySet(),
+    // v7.9.15: el avance automático del destacado no corre si el
+    // encabezado está colapsado/oculto.
+    headerVisible: () -> Boolean = { true },
 ) {
+    // v7.9.15: primero se quitan las fuentes ocultas — TODO lo de
+    // abajo (en curso, destacado y sus respaldos) sale de los visibles,
+    // para que nada privado se cuele por el respaldo de "toda la
+    // categoría" cuando la tanda elegida sale vacía.
+    val visibleItems = remember(items, hiddenSourceKeys) {
+        if (hiddenSourceKeys.isEmpty()) {
+            items
+        } else {
+            items.filterNot { it.isFromHiddenSource(hiddenSourceKeys) }
+        }
+    }
     // En curso: empezado y con algo sin ver, lo último visto primero.
-    val inProgress = remember(items) {
-        items.filter { it.seenCount > 0 && it.unseenCount > 0 }
+    val inProgress = remember(visibleItems) {
+        visibleItems.filter { it.seenCount > 0 && it.unseenCount > 0 }
             .sortedByDescending { it.lastSeen }
     }
     // La tanda del banner depende del ajuste (En curso / Toda la
     // biblioteca / Favoritos); si la tanda elegida sale vacía se cae a
     // los en curso y luego a toda la categoría, para no dejar el
     // destacado vacío teniendo títulos.
-    val featuredPool = remember(items, featuredSource, inProgress) {
+    val featuredPool = remember(visibleItems, featuredSource, inProgress) {
         val selected = when (featuredSource) {
-            AURORA_LIBRARY_FEATURED_SOURCE_ALL -> items
-            AURORA_LIBRARY_FEATURED_SOURCE_PINNED -> items.filter { it.pinned }
+            AURORA_LIBRARY_FEATURED_SOURCE_ALL -> visibleItems
+            AURORA_LIBRARY_FEATURED_SOURCE_PINNED -> visibleItems.filter { it.pinned }
             else -> inProgress
         }
-        selected.ifEmpty { inProgress }.ifEmpty { items }
+        selected.ifEmpty { inProgress }.ifEmpty { visibleItems }
     }
     val featuredPoolShuffled = remember(featuredPool, seed) {
         if (featuredPool.isEmpty()) {
@@ -160,9 +196,8 @@ fun AnimeLibraryFeaturedHeader(
     LibraryFeaturedHeaderContent(
         featuredEntries = featuredEntries,
         continueEntries = continueEntries,
-        columns = columns,
-        adaptiveMinCellDp = adaptiveMinCellDp,
         modifier = modifier,
+        headerVisible = headerVisible,
     )
 }
 
@@ -171,23 +206,36 @@ fun MangaLibraryFeaturedHeader(
     items: List<MangaLibraryItem>,
     featuredSource: String,
     seed: Int,
-    columns: Int,
-    adaptiveMinCellDp: Int,
     onDetailsClick: (MangaLibraryItem) -> Unit,
     onContinueClick: (MangaLibraryItem) -> Unit,
     modifier: Modifier = Modifier,
+    // v7.9.15: fuentes ocultas por el usuario en Ajustes ("m:<id>");
+    // no aparecen ni en "Seguir viendo" ni en el destacado.
+    hiddenSourceKeys: Set<String> = emptySet(),
+    // v7.9.15: el avance automático del destacado no corre si el
+    // encabezado está colapsado/oculto.
+    headerVisible: () -> Boolean = { true },
 ) {
-    val inProgress = remember(items) {
-        items.filter { it.readCount > 0 && it.unreadCount > 0 }
+    // v7.9.15: primero se quitan las fuentes ocultas (ver el comentario
+    // en el destacado de anime).
+    val visibleItems = remember(items, hiddenSourceKeys) {
+        if (hiddenSourceKeys.isEmpty()) {
+            items
+        } else {
+            items.filterNot { it.isFromHiddenSource(hiddenSourceKeys) }
+        }
+    }
+    val inProgress = remember(visibleItems) {
+        visibleItems.filter { it.readCount > 0 && it.unreadCount > 0 }
             .sortedByDescending { it.lastRead }
     }
-    val featuredPool = remember(items, featuredSource, inProgress) {
+    val featuredPool = remember(visibleItems, featuredSource, inProgress) {
         val selected = when (featuredSource) {
-            AURORA_LIBRARY_FEATURED_SOURCE_ALL -> items
-            AURORA_LIBRARY_FEATURED_SOURCE_PINNED -> items.filter { it.pinned }
+            AURORA_LIBRARY_FEATURED_SOURCE_ALL -> visibleItems
+            AURORA_LIBRARY_FEATURED_SOURCE_PINNED -> visibleItems.filter { it.pinned }
             else -> inProgress
         }
-        selected.ifEmpty { inProgress }.ifEmpty { items }
+        selected.ifEmpty { inProgress }.ifEmpty { visibleItems }
     }
     val featuredPoolShuffled = remember(featuredPool, seed) {
         if (featuredPool.isEmpty()) {
@@ -210,9 +258,8 @@ fun MangaLibraryFeaturedHeader(
     LibraryFeaturedHeaderContent(
         featuredEntries = featuredEntries,
         continueEntries = continueEntries,
-        columns = columns,
-        adaptiveMinCellDp = adaptiveMinCellDp,
         modifier = modifier,
+        headerVisible = headerVisible,
     )
 }
 
@@ -220,14 +267,15 @@ fun MangaLibraryFeaturedHeader(
 private fun LibraryFeaturedHeaderContent(
     featuredEntries: List<LibraryFeaturedEntry>,
     continueEntries: List<LibraryFeaturedEntry>,
-    columns: Int,
-    adaptiveMinCellDp: Int,
     modifier: Modifier = Modifier,
+    // v7.9.15: el avance automático del destacado no corre si el
+    // encabezado está colapsado/oculto.
+    headerVisible: () -> Boolean = { true },
 ) {
     if (featuredEntries.isEmpty() && continueEntries.isEmpty()) return
     Column(modifier = modifier.fillMaxWidth()) {
         if (featuredEntries.isNotEmpty()) {
-            LibraryFeaturedBanner(entries = featuredEntries)
+            LibraryFeaturedBanner(entries = featuredEntries, headerVisible = headerVisible)
         }
         if (continueEntries.isNotEmpty()) {
             Spacer(modifier = Modifier.height(18.dp))
@@ -238,22 +286,20 @@ private fun LibraryFeaturedHeaderContent(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(modifier = Modifier.height(10.dp))
-            // v7.9.14: "Seguir viendo" vuelve al formato DE LADO de la
-            // v7.9.12 (TitleCardSide, letras al lado de la portada, todo
-            // el contenido de antes), solo más pequeño: la portada tiene
-            // el MISMO tamaño que las de la biblioteca (la anchura de
-            // una celda de la rejilla) y la tarjeta se achica alrededor.
-            // La anchura de la tarjeta es la de la portada + el texto
-            // (padding 8dp + portada + 10dp + ~130dp de texto). La
-            // fórmula de la celda es la de LazyLibraryGrid: columnas
-            // fijas con 4dp entre celdas, o la celda mínima adaptable
-            // si no hay columnas fijas (modo adaptable).
+            // v7.9.15: "Seguir viendo" MÁS PEQUEÑO, QUE QUEPAN DOS EN
+            // LA FILA, NO TRES. La tarjeta pasa a ~la mitad del ancho
+            // del carrusel (dos a la vez, una al lado de la otra), con
+            // el MISMO diseño de lado y las MISMAS letras de la v7.9.14
+            // (título 15sp, datos 12sp, pie 11sp, `compact = true`).
+            // La portada y la columna de texto se ajustan
+            // proporcionalmente para caber: la portada es ~38% del
+            // interior de la tarjeta (padding 8dp + portada + 10dp +
+            // texto) y el resto es la columna de texto, que con ese
+            // reparto deja sitio justo para la insignia "Nuevo
+            // capítulo/episodio" con su padding.
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val cellWidth = if (columns > 0) {
-                    (maxWidth - 4.dp * (columns - 1)) / columns
-                } else {
-                    adaptiveMinCellDp.dp
-                }
+                val cardWidth = (maxWidth - 12.dp) / 2
+                val coverWidth = (cardWidth - 8.dp - 8.dp - 10.dp) * 0.38f
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -273,8 +319,8 @@ private fun LibraryFeaturedHeaderContent(
                             status = entry.status,
                             hasNew = entry.hasNew,
                             onClick = entry.onContinueClick,
-                            modifier = Modifier.width(cellWidth + 156.dp),
-                            coverWidth = cellWidth,
+                            modifier = Modifier.width(cardWidth),
+                            coverWidth = coverWidth,
                             compact = true,
                         )
                     }
@@ -285,9 +331,47 @@ private fun LibraryFeaturedHeaderContent(
 }
 
 @Composable
-private fun LibraryFeaturedBanner(entries: List<LibraryFeaturedEntry>) {
+private fun LibraryFeaturedBanner(
+    entries: List<LibraryFeaturedEntry>,
+    // v7.9.15: el avance automático no corre si el encabezado está
+    // colapsado/oculto (la Títulos baja la cuadrícula y el encabezado
+    // se va con ella).
+    headerVisible: () -> Boolean = { true },
+) {
     val colors = AuroraTheme.colors
     val pagerState = rememberPagerState { entries.size }
+    // v7.9.15: las sugerencias se deslizan SOLAS cada ~4 s, en bucle,
+    // como un catálogo que se va mostrando. El diseño no se toca.
+    // - El temporizador se reinicia en cada cambio de página (manual o
+    //   automático): se avanza solo si pasaron 4 s desde el último
+    //   cambio, así tras un deslizamiento del usuario hay 4 s de pausa
+    //   antes de que el catálogo siga solo.
+    // - Mientras el usuario toca/arrastra (isScrollInProgress) no se
+    //   avanza; al soltar, el siguiente tick lo retoma.
+    // - Si el encabezado está colapsado/oculto no se avanza.
+    // El bucle NO depende de currentPage como clave: si lo hiciera, el
+    // cambio de página del propio avance cancelaría la animación a
+    // mitad de camino (currentPage cambia al pasar la mitad del
+    // deslizamiento). Por eso el bucle es while(true) con un tick de
+    // 1 s y la guarda de "último cambio".
+    var lastPageChangeMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }.collect {
+            lastPageChangeMs = System.currentTimeMillis()
+        }
+    }
+    LaunchedEffect(pagerState, entries.size) {
+        if (entries.size <= 1) return@LaunchedEffect
+        while (true) {
+            delay(1000)
+            if (entries.size <= 1) continue
+            if (!headerVisible()) continue
+            if (pagerState.isScrollInProgress) continue
+            if (System.currentTimeMillis() - lastPageChangeMs < 4000) continue
+            val next = (pagerState.currentPage + 1) % entries.size
+            pagerState.animateScrollToPage(next)
+        }
+    }
     Column(modifier = Modifier.fillMaxWidth()) {
         // v7.9.12: cada página del destacado es una TitleCardSide (la
         // portada vertical a la izquierda y los datos con la barra a la
@@ -351,6 +435,23 @@ private fun LibraryFeaturedBanner(entries: List<LibraryFeaturedEntry>) {
 // ---------------------------------------------------------------------------
 // Resolución de entradas (anime / manga)
 // ---------------------------------------------------------------------------
+
+// v7.9.15: la fuente de un título está oculta por el usuario en Ajustes
+// ("Seguir viendo y sugerencias") cuando su clave ("a:<id>" en anime,
+// "m:<id>" en manga) está en el conjunto guardado. La fuente es la del
+// anime/manga que da la portada y el título (la misma que usa
+// toFeaturedEntry), así el filtro y lo que se muestra coinciden.
+private fun AnimeLibraryItem.isFromHiddenSource(hiddenSourceKeys: Set<String>): Boolean {
+    if (hiddenSourceKeys.isEmpty()) return false
+    val source = (coverAnime ?: libraryAnime.anime).source
+    return "a:$source" in hiddenSourceKeys
+}
+
+private fun MangaLibraryItem.isFromHiddenSource(hiddenSourceKeys: Set<String>): Boolean {
+    if (hiddenSourceKeys.isEmpty()) return false
+    val source = (coverManga ?: libraryManga.manga).source
+    return "m:$source" in hiddenSourceKeys
+}
 
 @Composable
 private fun AnimeLibraryItem.toFeaturedEntry(

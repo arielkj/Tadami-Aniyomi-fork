@@ -681,6 +681,8 @@
     <string name="aurora_library_featured_source_in_progress">En curso</string>
     <string name="aurora_library_featured_source_all">Toda la biblioteca</string>
     <string name="aurora_library_featured_source_pinned">Favoritos</string>
+    <string name="aurora_library_featured_hidden_sources">Seguir viendo y sugerencias</string>
+    <string name="aurora_library_featured_hidden_sources_summary">Elige qué fuentes pueden aparecer en Seguir viendo y en el destacado. Las desmarcadas no salen ahí, así lo privado queda fuera de la vista.</string>
     <string name="aurora_library_featured_view_details">Ver detalles</string>
     <string name="aurora_library_featured_new_episode">Nuevo episodio</string>
     <string name="aurora_library_featured_new_chapter">Nuevo capítulo</string>

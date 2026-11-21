@@ -69,6 +69,29 @@ class UiPreferences(
         "in_progress",
     )
 
+    // v7.9.15: fuentes ocultas de "Seguir viendo" y del destacado
+    // (privacidad): el usuario elige en Ajustes qué extensiones pueden
+    // aparecer ahí. Claves "a:<id>" (anime) y "m:<id>" (manga); el
+    // conjunto vacío significa que todas pueden aparecer.
+    fun auroraLibraryFeaturedHiddenSources() = preferenceStore.getStringSet(
+        "aurora_library_featured_hidden_sources",
+        emptySet(),
+    )
+
+    // v7.9.15: semilla del barajado del destacado y hora de su última
+    // renovación. Las sugerencias se actualizan solas cada 6 horas: al
+    // abrir Títulos, si pasaron 6 h desde la última renovación, se
+    // genera una semilla nueva (otra selección) y se guarda la hora.
+    fun auroraLibraryFeaturedSeed() = preferenceStore.getInt(
+        "aurora_library_featured_seed",
+        0,
+    )
+
+    fun auroraLibraryFeaturedSeedTime() = preferenceStore.getLong(
+        "aurora_library_featured_seed_time",
+        0L,
+    )
+
     fun libraryUpdatePacingTimeoutSeconds() = preferenceStore.getInt(
         "library_update_pacing_timeout_seconds",
         0,
