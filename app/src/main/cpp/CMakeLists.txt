@@ -115,11 +115,11 @@ target_include_directories(realesrgan-jni PRIVATE
     realesrgan
 )
 
-# -fno-rtti para igualar el prebuilt de ncnn, pero SIN -fno-exceptions:
-# realesrgan_jni.cpp usa try/catch (...) en cada entry point para no
-# lanzar nunca una excepcion a traves de JNI (el lado Kotlin degrada a
-# «IA no disponible»). La lib ncnn, compilada sin excepciones, no lanza;
-# el try/catch solo protege nuestro codigo (new, vectores, JNI).
+# -fno-rtti para igualar el prebuilt de ncnn. Las excepciones van
+# apagadas tambien, pero NO por esta linea: el target `ncnn` las propaga
+# con INTERFACE_COMPILE_OPTIONS (-fno-rtti -fno-exceptions) a todo lo que
+# lo enlaza, asi que realesrgan_jni.cpp esta escrito sin try/catch (ver
+# su cabecera): `new` se comprueba a nullptr y load() devuelve int.
 target_compile_options(realesrgan-jni PRIVATE -fno-rtti)
 
 target_link_libraries(realesrgan-jni
