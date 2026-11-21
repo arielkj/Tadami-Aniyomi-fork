@@ -3357,10 +3357,10 @@ private fun AuroraCollapsingLibraryHeader(
 private class AuroraHeaderScrollForwarder(
     private val getCurrentState: () -> ScrollableState?,
 ) : ScrollableState {
-    override suspend fun scrollBy(value: Float): Float {
-        return getCurrentState()?.scrollBy(value) ?: 0f
-    }
-
+    // Nota: ScrollableState NO tiene `scrollBy` como miembro (es una
+    // extensión que llama a `scroll`); por eso solo se delega `scroll`:
+    // el `scrollable` del encabezado termina llamando aquí y el bloque
+    // se ejecuta sobre la cuadrícula/lista de la página actual.
     override suspend fun scroll(
         scrollPriority: MutatePriority,
         block: suspend ScrollScope.() -> Unit,
