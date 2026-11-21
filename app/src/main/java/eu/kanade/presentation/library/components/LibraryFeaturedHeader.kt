@@ -1,12 +1,12 @@
 package eu.kanade.presentation.library.components
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.animateContentSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -327,8 +327,8 @@ private fun AnimeLibraryItem.toFeaturedEntry(
         title = title,
         type = stringResource(AYMR.strings.label_anime),
         genre = genre,
-        total = totalEpisodes,
-        current = seenCount,
+        total = totalEpisodes.toInt(),
+        current = seenCount.toInt(),
         status = auroraLibraryEntryStatusText(anime.status),
         coverData = coverData,
         // La tarjeta del destacado usa la imagen de fondo cuando la
@@ -367,8 +367,8 @@ private fun MangaLibraryItem.toFeaturedEntry(
         title = title,
         type = stringResource(AYMR.strings.label_manga),
         genre = genre,
-        total = totalChapters,
-        current = readCount,
+        total = totalChapters.toInt(),
+        current = readCount.toInt(),
         status = auroraLibraryEntryStatusText(manga.status),
         coverData = coverData,
         backdropData = coverData,
