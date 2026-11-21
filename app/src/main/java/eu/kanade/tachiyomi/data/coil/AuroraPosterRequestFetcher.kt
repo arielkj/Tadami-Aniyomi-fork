@@ -11,8 +11,10 @@ import coil3.request.Options
 import eu.kanade.tachiyomi.network.await
 import eu.kanade.tachiyomi.network.interceptor.CoverRequestPolicy
 import eu.kanade.tachiyomi.network.toAsciiUrl
+import eu.kanade.tachiyomi.network.withCoverTimeouts
 import okhttp3.Call
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.Buffer
 import okio.FileSystem
@@ -59,6 +61,10 @@ class AuroraPosterRequestKeyer : Keyer<AuroraPosterRequest> {
             if (data.customCoverFile?.exists() == true) {
                 append(";custom")
             }
+            // v7.9.20: el nivel del filtro forma parte de la clave, como
+            // en la clave de disco — si no, cambiar el ajuste serviría
+            // el bitmap viejo de la caché de memoria.
+            append(CoverFilter.cacheKeyFragment())
         }
     }
 }
@@ -203,23 +209,38 @@ internal suspend fun loadAuroraPosterSource(
     // queda como respaldo inmediato — si la grande da 404 o falla, cae
     // a la que había sin que se note. Cuando no hay variante mayor, la
     // lista queda igual que antes ([primary, fallback]).
-    val candidates = buildList {
+    //
+    // v7.9.20: la variante mejorada es una SONDA (isProbe = true): su
+    // 404 no ensucia la lista negra del host (ver CoverRequestPolicy).
+    // Antes, cada póster de anime sumaba un fallo del host por la sonda
+    // y con dos fallos el CDN entero quedaba bloqueado para el proceso.
+    val candidates: List<Pair<String, Boolean>> = buildList {
         request.primaryUrl?.trim()?.takeIf { it.isNotBlank() }?.let { url ->
-            upgradePosterUrl(url)?.let(::add)
-            add(url)
+            upgradePosterUrl(url)?.let { add(it to true) }
+            add(url to false)
         }
         request.fallbackUrl?.trim()?.takeIf { it.isNotBlank() }?.let { url ->
-            upgradePosterUrl(url)?.let(::add)
-            add(url)
+            upgradePosterUrl(url)?.let { add(it to true) }
+            add(url to false)
         }
     }.distinct()
+
+    // v7.9.20: timeouts de portada (25 s por intento) como AnimeImageFetcher.
+    // El fetcher usaba el cliente tal cual (hasta 2 min por intento): con
+    // 4 candidatos, un póster atascado retenía el detalle minutos.
+    val effectiveCallFactory = if (callFactory is OkHttpClient) {
+        callFactory.withCoverTimeouts()
+    } else {
+        callFactory
+    }
 
     var lastError: IOException? = null
 
     for ((attemptIndex, candidate) in candidates.withIndex()) {
-        val httpUrl = candidate.toHttpUrlOrNull()
+        val (candidateUrl, isProbe) = candidate
+        val httpUrl = candidateUrl.toHttpUrlOrNull()
         if (httpUrl == null) {
-            lastError = IOException("Invalid poster url: $candidate")
+            lastError = IOException("Invalid poster url: $candidateUrl")
             continue
         }
         if (CoverRequestPolicy.isBlacklisted(httpUrl.host)) {
@@ -232,6 +253,9 @@ internal suspend fun loadAuroraPosterSource(
             fallbackUrl = request.fallbackUrl,
             attempt = attemptIndex,
         )
+        if (isProbe) {
+            CoverRequestPolicy.markCoverProbe(requestBuilder)
+        }
 
         request.headers?.forEach { (name, value) ->
             requestBuilder.header(name, value)
@@ -241,7 +265,7 @@ internal suspend fun loadAuroraPosterSource(
         }
 
         val response = try {
-            callFactory.newCall(requestBuilder.build()).await()
+            effectiveCallFactory.newCall(requestBuilder.build()).await()
         } catch (e: IOException) {
             lastError = e
             continue
@@ -260,7 +284,7 @@ internal suspend fun loadAuroraPosterSource(
             )
         }
 
-        lastError = IOException("HTTP ${response.code} for $candidate")
+        lastError = IOException("HTTP ${response.code} for $candidateUrl")
         response.close()
     }
 

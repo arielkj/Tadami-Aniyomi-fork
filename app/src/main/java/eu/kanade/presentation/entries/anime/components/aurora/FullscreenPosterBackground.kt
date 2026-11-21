@@ -46,6 +46,7 @@ import eu.kanade.presentation.theme.AuroraTheme
 import eu.kanade.presentation.util.AuroraMotionTokens
 import eu.kanade.tachiyomi.data.cache.AnimeCoverCache
 import eu.kanade.tachiyomi.data.coil.AuroraPosterRequest
+import eu.kanade.tachiyomi.data.coil.CoverFilter
 import eu.kanade.tachiyomi.util.debugTitleCoverFlow
 import eu.kanade.tachiyomi.util.previewTitleCoverUrl
 import kotlinx.coroutines.flow.collectLatest
@@ -140,6 +141,10 @@ fun FullscreenPosterBackground(
     )
     val containerWidthPx = with(density) { configuration.screenWidthDp.dp.roundToPx() }
     val containerHeightPx = with(density) { configuration.screenHeightDp.dp.roundToPx() }
+    // v7.9.20: el nivel del filtro forma parte de las claves del remember —
+    // sin él, cambiar el ajuste en Ajustes servía el bitmap viejo de la
+    // caché de memoria y el detalle no se actualizaba.
+    val coverFilterFragment = CoverFilter.cacheKeyFragment()
     val placeholderPosterUrl = resolvedCoverUrlFallback?.takeIf { it.isNotBlank() } ?: anime.thumbnailUrl
     var previousSuccessfulBackgroundSpec by remember(anime.id) {
         mutableStateOf<AuroraPosterBackgroundSpec?>(null)
@@ -177,6 +182,7 @@ fun FullscreenPosterBackground(
                 posterRequest,
                 containerWidthPx,
                 containerHeightPx,
+                coverFilterFragment,
             ) {
                 val baseCacheKey = "anime-bg;${anime.id};${anime.coverLastModified};" +
                     posterRequest.primaryUrl.orEmpty()
