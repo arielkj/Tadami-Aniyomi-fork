@@ -555,6 +555,7 @@ fun AnimeDetailScrolledTitle(
             text = title,
             color = colors.textPrimary,
             fontSize = 24.sp,
+            lineHeight = 32.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
             maxLines = 2,
