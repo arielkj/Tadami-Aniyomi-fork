@@ -173,7 +173,8 @@ fun AnimeHeroContent(
                 },
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
-                lineHeight = 30.sp,
+                // Sin lineHeight fijo: usa el interlineado natural de la fuente
+                // para que las líneas no se solapen con fuentes personalizadas.
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 color = titleColor,
