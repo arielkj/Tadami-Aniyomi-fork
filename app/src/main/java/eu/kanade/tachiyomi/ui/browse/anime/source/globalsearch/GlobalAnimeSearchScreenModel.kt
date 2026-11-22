@@ -16,7 +16,9 @@ class GlobalAnimeSearchScreenModel(
         if (initialQuery.isNotBlank() || !initialExtensionFilter.isNullOrBlank()) {
             if (extensionFilter != null) {
                 // we're going to use custom extension filter instead
-                setSourceFilter(AnimeSourceFilter.All)
+                // v7.9.26: solo en esta pantalla, sin guardar — la preferencia
+                // guardada del usuario no se toca.
+                setSourceFilter(AnimeSourceFilter.All, persist = false)
             }
             search()
         }

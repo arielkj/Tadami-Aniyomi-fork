@@ -69,6 +69,17 @@ abstract class NovelSearchScreenModel(
     }
 
     init {
+        // v7.9.26: el filtro «Ancladas» persiste — cada búsqueda nueva arranca
+        // con el valor guardado (por defecto, Todos).
+        mutableState.update {
+            it.copy(
+                sourceFilter = if (preferences.globalSearchNovelSourcePinnedOnly().get()) {
+                    NovelSourceFilter.PinnedOnly
+                } else {
+                    NovelSourceFilter.All
+                },
+            )
+        }
         screenModelScope.launch {
             preferences.globalSearchFilterState().changes().collectLatest { showOnlyWithResults ->
                 mutableState.update { it.copy(onlyShowHasResults = showOnlyWithResults) }
@@ -116,7 +127,11 @@ abstract class NovelSearchScreenModel(
         mutableState.update { it.copy(searchQuery = query) }
     }
 
-    fun setSourceFilter(filter: NovelSourceFilter) {
+    fun setSourceFilter(filter: NovelSourceFilter, persist: Boolean = true) {
+        // v7.9.26: la elección del usuario se guarda.
+        if (persist) {
+            preferences.globalSearchNovelSourcePinnedOnly().set(filter == NovelSourceFilter.PinnedOnly)
+        }
         mutableState.update { it.copy(sourceFilter = filter) }
         search()
     }

@@ -76,6 +76,17 @@ abstract class AnimeSearchScreenModel(
     }
 
     init {
+        // v7.9.26: el filtro «Ancladas» persiste — cada búsqueda nueva arranca
+        // con el valor guardado (por defecto, Todos).
+        mutableState.update {
+            it.copy(
+                sourceFilter = if (preferences.globalSearchAnimeSourcePinnedOnly().get()) {
+                    AnimeSourceFilter.PinnedOnly
+                } else {
+                    AnimeSourceFilter.All
+                },
+            )
+        }
         screenModelScope.launch {
             preferences.globalSearchFilterState().changes().collectLatest { state ->
                 mutableState.update { it.copy(onlyShowHasResults = state) }
@@ -134,7 +145,13 @@ abstract class AnimeSearchScreenModel(
         mutableState.update { it.copy(searchQuery = query) }
     }
 
-    fun setSourceFilter(filter: AnimeSourceFilter) {
+    fun setSourceFilter(filter: AnimeSourceFilter, persist: Boolean = true) {
+        // v7.9.26: la elección del usuario se guarda. persist = false solo lo usa
+        // la búsqueda por extensión, que fuerza Todos en esa pantalla sin tocar
+        // la preferencia guardada.
+        if (persist) {
+            preferences.globalSearchAnimeSourcePinnedOnly().set(filter == AnimeSourceFilter.PinnedOnly)
+        }
         mutableState.update { it.copy(sourceFilter = filter) }
         search()
     }

@@ -122,6 +122,18 @@ class SourcePreferences(
     fun searchFilterAnimeLanguages() =
         preferenceStore.getStringSet("pref_global_search_anime_languages", emptySet())
 
+    // v7.9.26: el filtro «Ancladas» de la búsqueda global persiste por sección.
+    // Si el usuario elige «Ancladas», cada búsqueda nueva arranca en «Ancladas»
+    // hasta que él mismo lo cambie a «Todos» (por defecto: Todos).
+    fun globalSearchAnimeSourcePinnedOnly() =
+        preferenceStore.getBoolean("pref_global_search_anime_pinned_only", false)
+
+    fun globalSearchMangaSourcePinnedOnly() =
+        preferenceStore.getBoolean("pref_global_search_manga_pinned_only", false)
+
+    fun globalSearchNovelSourcePinnedOnly() =
+        preferenceStore.getBoolean("pref_global_search_novel_pinned_only", false)
+
     // Mixture Sources
 
     fun disabledAnimeSources() = preferenceStore.getStringSet("hidden_anime_catalogues", emptySet())

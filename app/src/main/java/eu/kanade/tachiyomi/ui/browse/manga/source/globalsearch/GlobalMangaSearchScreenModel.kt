@@ -16,7 +16,9 @@ class GlobalMangaSearchScreenModel(
         if (initialQuery.isNotBlank() || !initialExtensionFilter.isNullOrBlank()) {
             if (extensionFilter != null) {
                 // we're going to use custom extension filter instead
-                setSourceFilter(MangaSourceFilter.All)
+                // v7.9.26: solo en esta pantalla, sin guardar — la preferencia
+                // guardada del usuario no se toca.
+                setSourceFilter(MangaSourceFilter.All, persist = false)
             }
             search()
         }
