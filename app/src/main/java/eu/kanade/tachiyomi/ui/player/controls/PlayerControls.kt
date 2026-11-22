@@ -37,8 +37,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -83,6 +86,7 @@ import eu.kanade.tachiyomi.ui.player.controls.components.BrightnessOverlay
 import eu.kanade.tachiyomi.ui.player.controls.components.BrightnessSlider
 import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
 import eu.kanade.tachiyomi.ui.player.controls.components.FilledControlsButton
+import eu.kanade.tachiyomi.ui.player.controls.components.MiniSeekbar
 import eu.kanade.tachiyomi.ui.player.controls.components.SlimSeekbar
 import eu.kanade.tachiyomi.ui.player.controls.components.TextPlayerUpdate
 import eu.kanade.tachiyomi.ui.player.controls.components.VolumeSlider
@@ -145,6 +149,11 @@ fun PlayerControls(
     val playerTimeToDisappear by playerPreferences.playerTimeToDisappear().collectAsStateWithLifecycle()
     val showCustomButtons by playerPreferences.showCustomButtons().collectAsStateWithLifecycle()
     var isSeeking by remember { mutableStateOf(false) }
+    // The mini timeline is being dragged, and whether the long timeline
+    // is currently revealed. The long bar only appears while the mini
+    // bar (or the long bar itself) is being dragged, then fades out.
+    var isMiniScrubbing by remember { mutableStateOf(false) }
+    var showLongBar by remember { mutableStateOf(false) }
     var resetControls by remember { mutableStateOf(true) }
 
     val customButtons by viewModel.customButtons.collectAsStateWithLifecycle()
@@ -186,11 +195,24 @@ fun PlayerControls(
         controlsShown,
         paused,
         isSeeking,
+        isMiniScrubbing,
         resetControls,
     ) {
-        if (controlsShown && !paused && !isSeeking) {
+        if (controlsShown && !paused && !isSeeking && !isMiniScrubbing) {
             delay(playerTimeToDisappear.toLong())
             viewModel.hideControls()
+        }
+    }
+
+    // Reveal the long timeline while the mini bar (or the long bar
+    // itself) is dragged, or while a gesture seek is showing the bar;
+    // hide it again shortly after the drag ends.
+    LaunchedEffect(isMiniScrubbing, isSeeking, seekBarShown) {
+        if (isMiniScrubbing || isSeeking || seekBarShown) {
+            showLongBar = true
+        } else {
+            delay(700)
+            showLongBar = false
         }
     }
 
@@ -233,6 +255,7 @@ fun PlayerControls(
                 val titleBlock = createRef()
                 val actionButtons = createRef()
                 val seekbar = createRef()
+                val miniSeekbar = createRef()
                 val bottomRow = createRef()
                 val (playerUpdates) = createRefs()
                 val speedPill = createRef()
@@ -414,7 +437,13 @@ fun PlayerControls(
                     )
                 }
                 // Nuvio-style slim progress bar, no timers (the clock lives
-                // in the bottom action row).
+                // in the bottom action row). The long bar is only revealed
+                // while the mini bar is dragged (or a gesture seek is
+                // showing it); at rest only the small centered bar below
+                // is visible. The slot keeps its height so the title block
+                // above never jumps when the long bar fades in or out.
+                // The bar is inset from the screen sides — it never runs
+                // from one edge of the screen to the other.
                 AnimatedVisibility(
                     visible = (controlsShown || seekBarShown) && !areControlsLocked && !isDynamicSpeedActive,
                     enter = if (!reduceMotion) {
@@ -430,25 +459,83 @@ fun PlayerControls(
                         fadeOut(playerControlsExitAnimationSpec())
                     },
                     modifier = Modifier.constrainAs(seekbar) {
-                        bottom.linkTo(bottomRow.top, spacing.extraSmall)
-                        start.linkTo(parent.start)
-                        end.linkTo(parent.end)
+                        bottom.linkTo(miniSeekbar.top, spacing.extraSmall)
+                        start.linkTo(parent.start, spacing.large)
+                        end.linkTo(parent.end, spacing.large)
+                        width = Dimension.fillToConstraints
                     },
                 ) {
                     val readAhead by viewModel.readAhead.collectAsStateWithLifecycle()
                     val preciseSeeking by gesturePreferences.playerSmoothSeek().collectAsStateWithLifecycle()
-                    SlimSeekbar(
-                        position = position,
-                        duration = duration,
-                        readAheadValue = readAhead,
-                        onValueChange = {
-                            isSeeking = true
-                            viewModel.updatePlayBackPos(it)
-                            viewModel.seekTo(it.toInt(), preciseSeeking)
-                        },
-                        onValueChangeFinished = { isSeeking = false },
-                        chapters = chapters.map { it.toSegment() }.toImmutableList(),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(28.dp),
+                    ) {
+                        AnimatedVisibility(
+                            visible = showLongBar,
+                            enter = fadeIn(tween(250)),
+                            exit = fadeOut(tween(300)),
+                        ) {
+                            SlimSeekbar(
+                                position = position,
+                                duration = duration,
+                                readAheadValue = readAhead,
+                                onValueChange = {
+                                    isSeeking = true
+                                    viewModel.updatePlayBackPos(it)
+                                    viewModel.seekTo(it.toInt(), preciseSeeking)
+                                },
+                                onValueChangeFinished = { isSeeking = false },
+                                chapters = chapters.map { it.toSegment() }.toImmutableList(),
+                            )
+                        }
+                    }
+                }
+                // Mini timeline: the only bar visible at rest, centered in
+                // the middle. Dragging it reveals the long bar above and
+                // drives it — the mini bar is the mouse of the long bar.
+                AnimatedVisibility(
+                    visible = controlsShown && !areControlsLocked && !isDynamicSpeedActive,
+                    enter = if (!reduceMotion) {
+                        slideInVertically(playerControlsEnterAnimationSpec()) { it } +
+                            fadeIn(playerControlsEnterAnimationSpec())
+                    } else {
+                        fadeIn(playerControlsEnterAnimationSpec())
+                    },
+                    exit = if (!reduceMotion) {
+                        slideOutVertically(playerControlsExitAnimationSpec()) { it } +
+                            fadeOut(playerControlsExitAnimationSpec())
+                    } else {
+                        fadeOut(playerControlsExitAnimationSpec())
+                    },
+                    modifier = Modifier.constrainAs(miniSeekbar) {
+                        bottom.linkTo(bottomRow.top, spacing.extraSmall)
+                        start.linkTo(parent.start)
+                        end.linkTo(parent.end)
+                        width = Dimension.fillToConstraints
+                    },
+                ) {
+                    val readAhead by viewModel.readAhead.collectAsStateWithLifecycle()
+                    val preciseSeeking by gesturePreferences.playerSmoothSeek().collectAsStateWithLifecycle()
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        MiniSeekbar(
+                            position = position,
+                            duration = duration,
+                            readAheadValue = readAhead,
+                            onValueChange = {
+                                isMiniScrubbing = true
+                                viewModel.updatePlayBackPos(it)
+                                viewModel.seekTo(it.toInt(), preciseSeeking)
+                            },
+                            onValueChangeFinished = { isMiniScrubbing = false },
+                            chapters = chapters.map { it.toSegment() }.toImmutableList(),
+                            modifier = Modifier.fillMaxWidth(0.45f),
+                        )
+                    }
                 }
                 // Content warnings, top-left.
                 AnimatedVisibility(
@@ -585,7 +672,9 @@ fun PlayerControls(
                     }
                 }
                 // Bottom action row: subtitles, episodes, download, PiP,
-                // speed, more — with the clock at the far right.
+                // speed, quality, more — with the clock at the far right.
+                // Inset from the screen sides: the row never runs from
+                // one edge of the screen to the other.
                 AnimatedVisibility(
                     controlsShown && !areControlsLocked && !isDynamicSpeedActive,
                     enter = if (!reduceMotion) {
@@ -602,8 +691,8 @@ fun PlayerControls(
                     },
                     modifier = Modifier.constrainAs(bottomRow) {
                         bottom.linkTo(parent.bottom, spacing.medium)
-                        start.linkTo(parent.start)
-                        end.linkTo(parent.end)
+                        start.linkTo(parent.start, spacing.large)
+                        end.linkTo(parent.end, spacing.large)
                         width = Dimension.fillToConstraints
                     },
                 ) {
@@ -626,6 +715,7 @@ fun PlayerControls(
                             playerPreferences.playerSpeed().set(newSpeed)
                         },
                         onSpeedLongClick = { viewModel.showSheet(Sheets.PlaybackSpeed) },
+                        onQualityClick = { viewModel.showSheet(Sheets.QualityTracks) },
                         onMoreClick = { viewModel.showSheet(Sheets.More) },
                         onTimeClick = { playerPreferences.invertDuration().set(!invertDuration) },
                     )

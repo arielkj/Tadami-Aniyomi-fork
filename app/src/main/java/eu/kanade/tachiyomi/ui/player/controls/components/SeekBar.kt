@@ -90,6 +90,62 @@ fun SlimSeekbar(
     )
 }
 
+/**
+ * Nuvio-style mini progress bar: the small centered bar that is the
+ * only timeline visible at rest. Dragging it reveals the long bar and
+ * drives it — the mini bar is the mouse of the long bar.
+ */
+@Composable
+fun MiniSeekbar(
+    position: Float,
+    duration: Float,
+    readAheadValue: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    chapters: ImmutableList<Segment>,
+    modifier: Modifier = Modifier,
+) {
+    Seeker(
+        value = position.coerceIn(0f, duration),
+        range = 0f..duration,
+        onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
+        readAheadValue = readAheadValue,
+        segments = chapters
+            .filter { it.start in 0f..duration }
+            .let {
+                // add an extra segment at 0 if it doesn't exist.
+                if (it.isNotEmpty() && it[0].start != 0f) {
+                    persistentListOf(Segment("", 0f)) + it
+                } else {
+                    it
+                } + it
+            },
+        modifier = modifier
+            .height(20.dp),
+        colors = SeekerDefaults.seekerColors(
+            progressColor = Color.White,
+            thumbColor = Color.White,
+            trackColor = Color.White.copy(alpha = 0.35f),
+            readAheadColor = Color.White.copy(alpha = 0.6f),
+        ),
+    )
+}
+
+@Preview
+@Composable
+private fun PreviewMiniSeekBar() {
+    MiniSeekbar(
+        5f,
+        20f,
+        4f,
+        {},
+        {},
+        persistentListOf(),
+        modifier = Modifier.fillMaxWidth(0.45f),
+    )
+}
+
 @Preview
 @Composable
 private fun PreviewSeekBar() {

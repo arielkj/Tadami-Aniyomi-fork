@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.outlined.ChevronRight
@@ -52,8 +53,11 @@ import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
 
 /**
  * Nuvio-style bottom action row: subtitles, episodes, download, PiP,
- * playback speed and more — with the position / duration clock at the
- * far right (tap it to switch between total and remaining time).
+ * playback speed, quality (servers/qualities) and more — with the
+ * position / duration clock at the far right (tap it to switch between
+ * total and remaining time). The quality button uses the old player's
+ * HighQuality glyph on purpose, so it never looks like the episodes
+ * button (square with lines).
  */
 @Composable
 fun BottomRightPlayerControls(
@@ -66,6 +70,7 @@ fun BottomRightPlayerControls(
     onPipClick: () -> Unit,
     onSpeedClick: () -> Unit,
     onSpeedLongClick: () -> Unit,
+    onQualityClick: () -> Unit,
     onMoreClick: () -> Unit,
     onTimeClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -107,6 +112,12 @@ fun BottomRightPlayerControls(
             icon = Icons.Default.Speed,
             onClick = onSpeedClick,
             onLongClick = onSpeedLongClick,
+            horizontalSpacing = 8.dp,
+            iconSize = 26.dp,
+        )
+        ControlsButton(
+            icon = Icons.Default.HighQuality,
+            onClick = onQualityClick,
             horizontalSpacing = 8.dp,
             iconSize = 26.dp,
         )
