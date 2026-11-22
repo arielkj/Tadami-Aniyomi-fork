@@ -89,6 +89,26 @@ class DownloadPreferences(
     // siguen bajándose de uno en uno (download_slots = 1, como quiere el usuario);
     // la velocidad sube dentro del capítulo en curso, no con más capítulos a la vez.
     fun pageDownloadConcurrency() = preferenceStore.getInt("download_page_concurrency", 5)
+
+    /**
+     * v7.9.28: migración única del 2 -> 5. El cambio de valor por defecto de la
+     * 7.9.27 solo aplicó a instalaciones nuevas: las existentes ya tenían el 2
+     * escrito en DataStore y el nuevo default del código se ignoraba (por eso
+     * el usuario veía el manga «a la misma velocidad»). Si el valor guardado
+     * sigue siendo el viejo default (2), se sube a 5 una sola vez; un valor
+     * que el usuario puso a mano (distinto de 2) se respeta.
+     */
+    fun migratePageDownloadConcurrency() {
+        val migratedFlag = preferenceStore.getBoolean(
+            "download_page_concurrency_migrated_7928",
+            false,
+        )
+        if (migratedFlag.get()) return
+        if (pageDownloadConcurrency().get() == 2) {
+            pageDownloadConcurrency().set(5)
+        }
+        migratedFlag.set(true)
+    }
     fun novelDownloadConcurrency() = preferenceStore.getInt("novel_download_concurrency", 3)
     fun downloadSpeedLimit() = preferenceStore.getInt("download_speed_limit", 0)
 

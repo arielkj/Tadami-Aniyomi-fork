@@ -360,6 +360,8 @@
     <string name="settings">Ajustes</string>
     <string name="copied_video_link_to_clipboard">Enlace de calidad del video copiado al portapapeles</string>
     <string name="choose_video_quality">Elige la calidad del vídeo:</string>
+    <!-- v7.9.28: menú de servidores para descargar el episodio -->
+    <string name="download_choose_server">Elige el servidor para descargar:</string>
     <string name="extension_settings">Configuración de las extensiones</string>
     <string name="theme_cottoncandy">Algodón de azúcar</string>
     <string name="theme_mocha">Moca</string>

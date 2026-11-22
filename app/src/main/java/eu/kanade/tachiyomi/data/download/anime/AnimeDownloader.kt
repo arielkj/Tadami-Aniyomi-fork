@@ -7,6 +7,7 @@ import android.os.Bundle
 import androidx.core.net.toUri
 import com.arthenica.ffmpegkit.FFmpegKit
 import com.arthenica.ffmpegkit.FFmpegKitConfig
+import com.arthenica.ffmpegkit.FFmpegSession
 import com.arthenica.ffmpegkit.FFprobeKit
 import com.arthenica.ffmpegkit.Level
 import com.arthenica.ffmpegkit.LogCallback
@@ -26,8 +27,8 @@ import eu.kanade.tachiyomi.data.download.isNetworkRelatedFailure
 import eu.kanade.tachiyomi.data.download.toDownloadNetworkStatus
 import eu.kanade.tachiyomi.data.library.anime.AnimeLibraryUpdateNotifier
 import eu.kanade.tachiyomi.data.notification.NotificationHandler
+import eu.kanade.tachiyomi.ui.player.controls.components.sheets.HosterState
 import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
-import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
 import eu.kanade.tachiyomi.ui.player.torrent.TorrentPlaybackResolver
 import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.network.ProgressListener
@@ -43,6 +44,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
@@ -67,11 +69,14 @@ import tachiyomi.i18n.R
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import tachiyomi.core.common.storage.extension
 import tachiyomi.core.common.storage.renameToOrCopy
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.lang.withUIContext
+import kotlinx.coroutines.withTimeoutOrNull
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.entries.anime.model.Anime
@@ -564,29 +569,43 @@ class AnimeDownloader(
             val rateLimitWait = rateLimitWaitMs(download.source.id).coerceAtMost(MAX_RATE_LIMIT_WAIT_MS)
             if (rateLimitWait > 0L) delay(rateLimitWait)
 
-            if (download.video == null) {
-                // Pull video from network and add them to download object
-                // v7.9.27: la resolución del hoster se reintenta 3x con backoff
-                // (antes un solo fallo dejaba el episodio en ERROR sin bajar nada).
-                val hosters = retryNetworkCall(download.source.id) {
-                    EpisodeLoader.getHosters(download.episode, download.anime, download.source)
-                }
-                if (hosters.isEmpty()) {
-                    throw Exception(context.stringResource(AYMR.strings.video_list_empty_error))
-                }
-                val bestVideo = retryNetworkCall(download.source.id) {
-                    HosterLoader.getBestVideo(download.source, hosters)
-                } ?: throw Exception(context.stringResource(AYMR.strings.video_list_empty_error))
-                download.video = bestVideo
+            // v7.9.28: candidatos por orden (el vídeo elegido en el menú de
+            // servidores primero, luego los demás servidores). Si el elegido
+            // falla — enlace que no se puede leer, HLS atascado, hoster caído —
+            // se prueba el siguiente servidor antes de dar el episodio por
+            // fallido. Antes solo se probaba el «mejor» vídeo y un fallo ahí era
+            // ERROR directo (el «!» de la tarjeta del episodio).
+            val candidates = buildDownloadCandidates(download)
+            if (candidates.isEmpty()) {
+                throw Exception(context.stringResource(AYMR.strings.video_list_empty_error))
             }
-
-            withIOContext {
-                getOrDownloadVideoFile(download, tmpDir)
+            var lastError: Throwable? = null
+            var downloaded = false
+            for (candidate in candidates) {
+                download.video = candidate
+                try {
+                    withIOContext {
+                        getOrDownloadVideoFile(download, tmpDir)
+                    }
+                    if (isDownloadSuccessful(download, tmpDir)) {
+                        downloaded = true
+                        break
+                    }
+                    lastError = Exception("Unable to finalize download")
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    lastError = e
+                    logcat(LogPriority.WARN, e) {
+                        "Candidate failed for ${download.episode.name} " +
+                            "(${candidate.videoUrl.take(120)}), trying next server"
+                    }
+                }
             }
-
-            if (!isDownloadSuccessful(download, tmpDir)) {
+            if (!downloaded) {
                 download.status = AnimeDownload.State.ERROR
-                return
+                // El catch de abajo avisa y re-encola si el fallo fue de red.
+                throw lastError ?: Exception("Unable to finalize download")
             }
 
             val filename = DiskUtil.buildValidFilename("${download.anime.title} - ${download.episode.name}")
@@ -616,6 +635,72 @@ class AnimeDownloader(
             // dejar el episodio en ERROR para siempre. Errores de otro tipo no.
             requeueEpisodeAfterNetworkFailure(download, error)
         }
+    }
+
+    /**
+     * v7.9.28: vídeos candidatos para este episodio, en orden: primero el
+     * vídeo elegido por el usuario en el menú de servidores (si lo hay) y
+     * luego los demás servidores de la fuente, ya resueltos y con el enlace
+     * verificado por [VideoLinkResolver]. Acotado a [MAX_SERVER_CANDIDATES]
+     * para no pedirle a la fuente más de lo necesario.
+     */
+    private suspend fun buildDownloadCandidates(download: AnimeDownload): List<Video> {
+        val source = download.source
+        val resolver = VideoLinkResolver(source)
+        val ordered = linkedMapOf<String, Video>()
+
+        suspend fun addCandidate(video: Video) {
+            if (ordered.size >= MAX_SERVER_CANDIDATES) return
+            val resolved = try {
+                resolver.resolve(video)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logcat(LogPriority.DEBUG, e) {
+                    "VideoLinkResolver failed for ${video.videoUrl.take(120)}"
+                }
+                null
+            } ?: video
+            val url = resolved.videoUrl.trim()
+            if (url.isNotBlank() && url != "null") {
+                ordered.putIfAbsent(url, resolved)
+            }
+        }
+
+        // El elegido en el menú va primero.
+        download.video?.let { addCandidate(it) }
+
+        // Los demás servidores, en el orden de la fuente.
+        try {
+            val hosters = retryNetworkCall(source.id) {
+                EpisodeLoader.getHosters(download.episode, download.anime, source)
+            }
+            for (hoster in hosters) {
+                if (ordered.size >= MAX_SERVER_CANDIDATES) break
+                val videos = try {
+                    val state = EpisodeLoader.loadHosterVideos(source, hoster, force = true)
+                    (state as? HosterState.Ready)?.videoList ?: hoster.videoList
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logcat(LogPriority.DEBUG, e) {
+                        "loadHosterVideos failed for ${hoster.hosterName}"
+                    }
+                    null
+                } ?: continue
+                for (video in source.run { videos.sortVideos() }) {
+                    if (ordered.size >= MAX_SERVER_CANDIDATES) break
+                    addCandidate(video)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logcat(LogPriority.DEBUG, e) {
+                "buildDownloadCandidates: hosters failed for ${download.episode.name}"
+            }
+        }
+        return ordered.values.toList()
     }
 
     /**
@@ -921,9 +1006,26 @@ class AnimeDownloader(
                 FileOutputStream(tmpFile, resumeOffset > 0L).use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var read: Int
+                    // v7.9.28: ventana de atasco — si en 60 s llegan menos de 8 KB
+                    // (goteo o parada total), se aborta para reintentar en vez de
+                    // quedarse quieto. Los timeouts de OkHttp no cazan el goteo
+                    // (cada read devuelve algún byte y el timeout nunca salta).
+                    var windowStartMs = System.currentTimeMillis()
+                    var windowBytes = 0L
                     while (input.read(buffer).also { read = it } != -1) {
                         currentCoroutineContext().ensureActive()
                         output.write(buffer, 0, read)
+                        windowBytes += read
+                        val now = System.currentTimeMillis()
+                        if (windowBytes >= STALL_WINDOW_MIN_BYTES) {
+                            windowStartMs = now
+                            windowBytes = 0L
+                        } else if (now - windowStartMs > DIRECT_STALL_TIMEOUT_MS) {
+                            throw java.io.IOException(
+                                "direct download stalled: $windowBytes bytes in " +
+                                    "${DIRECT_STALL_TIMEOUT_MS / 1000}s",
+                            )
+                        }
                     }
                 }
             }
@@ -1035,6 +1137,9 @@ class AnimeDownloader(
         var lastStatBytes = 0L
         var lastStatTimestampMs = 0L
 
+        // v7.9.28: último instante con progreso real de ffmpeg (ver watchdog abajo).
+        val lastProgressMs = AtomicLong(System.currentTimeMillis())
+
         // ffmpeg can emit the same warning many times per second (reconnects, HLS reloads, ...).
         // Printing each one floods logcat, so collapse consecutive duplicates into a counter.
         var lastLogMessage: String? = null
@@ -1062,6 +1167,7 @@ class AnimeDownloader(
             val outTime = (s.time / 1000.0).toLong()
             val bytesDownloaded = s.size
             val now = System.currentTimeMillis()
+            lastProgressMs.set(now)
 
             download.downloadedBytes = bytesDownloaded
             if (lastStatTimestampMs > 0L && bytesDownloaded >= lastStatBytes) {
@@ -1097,41 +1203,71 @@ class AnimeDownloader(
         // A failing ffprobe only means we cannot show a percentage; it must never abort the
         // download itself (common for HLS playlists and streams without a declared duration).
         duration = try {
-            getDuration(ffprobeCommand(video.videoUrl, headerOptions))?.toLong() ?: 0L
+            // v7.9.28: ffprobe sin timeout podía colgarse para siempre en una
+            // lista HLS que no responde (descarga parada en 0% antes de
+            // empezar). A los 30 s se sigue sin duración, pero se descarga.
+            withTimeoutOrNull(FFPROBE_TIMEOUT_MS) {
+                getDuration(ffprobeCommand(video.videoUrl, headerOptions))
+            }?.toLong() ?: 0L
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             logcat(LogPriority.WARN, e) { "Could not probe duration for ${download.episode.name}" }
             0L
         }
 
-        suspendCancellableCoroutine { continuation ->
-            val session = FFmpegKit.executeWithArgumentsAsync(
-                ffmpegOptions,
-                {
-                    if (it.returnCode.isValueSuccess) {
-                        tmpDir.findFile("$filename.tmp")?.apply {
-                            renameToOrCopy("$filename.mkv")
+        // v7.9.28: watchdog de atasco — ffmpeg puede quedarse reconectando en
+        // bucle (-reconnect / -max_reload) sin emitir estadísticas ni fallar,
+        // y la descarga se queda en 0% «mucho rato» (el caso TioAnime). Si no
+        // hay progreso durante FFMPEG_STALL_TIMEOUT_MS, se cancela la sesión
+        // para que el reintento (o el siguiente servidor) tome el relevo.
+        coroutineScope {
+            val sessionRef = AtomicReference<FFmpegSession?>(null)
+            val watchdog = launch {
+                while (true) {
+                    delay(10_000)
+                    if (System.currentTimeMillis() - lastProgressMs.get() > FFMPEG_STALL_TIMEOUT_MS) {
+                        logcat(LogPriority.WARN) {
+                            "ffmpeg stalled for ${download.episode.name}, cancelling session"
                         }
-                        continuation.resume(it)
-                    } else {
-                        // Surface the real ffmpeg failure instead of an opaque "Error in ffmpeg!",
-                        // and keep the return code so the retry logic can classify it.
-                        val reason = it.failStackTrace?.takeIf(String::isNotBlank)
-                            ?: it.allLogsAsString?.trim()?.takeLast(FFMPEG_ERROR_LOG_CHARS)
-                            ?: "unknown error"
-                        continuation.resumeWithException(
-                            FFmpegException(
-                                it.returnCode?.value ?: 0,
-                                "ffmpeg failed (${it.returnCode}): $reason",
-                            ),
-                        )
+                        sessionRef.get()?.cancel()
+                        break
                     }
-                },
-                logCallback,
-                statCallback,
-            )
-            continuation.invokeOnCancellation {
-                session.cancel()
+                }
+            }
+            try {
+                suspendCancellableCoroutine { continuation ->
+                    val session = FFmpegKit.executeWithArgumentsAsync(
+                        ffmpegOptions,
+                        {
+                            if (it.returnCode.isValueSuccess) {
+                                tmpDir.findFile("$filename.tmp")?.apply {
+                                    renameToOrCopy("$filename.mkv")
+                                }
+                                continuation.resume(it)
+                            } else {
+                                // Surface the real ffmpeg failure instead of an opaque "Error in ffmpeg!",
+                                // and keep the return code so the retry logic can classify it.
+                                val reason = it.failStackTrace?.takeIf(String::isNotBlank)
+                                    ?: it.allLogsAsString?.trim()?.takeLast(FFMPEG_ERROR_LOG_CHARS)
+                                    ?: "unknown error"
+                                continuation.resumeWithException(
+                                    FFmpegException(
+                                        it.returnCode?.value ?: 0,
+                                        "ffmpeg failed (${it.returnCode}): $reason",
+                                    ),
+                                )
+                            }
+                        },
+                        logCallback,
+                        statCallback,
+                    )
+                    sessionRef.set(session)
+                    continuation.invokeOnCancellation {
+                        session.cancel()
+                    }
+                }
+            } finally {
+                watchdog.cancel()
             }
         }
     }
@@ -1541,6 +1677,19 @@ class AnimeDownloader(
         private const val NETWORK_AUTO_RETRY_DELAY_MS = 10_000L
         private const val RATE_LIMIT_WINDOW_SECONDS = 60L
         private const val MAX_RATE_LIMIT_WAIT_MS = 60_000L
+
+        // v7.9.28: detección de atasco (el caso TioAnime: 1.4 MB / 200 MB parado
+        // en 0% «mucho rato»). Si no llegan bytes durante 60 s, el intento se
+        // aborta y el reintento / siguiente servidor toma el relevo; la descarga
+        // debe moverse o fallar con un motivo claro, nunca quedarse quieta.
+        private const val FFMPEG_STALL_TIMEOUT_MS = 60_000L
+        private const val FFPROBE_TIMEOUT_MS = 30_000L
+        private const val DIRECT_STALL_TIMEOUT_MS = 60_000L
+        private const val STALL_WINDOW_MIN_BYTES = 8 * 1024L
+
+        // v7.9.28: servidores candidatos que se prueban por episodio antes de
+        // darlo por fallido (el elegido primero, luego los demás en orden).
+        private const val MAX_SERVER_CANDIDATES = 3
 
         /** Socket read/write timeout handed to ffmpeg, in microseconds (30s). */
         private const val SOCKET_TIMEOUT_MICROS = 30_000_000L

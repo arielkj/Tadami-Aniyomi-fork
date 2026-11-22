@@ -508,6 +508,29 @@ class AnimeScreen(
                     onDismissRequest = onDismissRequest,
                 )
             }
+            // v7.9.28: menú de servidores para descargar el episodio.
+            is AnimeScreenModel.Dialog.ShowDownloadServers -> {
+                EpisodeOptionsDialogScreen.onDismissDialog = onDismissRequest
+                val episodeTitle = if (dialog.anime.displayMode == Anime.EPISODE_DISPLAY_NUMBER) {
+                    stringResource(
+                        AYMR.strings.display_mode_episode,
+                        formatEpisodeNumber(dialog.episode.episodeNumber),
+                    )
+                } else {
+                    dialog.episode.name
+                }
+                NavigatorAdaptiveSheet(
+                    screen = EpisodeOptionsDialogScreen(
+                        useExternalDownloader = screenModel.useExternalDownloader,
+                        episodeTitle = episodeTitle,
+                        episodeId = dialog.episode.id,
+                        animeId = dialog.anime.id,
+                        sourceId = dialog.source.id,
+                        forDownload = true,
+                    ),
+                    onDismissRequest = onDismissRequest,
+                )
+            }
             is AnimeScreenModel.Dialog.SelectDubbing -> {
                 DubbingSelectionDialog(
                     availableDubbings = dialog.availableDubbings,

@@ -105,6 +105,9 @@ class EpisodeOptionsDialogScreen(
     private val episodeId: Long,
     private val animeId: Long,
     private val sourceId: Long,
+    // v7.9.28: modo descarga — el diálogo lista los servidores y tocar un
+    // vídeo lo descarga desde ese servidor, en vez de reproducirlo.
+    private val forDownload: Boolean = false,
 ) : Screen() {
 
     @Composable
@@ -114,6 +117,8 @@ class EpisodeOptionsDialogScreen(
                 episodeId = episodeId,
                 animeId = animeId,
                 sourceId = sourceId,
+                forDownload = forDownload,
+                altDownloader = useExternalDownloader,
             )
         }
 
@@ -140,6 +145,8 @@ class EpisodeOptionsDialogScreen(
             onShowAllQualities = sm::onShowAllQualities,
             onClickHoster = sm::onClickHoster,
             onClickVideo = sm::onClickVideo,
+            onDownloadVideo = sm::onDownloadVideo,
+            forDownload = forDownload,
             getHosterList = sm::getHosterList,
         )
     }
@@ -153,6 +160,9 @@ class EpisodeOptionsDialogScreenModel(
     episodeId: Long,
     private val animeId: Long,
     sourceId: Long,
+    // v7.9.28: modo descarga (menú de servidores).
+    private val forDownload: Boolean = false,
+    private val altDownloader: Boolean = false,
 ) : ScreenModel {
     private val sourceManager: AnimeSourceManager = Injekt.get()
     private val preferenceStore: PreferenceStore = Injekt.get()
@@ -182,7 +192,7 @@ class EpisodeOptionsDialogScreenModel(
     @Suppress("ktlint:standard:backing-property-naming")
     private val _source = MutableStateFlow<AnimeSource?>(null)
 
-    private val _showAllQualities = MutableStateFlow(false)
+    private val _showAllQualities = MutableStateFlow(forDownload)
     val showAllQualities = _showAllQualities.asStateFlow()
 
     private fun getPlaybackSelectionPreferences(): PlaybackSelectionPreferences {
@@ -525,6 +535,43 @@ class EpisodeOptionsDialogScreenModel(
         }
     }
 
+    /**
+     * v7.9.28 (modo descarga): descarga el episodio desde el servidor y la
+     * calidad que el usuario tocó en el menú. Si ese vídeo no se puede
+     * resolver, la fila queda en error y el usuario elige otro servidor; el
+     * descargador además prueba los demás servidores solo si el elegido
+     * falla durante la descarga.
+     */
+    fun onDownloadVideo(hosterIndex: Int, videoIndex: Int) {
+        val video = (_hosterState.value?.getOrNull()?.getOrNull(hosterIndex) as? HosterState.Ready)
+            ?.videoList
+            ?.getOrNull(videoIndex)
+            ?: return
+        val episode = _episode.value ?: return
+        val anime = _anime.value ?: return
+
+        screenModelScope.launchIO {
+            val resolved = HosterLoader.getResolvedVideo(_source.value, video)
+            if (resolved == null || resolved.videoUrl.isBlank()) {
+                val state = _hosterState.value?.getOrNull()?.getOrNull(hosterIndex) as? HosterState.Ready
+                    ?: return@launchIO
+                _hosterState.updateAt(
+                    hosterIndex,
+                    state.getChangedAt(videoIndex, video, Video.State.ERROR),
+                )
+                return@launchIO
+            }
+            Injekt.get<AnimeDownloadManager>().downloadEpisodes(
+                anime,
+                listOf(episode),
+                true,
+                altDownloader,
+                resolved,
+            )
+            EpisodeOptionsDialogScreen.onDismissDialog()
+        }
+    }
+
     fun getHosterList(): List<Hoster>? {
         val hosterStateList = hosterState.value?.getOrNull() ?: return null
         return _hosterList.value.mapIndexed { index, h ->
@@ -619,6 +666,9 @@ fun EpisodeOptionsDialog(
     onShowAllQualities: (Boolean) -> Unit,
     onClickHoster: (Int) -> Unit,
     onClickVideo: (Int, Int) -> Unit,
+    onDownloadVideo: (Int, Int) -> Unit = onClickVideo,
+    // v7.9.28: modo descarga (menú de servidores).
+    forDownload: Boolean = false,
     getHosterList: () -> List<Hoster>?,
 ) {
     val context = LocalContext.current
@@ -642,7 +692,12 @@ fun EpisodeOptionsDialog(
         )
 
         Text(
-            text = stringResource(AYMR.strings.choose_video_quality),
+            // v7.9.28: en modo descarga el diálogo es el menú de servidores.
+            text = if (forDownload) {
+                stringResource(AYMR.strings.download_choose_server)
+            } else {
+                stringResource(AYMR.strings.choose_video_quality)
+            },
             modifier = Modifier.padding(horizontal = TabbedDialogPaddings.Horizontal),
             fontStyle = FontStyle.Italic,
             style = MaterialTheme.typography.bodyMedium,
@@ -675,6 +730,8 @@ fun EpisodeOptionsDialog(
                     onShowAllQualities = onShowAllQualities,
                     onClickHoster = onClickHoster,
                     onClickVideo = onClickVideo,
+                    onDownloadVideo = onDownloadVideo,
+                    forDownload = forDownload,
                     getHosterList = getHosterList,
                 )
             } else {
@@ -698,6 +755,9 @@ private fun VideoList(
     onShowAllQualities: (Boolean) -> Unit,
     onClickHoster: (Int) -> Unit,
     onClickVideo: (Int, Int) -> Unit,
+    onDownloadVideo: (Int, Int) -> Unit = onClickVideo,
+    // v7.9.28: en modo descarga, tocar un vídeo lo baja desde ese servidor.
+    forDownload: Boolean = false,
     getHosterList: () -> List<Hoster>?,
 ) {
     val downloadManager = Injekt.get<AnimeDownloadManager>()
@@ -799,7 +859,8 @@ private fun VideoList(
                         videoList = (hosterStateList.first() as HosterState.Ready).videoList,
                         videoState = (hosterStateList.first() as HosterState.Ready).videoState,
                         selectedVideoIndex = selectedHosterVideoIndex.second,
-                        onClickVideo = onClickVideo,
+                        // v7.9.28: en modo descarga, tocar un vídeo lo baja.
+                        onClickVideo = if (forDownload) onDownloadVideo else onClickVideo,
                     )
                 } else {
                     QualitySheetHosterContent(
@@ -807,7 +868,8 @@ private fun VideoList(
                         expandedState = expandedList,
                         selectedVideoIndex = selectedHosterVideoIndex,
                         onClickHoster = onClickHoster,
-                        onClickVideo = onClickVideo,
+                        // v7.9.28: en modo descarga, tocar un vídeo lo baja.
+                        onClickVideo = if (forDownload) onDownloadVideo else onClickVideo,
                         displayHosters = Pair(false, false),
                     )
                 }

@@ -1716,9 +1716,19 @@ class AnimeScreenModel(
     ) {
         when (action) {
             EpisodeDownloadAction.START -> {
-                startDownload(items.map { it.episode }, false)
-                if (items.any { it.downloadState == AnimeDownload.State.ERROR }) {
-                    downloadManager.startDownloads()
+                // v7.9.28: un solo episodio abre el menú de servidores para
+                // elegir de cuál bajar (como Hazel). Varios episodios a la vez
+                // bajan directo, como antes (el menú es para elegir un servidor,
+                // no para una cola). El toque en el «!» de error también cae
+                // aquí: abre el menú para elegir otro servidor en vez de
+                // reintentar el mismo que ya falló.
+                if (items.size == 1) {
+                    showDownloadServersDialog(items.single().episode)
+                } else {
+                    startDownload(items.map { it.episode }, false)
+                    if (items.any { it.downloadState == AnimeDownload.State.ERROR }) {
+                        downloadManager.startDownloads()
+                    }
                 }
             }
             EpisodeDownloadAction.START_NOW -> {
@@ -2606,6 +2616,8 @@ class AnimeScreenModel(
         data class Migrate(val newAnime: Anime, val oldAnime: Anime) : Dialog
         data class SetAnimeFetchInterval(val anime: Anime) : Dialog
         data class ShowQualities(val episode: Episode, val anime: Anime, val source: AnimeSource) : Dialog
+        // v7.9.28: menú de servidores para descargar el episodio.
+        data class ShowDownloadServers(val episode: Episode, val anime: Anime, val source: AnimeSource) : Dialog
         data object ChangeAnimeSkipIntro : Dialog
         data object EpisodeSettingsSheet : Dialog
         data object SeasonSettingsSheet : Dialog
@@ -2667,6 +2679,15 @@ class AnimeScreenModel(
 
     fun showQualitiesDialog(episode: Episode) {
         updateSuccessState { it.copy(dialog = Dialog.ShowQualities(episode, it.anime, it.source)) }
+    }
+
+    /**
+     * v7.9.28: abre el menú de servidores para descargar el episodio (como
+     * Hazel): el usuario elige el servidor y la calidad en vez de bajar
+     * directo con el «mejor» vídeo que elige la app sola.
+     */
+    fun showDownloadServersDialog(episode: Episode) {
+        updateSuccessState { it.copy(dialog = Dialog.ShowDownloadServers(episode, it.anime, it.source)) }
     }
 
     sealed interface State {

@@ -238,6 +238,11 @@ class MangaDownloader(
     var isPaused: Boolean = false
 
     init {
+        // v7.9.28: migración única del 2 -> 5 de la concurrencia de páginas
+        // (ver DownloadPreferences.migratePageDownloadConcurrency): sin esto
+        // las instalaciones existentes seguían en 2 aunque la 7.9.27 cambió
+        // el default, y el manga bajaba «a la misma velocidad».
+        downloadPreferences.migratePageDownloadConcurrency()
         launchNow {
             // restore() blocks on per-item DB lookups (runBlocking inside); keep that off the
             // main thread - the downloader is constructed eagerly at app start.
