@@ -27,11 +27,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ChevronRight
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
@@ -111,7 +111,7 @@ fun BottomRightPlayerControls(
             iconSize = 26.dp,
         )
         ControlsButton(
-            icon = Icons.AutoMirrored.Filled.ChevronRight,
+            icon = Icons.Outlined.ChevronRight,
             onClick = onMoreClick,
             horizontalSpacing = 8.dp,
             iconSize = 26.dp,

@@ -183,9 +183,8 @@ fun MoreSheet(
             SwitchPreference(
                 value = autoPlayEnabled,
                 onValueChange = onToggleAutoPlay,
-            ) {
-                Text(text = stringResource(AYMR.strings.player_autoplay))
-            }
+                content = { Text(text = stringResource(AYMR.strings.player_autoplay)) },
+            )
 
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
