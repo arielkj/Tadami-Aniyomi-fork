@@ -249,8 +249,9 @@ fun NovelGlassHeroCard(
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Black,
                         color = Color.White,
-                        // Sin lineHeight fijo: usa el interlineado natural de la fuente
-                        // para que las líneas no se solapen con fuentes personalizadas.
+                        // Interlineado fijo con aire: la app manda el espacio entre
+                        // líneas y no depende de las métricas de la fuente.
+                        lineHeight = 30.sp,
                         maxLines = 3,
                         textAlign = TextAlign.Center,
                         overflow = TextOverflow.Ellipsis,

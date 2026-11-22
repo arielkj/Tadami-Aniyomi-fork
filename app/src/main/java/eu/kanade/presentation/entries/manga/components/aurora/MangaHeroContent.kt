@@ -119,8 +119,9 @@ fun MangaHeroContent(
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Black,
                 color = titleColor,
-                // Sin lineHeight fijo: usa el interlineado natural de la fuente
-                // para que las líneas no se solapen con fuentes personalizadas.
+                // Interlineado fijo con aire: la app manda el espacio entre
+                // líneas y no depende de las métricas de la fuente.
+                lineHeight = 42.sp,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 style = TextStyle(fontFamily = coverTitleFontFamily),
