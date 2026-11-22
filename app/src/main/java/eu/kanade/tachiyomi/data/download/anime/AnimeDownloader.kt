@@ -879,7 +879,7 @@ class AnimeDownloader(
         }
 
         val source = download.source
-        val execute = { request: okhttp3.Request ->
+        val execute: suspend (okhttp3.Request) -> okhttp3.Response = { request ->
             source.client.newCachelessCallWithProgress(request, listener).awaitSuccess()
         }
 
@@ -921,7 +921,7 @@ class AnimeDownloader(
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var read: Int
                     while (input.read(buffer).also { read = it } != -1) {
-                        ensureActive()
+                        coroutineContext.ensureActive()
                         output.write(buffer, 0, read)
                     }
                 }
