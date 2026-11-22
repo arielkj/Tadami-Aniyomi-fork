@@ -562,7 +562,10 @@ abstract class HttpSource : CatalogueSource {
         private val pageToNextPage = BoundedCache<String, Page>(maxSize = 2000)
         private val inFlightPrefetches = ConcurrentHashMap<String, Boolean>()
 
-        private const val IMAGE_CALL_TIMEOUT_MINUTES = 15L
+        // v7.9.27: 2 min (antes 15). Una imagen atascada ya no secuestra un hueco
+        // 15 minutos mientras el servidor gotea algún byte: a los 2 min salta el
+        // reintento (3x) y el capítulo no se queda quieto para luego dar error.
+        private const val IMAGE_CALL_TIMEOUT_MINUTES = 2L
 
         private val prefetchScope = CoroutineScope(
             Dispatchers.IO + SupervisorJob(),

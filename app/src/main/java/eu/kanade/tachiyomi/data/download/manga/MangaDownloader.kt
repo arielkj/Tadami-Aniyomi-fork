@@ -12,10 +12,12 @@ import eu.kanade.tachiyomi.data.download.DownloadNetworkStatus
 import eu.kanade.tachiyomi.data.download.engine.DownloadCompletionTracker
 import eu.kanade.tachiyomi.data.download.engine.DownloadSection
 import eu.kanade.tachiyomi.data.download.engine.DownloadTelemetryEmitter
+import eu.kanade.tachiyomi.data.download.isNetworkRelatedFailure
 import eu.kanade.tachiyomi.data.download.manga.model.MangaDownload
 import eu.kanade.tachiyomi.data.download.toDownloadNetworkStatus
 import eu.kanade.tachiyomi.data.library.manga.MangaLibraryUpdateNotifier
 import eu.kanade.tachiyomi.data.notification.NotificationHandler
+import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.source.UnmeteredSource
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
@@ -53,6 +55,8 @@ import okhttp3.Response
 import okio.Throttler
 import okio.buffer
 import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.i18n.R
+import java.util.concurrent.ConcurrentHashMap
 import tachiyomi.core.common.storage.extension
 import tachiyomi.core.common.storage.renameToOrCopy
 import tachiyomi.core.common.util.lang.launchIO
@@ -125,6 +129,102 @@ class MangaDownloader(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var downloaderJob: Job? = null
 
+    // v7.9.27: freno por fuente. Si una fuente responde 429, la descarga de esa
+    // fuente afloja sola y la concurrencia baja temporalmente a 1 en vez de
+    // insistir (el usuario advirtió que las fuentes pueden bloquear el acceso
+    // si se hacen muchas descargas a la vez). Mapa fuente -> instante (ms) en
+    // el que se puede volver a intentar.
+    private val rateLimitedUntilBySource = ConcurrentHashMap<Long, Long>()
+
+    // v7.9.27: capítulos re-encolados automáticamente UNA vez tras un fallo de
+    // red (clave = id del capítulo, valor = intentos ya usados).
+    private val networkAutoRetries = ConcurrentHashMap<Long, Int>()
+
+    // v7.9.27: capítulos cuya imagen falló por red mientras la lista de páginas
+    // sí se obtuvo (el capítulo puede acabar en ERROR por isDownloadSuccessful
+    // sin lanzar excepción: ahí se consulta este registro).
+    private val networkFailedChapterIds = ConcurrentHashMap.newKeySet<Long>()
+
+    private fun isSourceRateLimited(sourceId: Long): Boolean =
+        (rateLimitedUntilBySource[sourceId] ?: 0L) > System.currentTimeMillis()
+
+    private fun rateLimitWaitMs(sourceId: Long): Long =
+        ((rateLimitedUntilBySource[sourceId] ?: 0L) - System.currentTimeMillis()).coerceAtLeast(0L)
+
+    private fun markSourceRateLimited(sourceId: Long, windowSeconds: Long = RATE_LIMIT_WINDOW_SECONDS) {
+        rateLimitedUntilBySource[sourceId] =
+            System.currentTimeMillis() + windowSeconds * 1000L
+    }
+
+    /**
+     * Reintenta una operación de red (lista de páginas, URL de imagen) hasta 3
+     * veces con backoff 2/4/8 s, igual que los bytes de la imagen. Un 429 marca
+     * la fuente como limitada y espera su ventana (máx. 60 s) antes de seguir.
+     */
+    private suspend fun <T> retryNetworkCall(sourceId: Long, block: suspend () -> T): T {
+        var lastError: Throwable? = null
+        repeat(DOWNLOAD_MAX_RETRIES) { attempt ->
+            try {
+                return block()
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                lastError = e
+                if (e is HttpException && e.code == 429) {
+                    markSourceRateLimited(sourceId)
+                    delay(rateLimitWaitMs(sourceId).coerceAtMost(MAX_RATE_LIMIT_WAIT_MS))
+                } else {
+                    delay((2L shl attempt) * 1000L)
+                }
+            }
+        }
+        throw lastError!!
+    }
+
+    /**
+     * Re-encola UNA vez un capítulo caído a ERROR por fallo de red, con espera.
+     * Solo fallos de red: un error de otro tipo no se reintenta. Devuelve true
+     * si se programó el re-encolado.
+     */
+    private fun requeueChapterAfterNetworkFailure(
+        download: MangaDownload,
+        error: Throwable?,
+    ): Boolean {
+        if (!isNetworkRelatedFailure(error)) return false
+        return requeueChapterOnce(download)
+    }
+
+    /** Programa UN re-encolado del capítulo tras una espera. Devuelve true si se programó. */
+    private fun requeueChapterOnce(download: MangaDownload): Boolean {
+        val chapterId = download.chapter.id ?: return false
+        val retries = networkAutoRetries.getOrDefault(chapterId, 0)
+        if (retries >= MAX_NETWORK_AUTO_RETRIES) return false
+        networkAutoRetries[chapterId] = retries + 1
+        // La espera corre en el scope del descargador, NO en el job del capítulo:
+        // el planificador cancela ese job en cuanto el capítulo pasa a ERROR, así
+        // que un delay dentro de downloadChapter moriría cancelado y el
+        // re-encolado no llegaría nunca.
+        val waitMs = rateLimitWaitMs(download.source.id)
+            .coerceAtMost(MAX_RATE_LIMIT_WAIT_MS)
+            .coerceAtLeast(NETWORK_AUTO_RETRY_DELAY_MS)
+        scope.launch {
+            delay(waitMs)
+            // Si el usuario quitó el capítulo de la cola o lo reintentó a mano
+            // mientras tanto, no se toca nada.
+            val current = queueState.value.firstOrNull { it.chapter.id == chapterId }
+            if (current?.status != MangaDownload.State.ERROR) return@launch
+            removeFromQueue(download)
+            addAllToQueue(listOf(download))
+            // Si el descargador se paró mientras tanto (p. ej. era el último
+            // capítulo pendiente), se vuelve a arrancar para que el reintento
+            // corra. Si el usuario lo pausó, no se arranca: queda en cola.
+            if (!isPaused && !isRunning) {
+                MangaDownloadJob.start(context)
+                start(notifyOnNetworkBlock = false)
+            }
+        }
+        return true
+    }
+
     /**
      * Whether the downloader is running.
      */
@@ -143,6 +243,14 @@ class MangaDownloader(
             // main thread - the downloader is constructed eagerly at app start.
             val chapters = async(Dispatchers.IO) { store.restore() }
             addAllToQueue(chapters.await())
+            // v7.9.27: la cola restaurada se reanuda sola al abrir la app (antes los
+            // ítems quedaban en QUEUE parados hasta que el usuario volviera a tocar
+            // «Descargar»). Solo arranca si hay algo pendiente; el aviso de red se
+            // omite aquí porque el arranque es automático, no una acción del usuario.
+            if (queueState.value.any { it.status == MangaDownload.State.QUEUE }) {
+                MangaDownloadJob.start(context)
+                start(notifyOnNetworkBlock = false)
+            }
         }
     }
 
@@ -153,7 +261,7 @@ class MangaDownloader(
      * @return true if the downloader is started, false otherwise.
      */
     @Synchronized
-    fun start(): Boolean {
+    fun start(notifyOnNetworkBlock: Boolean = true): Boolean {
         // Network gate: startDownloads() and its callers (queue UI, entry/updates screens, the
         // engine facade) kick the downloader in-process, bypassing MangaDownloadJob whose
         // WIFI/CONNECTED constraints are the only network policy on the worker path. With
@@ -164,6 +272,17 @@ class MangaDownloader(
         val networkStatus = context.activeNetworkState()
             .toDownloadNetworkStatus(downloadPreferences.downloadOnlyOverWifi().get())
         if (networkStatus != DownloadNetworkStatus.Available) {
+            // v7.9.27: antes devolvía false en silencio y el usuario solo veía la
+            // descarga parada. Ahora se avisa con la notificación que ya existía
+            // para este caso («solo WiFi» / «sin red»).
+            if (notifyOnNetworkBlock) {
+                val reason = when (networkStatus) {
+                    DownloadNetworkStatus.NoWifi -> context.getString(R.string.download_notifier_text_only_wifi)
+                    DownloadNetworkStatus.NoNetwork -> context.getString(R.string.download_notifier_no_network)
+                    else -> return false
+                }
+                notifier.onWarning(reason, WARNING_NOTIF_TIMEOUT_MS)
+            }
             return false
         }
 
@@ -351,17 +470,21 @@ class MangaDownloader(
             addAllToQueue(chaptersToQueue)
 
             // Start downloader if needed
-            if (autoStart && wasEmpty) {
+            if (autoStart) {
                 val queuedDownloads = queueState.value.count { it: MangaDownload -> it.source !is UnmeteredSource }
                 val maxDownloadsFromSource = queueState.value
                     .groupBy { it.source }
                     .filterKeys { it !is UnmeteredSource }
                     .maxOfOrNull { it.value.size }
                     ?: 0
-                if (
+                // v7.9.27: la advertencia de cola grande solo se muestra cuando la
+                // cola estaba vacía (era el único caso en el que antes se arrancaba);
+                // el arranque en sí ya no depende de wasEmpty: los capítulos nuevos
+                // no se quedan en «En cola» parados cuando la cola ya tenía algo.
+                if (wasEmpty && (
                     queuedDownloads > DOWNLOADS_QUEUED_WARNING_THRESHOLD ||
                     maxDownloadsFromSource > CHAPTERS_PER_SOURCE_QUEUE_WARNING_THRESHOLD
-                ) {
+                )) {
                     notifier.onWarning(
                         context.stringResource(AYMR.strings.download_queue_size_warning),
                         WARNING_NOTIF_TIMEOUT_MS,
@@ -369,6 +492,7 @@ class MangaDownloader(
                     )
                 }
                 MangaDownloadJob.start(context)
+                start()
             }
         }
     }
@@ -415,10 +539,19 @@ class MangaDownloader(
         }
 
         try {
+            // v7.9.27: si la fuente está en ventana de 429, se espera a que pase
+            // (máx. 60 s) antes de pedir nada más a esa fuente.
+            val rateLimitWait = rateLimitWaitMs(download.source.id).coerceAtMost(MAX_RATE_LIMIT_WAIT_MS)
+            if (rateLimitWait > 0L) delay(rateLimitWait)
+
             // If the page list already exists, start from the file
             val pageList = download.pages ?: run {
                 // Otherwise, pull page list from network and add them to download object
-                val pages = download.source.getPageList(download.chapter.toSChapter())
+                // v7.9.27: con reintento 3x (antes un solo tropiezo de red tumbaba
+                // el capítulo entero a ERROR).
+                val pages = retryNetworkCall(download.source.id) {
+                    download.source.getPageList(download.chapter.toSChapter())
+                }
 
                 if (pages.isEmpty()) {
                     throw Exception(context.stringResource(MR.strings.page_list_empty_error))
@@ -441,7 +574,14 @@ class MangaDownloader(
             } else {
                 DataSaver.NoOp
             }
-            val pageDownloadConcurrency = downloadPreferences.pageDownloadConcurrency().get().coerceIn(1, 10)
+            // v7.9.27: con la fuente en 429 la concurrencia baja temporalmente a 1
+            // (freno por fuente); en condiciones normales es el valor de la
+            // preferencia (por defecto 5 desde esta versión, antes 2).
+            val pageDownloadConcurrency = if (isSourceRateLimited(download.source.id)) {
+                1
+            } else {
+                downloadPreferences.pageDownloadConcurrency().get().coerceIn(1, 10)
+            }
             val telemetryLock = Any()
             var chapterDownloadedBytes = 0L
             var lastStatBytes = 0L
@@ -465,7 +605,11 @@ class MangaDownloader(
                         if (page.imageUrl.isNullOrEmpty()) {
                             page.status = Page.State.LOAD_PAGE
                             try {
-                                page.imageUrl = download.source.getImageUrl(page)
+                                // v7.9.27: con reintento 3x (antes un fallo aquí
+                                // marcaba la página en ERROR sin más).
+                                page.imageUrl = retryNetworkCall(download.source.id) {
+                                    download.source.getImageUrl(page)
+                                }
                             } catch (e: Throwable) {
                                 page.status = Page.State.ERROR
                             }
@@ -512,6 +656,13 @@ class MangaDownloader(
             // Do after download completes
             if (!isDownloadSuccessful(download, tmpDir)) {
                 download.status = MangaDownload.State.ERROR
+                // v7.9.27: el capítulo puede acabar aquí sin excepción (alguna
+                // imagen en ERROR). Si el fallo fue de red, se re-encola una vez
+                // en vez de dejarlo en ERROR para siempre.
+                val chapterId = download.chapter.id
+                if (chapterId != null && networkFailedChapterIds.remove(chapterId)) {
+                    requeueChapterOnce(download)
+                }
                 return
             }
 
@@ -541,6 +692,9 @@ class MangaDownloader(
             logcat(LogPriority.ERROR, error)
             download.status = MangaDownload.State.ERROR
             notifier.onError(error.message, download.chapter.name, download.manga.title, download.manga.id)
+            // v7.9.27: fallo de red -> re-encolar una vez (con espera) en vez de
+            // dejar el capítulo en ERROR para siempre. Errores de otro tipo no.
+            requeueChapterAfterNetworkFailure(download, error)
         }
     }
 
@@ -606,6 +760,12 @@ class MangaDownloader(
             // Mark this page as error and allow to download the remaining
             page.progress = 0
             page.status = Page.State.ERROR
+            // v7.9.27: si el fallo fue de red, el capítulo puede acabar en ERROR
+            // por isDownloadSuccessful sin lanzar excepción; se registra para
+            // re-encolarlo una vez en vez de dejarlo en ERROR para siempre.
+            if (isNetworkRelatedFailure(e)) {
+                download.chapter.id?.let { networkFailedChapterIds.add(it) }
+            }
             notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)
         }
     }
@@ -647,9 +807,17 @@ class MangaDownloader(
             emit(completedFile)
         }
             // Retry 3 times, waiting 2, 4 and 8 seconds between attempts.
-            .retryWhen { _, attempt ->
+            // v7.9.27: un 429 marca la fuente como limitada y espera su ventana
+            // (15/30/45 s) en vez de insistir: el nuevo paralelismo (5 imágenes)
+            // nunca martillea una fuente que pide aflojar.
+            .retryWhen { cause, attempt ->
                 if (attempt < 3) {
-                    delay((2L shl attempt.toInt()) * 1000)
+                    if (cause is HttpException && cause.code == 429) {
+                        markSourceRateLimited(source.id)
+                        delay((15L * (attempt + 1)) * 1000L)
+                    } else {
+                        delay((2L shl attempt.toInt()) * 1000)
+                    }
                     true
                 } else {
                     false
@@ -900,6 +1068,13 @@ class MangaDownloader(
         const val WARNING_NOTIF_TIMEOUT_MS = 30_000L
         const val CHAPTERS_PER_SOURCE_QUEUE_WARNING_THRESHOLD = 15
         private const val DOWNLOADS_QUEUED_WARNING_THRESHOLD = 30
+
+        // v7.9.27: constantes de la mejora de descarga.
+        private const val DOWNLOAD_MAX_RETRIES = 3
+        private const val MAX_NETWORK_AUTO_RETRIES = 1
+        private const val NETWORK_AUTO_RETRY_DELAY_MS = 10_000L
+        private const val RATE_LIMIT_WINDOW_SECONDS = 60L
+        private const val MAX_RATE_LIMIT_WAIT_MS = 60_000L
     }
 }
 

@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.data.download
 
+import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.util.system.NetworkState
 
 sealed interface DownloadNetworkStatus {
@@ -25,6 +26,9 @@ fun isNetworkRelatedFailure(throwable: Throwable?): Boolean {
             is java.net.SocketTimeoutException,
             is javax.net.ssl.SSLException,
             -> return true
+            // v7.9.27: un 429 es una condición de red transitoria (la fuente pide
+            // aflojar), no un error definitivo: también se reintenta / reencola.
+            is HttpException -> if (cause.code == 429) return true
         }
         cause = cause.cause
     }

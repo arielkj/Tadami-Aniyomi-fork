@@ -22,12 +22,17 @@ import eu.kanade.tachiyomi.data.download.anime.model.AnimeDownload
 import eu.kanade.tachiyomi.data.download.engine.DownloadCompletionTracker
 import eu.kanade.tachiyomi.data.download.engine.DownloadSection
 import eu.kanade.tachiyomi.data.download.engine.DownloadTelemetryEmitter
+import eu.kanade.tachiyomi.data.download.isNetworkRelatedFailure
 import eu.kanade.tachiyomi.data.download.toDownloadNetworkStatus
 import eu.kanade.tachiyomi.data.library.anime.AnimeLibraryUpdateNotifier
 import eu.kanade.tachiyomi.data.notification.NotificationHandler
 import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
 import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
 import eu.kanade.tachiyomi.ui.player.torrent.TorrentPlaybackResolver
+import eu.kanade.tachiyomi.network.HttpException
+import eu.kanade.tachiyomi.network.ProgressListener
+import eu.kanade.tachiyomi.network.awaitSuccess
+import eu.kanade.tachiyomi.network.newCachelessCallWithProgress
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.toFFmpegString
 import eu.kanade.tachiyomi.util.system.activeNetworkState
@@ -39,6 +44,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -56,6 +62,10 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.suspendCancellableCoroutine
 import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.i18n.R
+import java.io.File
+import java.io.FileOutputStream
+import java.util.concurrent.ConcurrentHashMap
 import tachiyomi.core.common.storage.extension
 import tachiyomi.core.common.storage.renameToOrCopy
 import tachiyomi.core.common.util.lang.launchIO
@@ -116,6 +126,102 @@ class AnimeDownloader(
      */
     private var downloaderJob: Job? = null
 
+    // v7.9.27: freno por fuente. Si un hoster responde 429, la descarga de esa
+    // fuente afloja sola (el usuario advirtió que las fuentes pueden bloquear
+    // el acceso si se hacen muchas descargas a la vez). Mapa fuente -> instante
+    // (ms) en el que se puede volver a intentar.
+    private val rateLimitedUntilBySource = ConcurrentHashMap<Long, Long>()
+
+    // v7.9.27: episodios re-encolados automáticamente UNA vez tras un fallo de
+    // red (clave = id del episodio, valor = intentos ya usados).
+    private val networkAutoRetries = ConcurrentHashMap<Long, Int>()
+
+    // v7.9.27: URL del vídeo al que pertenece el .tmp parcial de cada episodio
+    // (clave = id del episodio). Solo se reanuda si la URL coincide: si el
+    // hoster resolvió otro vídeo, el parcial viejo se borra y se baja de cero.
+    // En memoria: al reiniciar la app se pierde y el primer intento es fresco.
+    private val partialVideoUrlByEpisode = ConcurrentHashMap<Long, String>()
+
+    // v7.9.27: tamaño total conocido de la descarga directa de cada episodio
+    // (clave = id del episodio). Si el parcial ya llegó a ese tamaño, la
+    // descarga está completa y un reintento pasa directo al remux sin bajar nada.
+    private val directTotalBytesByEpisode = ConcurrentHashMap<Long, Long>()
+
+    private fun isSourceRateLimited(sourceId: Long): Boolean =
+        (rateLimitedUntilBySource[sourceId] ?: 0L) > System.currentTimeMillis()
+
+    private fun rateLimitWaitMs(sourceId: Long): Long =
+        ((rateLimitedUntilBySource[sourceId] ?: 0L) - System.currentTimeMillis()).coerceAtLeast(0L)
+
+    private fun markSourceRateLimited(sourceId: Long, windowSeconds: Long = RATE_LIMIT_WINDOW_SECONDS) {
+        rateLimitedUntilBySource[sourceId] =
+            System.currentTimeMillis() + windowSeconds * 1000L
+    }
+
+    /**
+     * Reintenta una operación de red (resolución del hoster) hasta 3 veces con
+     * backoff 2/4/8 s. Un 429 marca la fuente como limitada y espera su ventana
+     * (máx. 60 s) antes de seguir.
+     */
+    private suspend fun <T> retryNetworkCall(sourceId: Long, block: suspend () -> T): T {
+        var lastError: Throwable? = null
+        repeat(DOWNLOAD_MAX_RETRIES.toInt()) { attempt ->
+            try {
+                return block()
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                lastError = e
+                if (e is HttpException && e.code == 429) {
+                    markSourceRateLimited(sourceId)
+                    delay(rateLimitWaitMs(sourceId).coerceAtMost(MAX_RATE_LIMIT_WAIT_MS))
+                } else {
+                    delay((2L shl attempt) * 1000L)
+                }
+            }
+        }
+        throw lastError!!
+    }
+
+    /**
+     * Re-encola UNA vez un episodio caído a ERROR por fallo de red, con espera.
+     * Solo fallos de red: un error de otro tipo no se reintenta. Devuelve true
+     * si se programó el re-encolado.
+     */
+    private fun requeueEpisodeAfterNetworkFailure(
+        download: AnimeDownload,
+        error: Throwable?,
+    ): Boolean {
+        if (!isNetworkRelatedFailure(error)) return false
+        val episodeId = download.episode.id ?: return false
+        val retries = networkAutoRetries.getOrDefault(episodeId, 0)
+        if (retries >= MAX_NETWORK_AUTO_RETRIES) return false
+        networkAutoRetries[episodeId] = retries + 1
+        // La espera corre en el scope del descargador, NO en el job del episodio:
+        // el planificador cancela ese job en cuanto el episodio pasa a ERROR, así
+        // que un delay dentro de downloadEpisode moriría cancelado y el
+        // re-encolado no llegaría nunca.
+        val waitMs = rateLimitWaitMs(download.source.id)
+            .coerceAtMost(MAX_RATE_LIMIT_WAIT_MS)
+            .coerceAtLeast(NETWORK_AUTO_RETRY_DELAY_MS)
+        scope.launch {
+            delay(waitMs)
+            // Si el usuario quitó el episodio de la cola o lo reintentó a mano
+            // mientras tanto, no se toca nada.
+            val current = queueState.value.firstOrNull { it.episode.id == episodeId }
+            if (current?.status != AnimeDownload.State.ERROR) return@launch
+            removeFromQueue(download)
+            addAllToQueue(listOf(download))
+            // Acotado a un reintento por episodio: no puede girar en bucle
+            // stop() -> requeue -> start() -> stop() (ver el comentario de stop()).
+            // Si el usuario lo pausó, no se arranca: queda en cola.
+            if (!isPaused && !isRunning) {
+                AnimeDownloadJob.start(context)
+                start(notifyOnNetworkBlock = false)
+            }
+        }
+        return true
+    }
+
     /**
      * Preference for user's choice of external downloader
      */
@@ -128,10 +234,25 @@ class AnimeDownloader(
     val isRunning: Boolean
         get() = downloaderJob?.isActive ?: false
 
+    /**
+     * Whether the downloader is paused (v7.9.27: espejo de MangaDownloader, para
+     * que el re-encolado automático no rearranque tras una pausa del usuario).
+     */
+    @Volatile
+    var isPaused: Boolean = false
+
     init {
         scope.launch {
             val episodes = async { store.restore() }
             addAllToQueue(episodes.await())
+            // v7.9.27: la cola restaurada se reanuda sola al abrir la app (antes
+            // los ítems quedaban en QUEUE parados hasta que el usuario volviera
+            // a tocar «Descargar»). Solo arranca si hay algo pendiente; el aviso
+            // de red se omite aquí porque el arranque es automático.
+            if (queueState.value.any { it.status == AnimeDownload.State.QUEUE }) {
+                AnimeDownloadJob.start(context)
+                start(notifyOnNetworkBlock = false)
+            }
         }
     }
 
@@ -142,7 +263,7 @@ class AnimeDownloader(
      * @return true if the downloader is started, false otherwise.
      */
     @Synchronized
-    fun start(): Boolean {
+    fun start(notifyOnNetworkBlock: Boolean = true): Boolean {
         // Same network gate as MangaDownloader.start() (C-H1, fork-shared pattern): the
         // in-process startDownloads() path bypasses AnimeDownloadJob whose WIFI/CONNECTED
         // constraints are the only network policy on the worker path, and the worker's
@@ -151,6 +272,17 @@ class AnimeDownloader(
         val networkStatus = context.activeNetworkState()
             .toDownloadNetworkStatus(preferences.downloadOnlyOverWifi().get())
         if (networkStatus != DownloadNetworkStatus.Available) {
+            // v7.9.27: antes devolvía false en silencio y el usuario solo veía la
+            // descarga parada. Ahora se avisa con la notificación que ya existía
+            // para este caso («solo WiFi» / «sin red»).
+            if (notifyOnNetworkBlock) {
+                val reason = when (networkStatus) {
+                    DownloadNetworkStatus.NoWifi -> context.getString(R.string.download_notifier_text_only_wifi)
+                    DownloadNetworkStatus.NoNetwork -> context.getString(R.string.download_notifier_no_network)
+                    else -> return false
+                }
+                notifier.onWarning(reason, WARNING_NOTIF_TIMEOUT_MS)
+            }
             return false
         }
 
@@ -164,6 +296,8 @@ class AnimeDownloader(
             return false
         }
         pending.forEach { if (it.status != AnimeDownload.State.QUEUE) it.status = AnimeDownload.State.QUEUE }
+
+        isPaused = false
 
         launchDownloaderJob()
 
@@ -212,6 +346,7 @@ class AnimeDownloader(
                 it.status = AnimeDownload.State.QUEUE
                 it.currentSpeedBytesPerSecond = 0L
             }
+        isPaused = true
     }
 
     /**
@@ -362,7 +497,7 @@ class AnimeDownloader(
             addAllToQueue(episodesToQueue)
 
             // Start downloader if needed
-            if (autoStart && wasEmpty) {
+            if (autoStart) {
                 val queuedDownloads =
                     queueState.value.count { it: AnimeDownload -> it.source !is UnmeteredSource }
                 val maxDownloadsFromSource = queueState.value
@@ -371,10 +506,14 @@ class AnimeDownloader(
                     .maxOfOrNull { it.value.size }
                     ?: 0
                 // TODO: show warnings in stable
-                if (
+                // v7.9.27: la advertencia de cola grande solo se muestra cuando la
+                // cola estaba vacía (era el único caso en el que antes se arrancaba);
+                // el arranque en sí ya no depende de wasEmpty: los episodios nuevos
+                // no se quedan en «En cola» parados cuando la cola ya tenía algo.
+                if (wasEmpty && (
                     queuedDownloads > DOWNLOADS_QUEUED_WARNING_THRESHOLD ||
                     maxDownloadsFromSource > EPISODES_PER_SOURCE_QUEUE_WARNING_THRESHOLD
-                ) {
+                )) {
                     notifier.onWarning(
                         context.stringResource(AYMR.strings.download_queue_size_warning),
                         WARNING_NOTIF_TIMEOUT_MS,
@@ -387,6 +526,7 @@ class AnimeDownloader(
                 // Adding episodes to the queue must never cancel the worker that is currently
                 // downloading, otherwise the running episode restarts from 0%.
                 AnimeDownloadJob.start(context, keepExistingWork = isRunning)
+                start()
             }
         }
     }
@@ -418,14 +558,24 @@ class AnimeDownloader(
         DiskUtil.createNoMediaFile(tmpDir, context)
 
         try {
+            // v7.9.27: si la fuente está en ventana de 429, se espera a que pase
+            // (máx. 60 s) antes de pedir nada más a esa fuente.
+            val rateLimitWait = rateLimitWaitMs(download.source.id).coerceAtMost(MAX_RATE_LIMIT_WAIT_MS)
+            if (rateLimitWait > 0L) delay(rateLimitWait)
+
             if (download.video == null) {
                 // Pull video from network and add them to download object
-                val hosters = EpisodeLoader.getHosters(download.episode, download.anime, download.source)
+                // v7.9.27: la resolución del hoster se reintenta 3x con backoff
+                // (antes un solo fallo dejaba el episodio en ERROR sin bajar nada).
+                val hosters = retryNetworkCall(download.source.id) {
+                    EpisodeLoader.getHosters(download.episode, download.anime, download.source)
+                }
                 if (hosters.isEmpty()) {
                     throw Exception(context.stringResource(AYMR.strings.video_list_empty_error))
                 }
-                val bestVideo = HosterLoader.getBestVideo(download.source, hosters)
-                    ?: throw Exception(context.stringResource(AYMR.strings.video_list_empty_error))
+                val bestVideo = retryNetworkCall(download.source.id) {
+                    HosterLoader.getBestVideo(download.source, hosters)
+                } ?: throw Exception(context.stringResource(AYMR.strings.video_list_empty_error))
                 download.video = bestVideo
             }
 
@@ -461,6 +611,9 @@ class AnimeDownloader(
                 download.anime.title,
                 download.anime.id,
             )
+            // v7.9.27: fallo de red -> re-encolar una vez (con espera) en vez de
+            // dejar el episodio en ERROR para siempre. Errores de otro tipo no.
+            requeueEpisodeAfterNetworkFailure(download, error)
         }
     }
 
@@ -490,8 +643,10 @@ class AnimeDownloader(
         // Get filename from download info
         val filename = DiskUtil.buildValidFilename(download.episode.name)
 
-        // Delete temp file if it exists
-        tmpDir.findFile("$filename.tmp")?.delete()
+        // v7.9.27: ya NO se borra el .tmp parcial aquí. Para MP4/WebM directos el
+        // parcial se reanuda con Range (downloadVideo decide si vale o se borra
+        // porque el vídeo cambió); borrarlo aquí reiniciaba cada reintento de 0%.
+        // La ruta HLS/FFmpeg sigue borrando su parcial al empezar (legacy).
 
         // Try to find the video file
         val videoFile = tmpDir.listFiles()?.firstOrNull { it.name!!.startsWith("$filename.mkv") }
@@ -543,7 +698,7 @@ class AnimeDownloader(
     }
 
     /**
-     * Define a retry routine in order to accommodate some errors that can be raised
+     * Downloads the video, resuming a partial direct file when possible.
      *
      * @param download the download reference
      * @param tmpDir the directory where placing the file
@@ -554,21 +709,27 @@ class AnimeDownloader(
         tmpDir: UniFile,
         filename: String,
     ): UniFile {
-        // A retry always restarts the episode from 0% (the partial .tmp file is deleted below and
-        // HLS streams cannot be resumed), so retrying is only worth it for transient failures.
-        // Corrupt input fails at the exact same position every time, so retrying it just loops.
+        // v7.9.27: un reintento ya NO reinicia siempre de 0%. Para MP4/WebM
+        // directos el parcial se reanuda con HTTP Range; solo HLS (que no se
+        // puede reanudar por segmentos) sigue empezando de cero. Corrupt input
+        // sigue fallando en la misma posición, así que ese reintento sigue
+        // limitado a un solo pase tolerante.
         var tolerantMode = false
         return flow {
-            tmpDir.findFile("$filename.tmp")?.delete()
-            val videoFile = tmpDir.createFile("$filename.tmp")!!
-            try {
-                ffmpegDownload(download, tmpDir, videoFile, filename, tolerant = tolerantMode)
-            } catch (e: Exception) {
-                videoFile.delete()
-                throw e
+            val video = download.video!!
+            val file = if (isDirectFileDownloadEligible(video, tmpDir)) {
+                try {
+                    downloadDirectFile(download, tmpDir, filename)
+                    remuxLocalFile(download, tmpDir, filename, tolerantMode)
+                } catch (e: NotDirectFileException) {
+                    // El enlace resultó ser una lista HLS pese a la URL: ruta clásica.
+                    downloadLegacyVideo(download, tmpDir, filename, tolerantMode)
+                }
+            } else {
+                downloadLegacyVideo(download, tmpDir, filename, tolerantMode)
             }
 
-            emit(videoFile)
+            emit(file)
         }
             .retryWhen { cause, attempt ->
                 if (cause is CancellationException) {
@@ -594,6 +755,13 @@ class AnimeDownloader(
                         }
                         false
                     }
+                    // v7.9.27: un 429 del hoster marca la fuente como limitada y
+                    // espera su ventana (15/30/45 s) en vez de insistir.
+                    cause is HttpException && cause.code == 429 -> {
+                        markSourceRateLimited(download.source.id)
+                        delay((15L * (attempt + 1)) * 1000L)
+                        attempt < DOWNLOAD_MAX_RETRIES
+                    }
                     attempt >= DOWNLOAD_MAX_RETRIES -> false
                     else -> {
                         val backoffMs = minOf(
@@ -610,6 +778,228 @@ class AnimeDownloader(
             }
             .flowOn(Dispatchers.IO)
             .first()
+    }
+
+    /**
+     * Ruta clásica (HLS o cualquier vídeo no directo): FFmpeg descarga y remuxea
+     * en un solo paso. Cada reintento borra el parcial y empieza de cero (HLS no
+     * se puede reanudar por segmentos); la re-conexión por segmento la hace el
+     * propio FFmpeg (-reconnect / -max_reload en networkResilienceOptions).
+     */
+    private suspend fun downloadLegacyVideo(
+        download: AnimeDownload,
+        tmpDir: UniFile,
+        filename: String,
+        tolerant: Boolean,
+    ): UniFile {
+        tmpDir.findFile("$filename.tmp")?.delete()
+        val videoFile = tmpDir.createFile("$filename.tmp")!!
+        try {
+            ffmpegDownload(download, tmpDir, videoFile, filename, tolerant = tolerant)
+        } catch (e: Exception) {
+            videoFile.delete()
+            throw e
+        }
+        return videoFile
+    }
+
+    /**
+     * ¿El vídeo se puede bajar como archivo directo con OkHttp (con reanudación)?
+     * Solo MP4/WebM sin pistas extra y con ruta de archivo local: la reanudación
+     * necesita append sobre el archivo real (UniFile no expone append), así que
+     * en almacenamiento SAF se usa la ruta clásica. HLS (.m3u8) y los proxies
+     * locales (torrent) quedan fuera.
+     */
+    private fun isDirectFileDownloadEligible(video: Video, tmpDir: UniFile): Boolean {
+        val url = video.videoUrl
+        if (url.isBlank() || url == "null") return false
+        if (url.contains(".m3u8", ignoreCase = true)) return false
+        if (video.subtitleTracks.isNotEmpty() || video.audioTracks.isNotEmpty()) return false
+        if (url.contains("127.0.0.1") || url.contains("localhost")) return false
+        if (tmpDir.filePath.isNullOrBlank()) return false
+        return true
+    }
+
+    /**
+     * Baja un archivo directo (MP4/WebM) con OkHttp, REANUDANDO el parcial con
+     * HTTP Range en vez de borrarlo. Si el servidor no acepta Range (200) se
+     * baja completo de cero; si el parcial es mayor que el archivo (416) también.
+     * Si el Content-Type resulta ser una lista HLS, lanza [NotDirectFileException]
+     * y el llamador usa la ruta clásica.
+     */
+    private suspend fun downloadDirectFile(
+        download: AnimeDownload,
+        tmpDir: UniFile,
+        filename: String,
+    ) {
+        val video = download.video!!
+        val url = video.videoUrl
+        val tmpPath = tmpDir.filePath ?: throw NotDirectFileException()
+        val tmpFile = File(tmpPath, "$filename.tmp")
+        val episodeId = download.episode.id
+
+        // Si el archivo ya está completo (la descarga anterior lo bajó entero pero
+        // el remux falló), no se baja nada: se pasa directo al remux.
+        val knownTotal = episodeId?.let { directTotalBytesByEpisode[it] }
+        if (knownTotal != null && knownTotal > 0L && tmpFile.exists() && tmpFile.length() >= knownTotal) {
+            download.downloadedBytes = tmpFile.length()
+            download.estimatedTotalBytes = knownTotal
+            download.progress = 100
+            return
+        }
+
+        // ¿El parcial pertenece a este mismo vídeo?
+        val resumeFrom = if (episodeId != null && partialVideoUrlByEpisode[episodeId] == url && tmpFile.exists()) {
+            tmpFile.length()
+        } else {
+            // Parcial de otro vídeo (o de una sesión anterior sin registro): fuera.
+            if (tmpFile.exists()) tmpFile.delete()
+            if (episodeId != null) partialVideoUrlByEpisode[episodeId] = url
+            0L
+        }
+        download.downloadedBytes = resumeFrom
+        if (resumeFrom > 0L) download.progress = -1
+
+        // Offset mutable: si el servidor ignora el Range (200) o el parcial no
+        // vale (416), se reinicia a 0 antes de leer el cuerpo.
+        var resumeOffset = resumeFrom
+        var lastUpdateMs = 0L
+        val listener = object : ProgressListener {
+            override fun update(bytesRead: Long, contentLength: Long, done: Boolean) {
+                val now = System.currentTimeMillis()
+                if (done || now - lastUpdateMs >= 200L) {
+                    lastUpdateMs = now
+                    val downloaded = resumeOffset + bytesRead
+                    download.downloadedBytes = downloaded
+                    val total = if (resumeOffset > 0L) resumeOffset + contentLength else contentLength
+                    download.estimatedTotalBytes = if (total > 0L) total else 0L
+                    download.progress = if (total > 0L) (100 * downloaded / total).toInt() else -1
+                }
+            }
+        }
+
+        val source = download.source
+        val execute = { request: okhttp3.Request ->
+            source.client.newCachelessCallWithProgress(request, listener).awaitSuccess()
+        }
+
+        var response = try {
+            val request = if (resumeFrom > 0L) {
+                source.videoRequest(video, resumeFrom, resumeFrom)
+            } else {
+                source.safeVideoRequest(video)
+            }
+            execute(request)
+        } catch (e: HttpException) {
+            if (e.code == 416 && resumeOffset > 0L) {
+                // El parcial es mayor que el archivo (el vídeo cambió en el
+                // servidor): se borra y se baja de cero.
+                tmpFile.delete()
+                resumeOffset = 0L
+                execute(source.safeVideoRequest(video))
+            } else {
+                throw e
+            }
+        }
+
+        val contentType = response.header("Content-Type") ?: ""
+        if (contentType.contains("mpegurl", ignoreCase = true)) {
+            response.close()
+            throw NotDirectFileException()
+        }
+        if (response.code == 200 && resumeOffset > 0L) {
+            // El servidor ignoró el Range: el cuerpo es el archivo completo.
+            tmpFile.delete()
+            resumeOffset = 0L
+        }
+        val remainingLength = response.body.contentLength()
+        val expectedTotal = if (remainingLength > 0L) resumeOffset + remainingLength else -1L
+
+        try {
+            response.body.byteStream().use { input ->
+                FileOutputStream(tmpFile, resumeOffset > 0L).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var read: Int
+                    while (input.read(buffer).also { read = it } != -1) {
+                        ensureActive()
+                        output.write(buffer, 0, read)
+                    }
+                }
+            }
+        } finally {
+            response.close()
+        }
+
+        if (expectedTotal > 0L && tmpFile.length() < expectedTotal) {
+            // La conexión se cortó antes de tiempo: el reintento reanuda desde aquí.
+            throw java.io.IOException(
+                "incomplete direct download: ${tmpFile.length()} of $expectedTotal bytes",
+            )
+        }
+        if (expectedTotal > 0L) {
+            episodeId?.let { directTotalBytesByEpisode[it] = expectedTotal }
+            download.estimatedTotalBytes = expectedTotal
+            download.progress = 100
+        }
+    }
+
+    /**
+     * Remuxea el archivo directo ya completo a .mkv con `-c copy` (sin
+     * re-codificar: es una copia local rápida y además valida el archivo).
+     * Devuelve el .mkv. Con `tolerant` se ignoran los paquetes corruptos
+     * (segundo pase tras un AVERROR_INVALID_DATA).
+     */
+    private suspend fun remuxLocalFile(
+        download: AnimeDownload,
+        tmpDir: UniFile,
+        filename: String,
+        tolerant: Boolean,
+    ): UniFile {
+        val tmpPath = tmpDir.filePath ?: throw NotDirectFileException()
+        val inputFile = File(tmpPath, "$filename.tmp")
+        val outputFile = File(tmpPath, "$filename.mkv")
+        if (outputFile.exists()) outputFile.delete()
+        val tolerantOptions = if (tolerant) "-err_detect ignore_err -fflags +discardcorrupt " else ""
+        val args = FFmpegKitConfig.parseArguments(
+            "-nostdin -hide_banner $tolerantOptions-i \"${inputFile.absolutePath}\" " +
+                "-map 0 -c copy \"${outputFile.absolutePath}\" -y",
+        )
+        FFmpegKitConfig.setLogRedirectionStrategy(LogRedirectionStrategy.NEVER_PRINT_LOGS)
+        val session = suspendCancellableCoroutine { continuation ->
+            val running = FFmpegKit.executeWithArgumentsAsync(
+                args,
+                { continuation.resume(it) },
+                { log ->
+                    if (log.level <= Level.AV_LOG_WARNING) {
+                        log.message?.let { logcat(LogPriority.WARN) { it } }
+                    }
+                },
+                // El remux no necesita estadísticas de progreso.
+                { _ -> },
+            )
+            continuation.invokeOnCancellation { running.cancel() }
+        }
+        if (session.returnCode.isValueSuccess) {
+            inputFile.delete()
+            return tmpDir.findFile("$filename.mkv")!!
+        }
+        val reason = session.failStackTrace?.takeIf(String::isNotBlank)
+            ?: session.allLogsAsString?.trim()?.takeLast(FFMPEG_ERROR_LOG_CHARS)
+            ?: "unknown error"
+        val exception = FFmpegException(
+            session.returnCode?.value ?: 0,
+            "ffmpeg remux failed (${session.returnCode}): $reason",
+        )
+        if (tolerant) {
+            // Segundo fallo (ya con tolerancia): el archivo está corrupto de origen.
+            // Se borra el parcial para que el próximo intento manual baje de cero.
+            inputFile.delete()
+            download.episode.id?.let {
+                partialVideoUrlByEpisode.remove(it)
+                directTotalBytesByEpisode.remove(it)
+            }
+        }
+        throw exception
     }
 
     // ffmpeg is always on safe mode
@@ -1117,6 +1507,10 @@ class AnimeDownloader(
     /** ffmpeg failure carrying the raw return code so retries can tell corrupt input from I/O. */
     private class FFmpegException(val returnCode: Int, message: String) : Exception(message)
 
+    // v7.9.27: marcador interno — el enlace resultó ser una lista HLS, no un
+    // archivo directo. El llamador usa la ruta clásica de FFmpeg.
+    private class NotDirectFileException : Exception("not a direct file")
+
     companion object {
         const val TMP_DIR_SUFFIX = "_tmp"
         const val WARNING_NOTIF_TIMEOUT_MS = 30_000L
@@ -1140,6 +1534,12 @@ class AnimeDownloader(
 
         /** Upper bound for the exponential retry backoff. */
         private const val DOWNLOAD_MAX_BACKOFF_MS = 60_000L
+
+        // v7.9.27: constantes de la mejora de descarga.
+        private const val MAX_NETWORK_AUTO_RETRIES = 1
+        private const val NETWORK_AUTO_RETRY_DELAY_MS = 10_000L
+        private const val RATE_LIMIT_WINDOW_SECONDS = 60L
+        private const val MAX_RATE_LIMIT_WAIT_MS = 60_000L
 
         /** Socket read/write timeout handed to ffmpeg, in microseconds (30s). */
         private const val SOCKET_TIMEOUT_MICROS = 30_000_000L

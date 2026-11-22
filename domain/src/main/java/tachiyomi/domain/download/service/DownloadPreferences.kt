@@ -85,7 +85,10 @@ class DownloadPreferences(
     )
 
     fun numberOfDownloads() = preferenceStore.getInt("download_slots", 1)
-    fun pageDownloadConcurrency() = preferenceStore.getInt("download_page_concurrency", 2)
+    // v7.9.27: 5 imágenes en paralelo dentro del capítulo (antes 2). Los capítulos
+    // siguen bajándose de uno en uno (download_slots = 1, como quiere el usuario);
+    // la velocidad sube dentro del capítulo en curso, no con más capítulos a la vez.
+    fun pageDownloadConcurrency() = preferenceStore.getInt("download_page_concurrency", 5)
     fun novelDownloadConcurrency() = preferenceStore.getInt("novel_download_concurrency", 3)
     fun downloadSpeedLimit() = preferenceStore.getInt("download_speed_limit", 0)
 
