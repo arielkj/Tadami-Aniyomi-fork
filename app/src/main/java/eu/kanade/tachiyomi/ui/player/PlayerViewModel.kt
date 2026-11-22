@@ -1556,6 +1556,27 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     /**
+     * Downloads the episode currently playing, using the existing
+     * download flow (cloud button in the Nuvio-style player).
+     */
+    fun downloadCurrentEpisode() {
+        val anime = currentAnime.value ?: return
+        val episode = currentEpisode.value?.toDomainEpisode() ?: return
+        viewModelScope.launchIO {
+            downloadManager.downloadEpisodes(anime, listOf(episode))
+        }
+        playerUpdate.update { PlayerUpdates.ShowTextResource(AYMR.strings.player_download_started) }
+    }
+
+    /**
+     * The watch-party button has no backend in Tadami yet: say so
+     * instead of doing nothing.
+     */
+    fun showWatchPartyUnavailable() {
+        playerUpdate.update { PlayerUpdates.ShowTextResource(AYMR.strings.player_watch_party_unavailable) }
+    }
+
+    /**
      * Called when the activity is saved and not changing configurations. It updates the database
      * to persist the current progress of the active episode.
      */

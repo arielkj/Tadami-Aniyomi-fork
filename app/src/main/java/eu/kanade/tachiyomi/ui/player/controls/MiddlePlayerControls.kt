@@ -15,8 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -39,13 +39,12 @@ import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import kotlin.math.abs
 
+/**
+ * Nuvio-style center controls: rewind 10s, play/pause, forward 10s.
+ * Episode skipping moved to the episodes panel.
+ */
 @Composable
 fun MiddlePlayerControls(
-    // previous
-    hasPrevious: Boolean,
-    onSkipPrevious: () -> Unit,
-
-    // middle
     isLoading: Boolean,
     isLoadingEpisode: Boolean,
     controlsShown: Boolean,
@@ -54,11 +53,8 @@ fun MiddlePlayerControls(
     paused: Boolean,
     gestureSeekAmount: Pair<Int, Int>?,
     onPlayPauseClick: () -> Unit,
-
-    // next
-    hasNext: Boolean,
-    onSkipNext: () -> Unit,
-
+    onSeekBack: () -> Unit,
+    onSeekForward: () -> Unit,
     enter: EnterTransition,
     exit: ExitTransition,
     modifier: Modifier = Modifier,
@@ -75,10 +71,10 @@ fun MiddlePlayerControls(
         ) {
             if (gestureSeekAmount == null) {
                 ControlsButton(
-                    Icons.Filled.SkipPrevious,
-                    onClick = onSkipPrevious,
-                    iconSize = 48.dp,
-                    enabled = hasPrevious,
+                    Icons.Filled.Replay10,
+                    onClick = onSeekBack,
+                    iconSize = 44.dp,
+                    horizontalSpacing = MaterialTheme.padding.medium,
                 )
             }
         }
@@ -133,10 +129,10 @@ fun MiddlePlayerControls(
         ) {
             if (gestureSeekAmount == null) {
                 ControlsButton(
-                    Icons.Filled.SkipNext,
-                    onClick = onSkipNext,
-                    iconSize = 48.dp,
-                    enabled = hasNext,
+                    Icons.Filled.Forward10,
+                    onClick = onSeekForward,
+                    iconSize = 44.dp,
+                    horizontalSpacing = MaterialTheme.padding.medium,
                 )
             }
         }

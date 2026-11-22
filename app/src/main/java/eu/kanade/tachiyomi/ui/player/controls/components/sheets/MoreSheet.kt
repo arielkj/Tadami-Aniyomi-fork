@@ -66,9 +66,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import eu.kanade.presentation.player.components.PlayerSheet
+import eu.kanade.presentation.player.components.SwitchPreference
 import eu.kanade.tachiyomi.ui.player.Decoder
 import eu.kanade.tachiyomi.ui.player.DecoderPreset
 import eu.kanade.tachiyomi.ui.player.LongPressGesture
+import eu.kanade.tachiyomi.ui.player.Sheets
 import eu.kanade.tachiyomi.ui.player.execute
 import eu.kanade.tachiyomi.ui.player.executeLongPress
 import eu.kanade.tachiyomi.ui.player.settings.AdvancedPlayerPreferences
@@ -96,6 +98,11 @@ fun MoreSheet(
     onDismissRequest: () -> Unit,
     onEnterFiltersPanel: () -> Unit,
     customButtons: ImmutableList<CustomButton>,
+    autoPlayEnabled: Boolean,
+    onToggleAutoPlay: (Boolean) -> Unit,
+    onOpenSheet: (Sheets) -> Unit,
+    onCycleRotation: () -> Unit,
+    hasChapters: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val advancedPreferences = remember { Injekt.get<AdvancedPlayerPreferences>() }
@@ -167,6 +174,53 @@ fun MoreSheet(
                             Text(text = stringResource(AYMR.strings.player_sheets_filters_title))
                         }
                     }
+                }
+            }
+
+            // Quick access to the controls that left the player chrome in the
+            // Nuvio-style redesign (subtitles, audio, quality, screenshot,
+            // rotation, chapters, autoplay) — every function stays reachable.
+            SwitchPreference(
+                value = autoPlayEnabled,
+                onValueChange = onToggleAutoPlay,
+            ) {
+                Text(text = stringResource(AYMR.strings.player_autoplay))
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+            ) {
+                FilterChip(
+                    selected = false,
+                    onClick = { onOpenSheet(Sheets.SubtitleTracks) },
+                    label = { Text(text = stringResource(AYMR.strings.pref_player_subtitle)) },
+                )
+                FilterChip(
+                    selected = false,
+                    onClick = { onOpenSheet(Sheets.AudioTracks) },
+                    label = { Text(text = stringResource(AYMR.strings.pref_player_audio)) },
+                )
+                FilterChip(
+                    selected = false,
+                    onClick = { onOpenSheet(Sheets.QualityTracks) },
+                    label = { Text(text = stringResource(AYMR.strings.player_sheets_qualities_title)) },
+                )
+                FilterChip(
+                    selected = false,
+                    onClick = { onOpenSheet(Sheets.Screenshot) },
+                    label = { Text(text = stringResource(AYMR.strings.long_press_action_screenshot)) },
+                )
+                FilterChip(
+                    selected = false,
+                    onClick = onCycleRotation,
+                    label = { Text(text = stringResource(AYMR.strings.player_cycle_rotation)) },
+                )
+                if (hasChapters) {
+                    FilterChip(
+                        selected = false,
+                        onClick = { onOpenSheet(Sheets.Chapters) },
+                        label = { Text(text = stringResource(AYMR.strings.player_sheets_chapters_title)) },
+                    )
                 }
             }
 

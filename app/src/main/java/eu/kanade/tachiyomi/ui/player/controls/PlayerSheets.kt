@@ -94,6 +94,11 @@ fun PlayerSheets(
     sleepTimerTimeRemaining: Int,
     onStartSleepTimer: (Int) -> Unit,
     buttons: ImmutableList<CustomButton>,
+    autoPlayEnabled: Boolean,
+    onToggleAutoPlay: (Boolean) -> Unit,
+    onOpenSheet: (Sheets) -> Unit,
+    onCycleRotation: () -> Unit,
+    hasChapters: Boolean,
 
     // Screenshot sheet
     isLocalSource: Boolean,
@@ -196,6 +201,11 @@ fun PlayerSheets(
                 onDismissRequest = onDismissRequest,
                 onEnterFiltersPanel = { onOpenPanel(Panels.VideoFilters) },
                 customButtons = buttons,
+                autoPlayEnabled = autoPlayEnabled,
+                onToggleAutoPlay = onToggleAutoPlay,
+                onOpenSheet = onOpenSheet,
+                onCycleRotation = onCycleRotation,
+                hasChapters = hasChapters,
             )
         }
 

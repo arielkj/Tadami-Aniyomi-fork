@@ -387,6 +387,14 @@
     <string name="player_chapter_type_mixedop">Mixed opening</string>
     <!-- Player - Bottom left -->
     <string name="player_speed" translatable="false">%.2fx</string>
+    <string name="player_content_violence">Violence</string>
+    <string name="player_content_profanity">Profanity</string>
+    <string name="player_content_disturbing">Disturbing</string>
+    <string name="player_content_mild">Mild</string>
+    <string name="player_watch_party_unavailable">Watch together isn\'t available yet</string>
+    <string name="player_download_started">Downloading episode</string>
+    <string name="player_autoplay">Autoplay</string>
+    <string name="player_cycle_rotation">Cycle screen rotation</string>
     <!-- Player - Bottom right -->
     <string name="video_fit_screen">Fit to screen</string>
     <string name="video_crop_screen">Cropped to screen</string>

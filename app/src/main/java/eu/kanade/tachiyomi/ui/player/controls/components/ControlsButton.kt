@@ -27,11 +27,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CatchingPokemon
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -91,6 +94,57 @@ fun ControlsButton(
             tint = iconColor,
             modifier = Modifier.size(iconSize),
         )
+    }
+}
+
+@Composable
+fun ControlsButton(
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
+    title: String? = null,
+    color: Color = Color.White,
+    horizontalSpacing: Dp = MaterialTheme.padding.medium,
+    iconSize: Dp = 20.dp,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    icon: @Composable () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val clickEvent = LocalPlayerButtonsClickEvent.current
+    val appHaptics = LocalAppHaptics.current
+    val iconColor = if (enabled) color else color.copy(alpha = DISABLED_ALPHA)
+
+    Box(
+        modifier = modifier
+            .combinedClickable(
+                enabled = enabled,
+                onClick = {
+                    appHaptics.tap()
+                    clickEvent()
+                    onClick()
+                },
+                onLongClick = onLongClick,
+                interactionSource = interactionSource,
+                indication = null,
+            )
+            .clip(CircleShape)
+            .indication(
+                interactionSource,
+                ripple(),
+            )
+            .padding(
+                vertical = MaterialTheme.padding.medium,
+                horizontal = horizontalSpacing,
+            ),
+    ) {
+        Box(
+            modifier = Modifier.size(iconSize),
+            contentAlignment = Alignment.Center,
+        ) {
+            CompositionLocalProvider(LocalContentColor provides iconColor) {
+                icon()
+            }
+        }
     }
 }
 

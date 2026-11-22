@@ -17,60 +17,154 @@
 
 package eu.kanade.tachiyomi.ui.player.controls
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.automirrored.filled.ChevronRight
+import androidx.compose.material.icons.filled.ClosedCaption
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.PictureInPictureAlt
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
-import eu.kanade.tachiyomi.ui.player.controls.components.FilledControlsButton
-import eu.kanade.tachiyomi.ui.player.execute
-import eu.kanade.tachiyomi.ui.player.executeLongPress
-import eu.kanade.tachiyomi.ui.player.layout.PlayerLayoutSlot
-import tachiyomi.domain.custombuttons.model.CustomButton
 
+/**
+ * Nuvio-style bottom action row: subtitles, episodes, download, PiP,
+ * playback speed and more — with the position / duration clock at the
+ * far right (tap it to switch between total and remaining time).
+ */
 @Composable
 fun BottomRightPlayerControls(
-    layoutSlots: Set<PlayerLayoutSlot>,
-    customButton: CustomButton?,
-    customButtonTitle: String,
-    skipIntroButton: String?,
-    onPressSkipIntroButton: () -> Unit,
+    positionText: String,
+    onSubtitlesClick: () -> Unit,
+    onSubtitlesLongClick: () -> Unit,
+    onEpisodesClick: () -> Unit,
+    onDownloadClick: () -> Unit,
     isPipAvailable: Boolean,
-    onAspectClick: () -> Unit,
     onPipClick: () -> Unit,
+    onSpeedClick: () -> Unit,
+    onSpeedLongClick: () -> Unit,
+    onMoreClick: () -> Unit,
+    onTimeClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(modifier) {
-        if (PlayerLayoutSlot.SkipIntro in layoutSlots && skipIntroButton != null) {
-            FilledControlsButton(
-                text = skipIntroButton,
-                onClick = onPressSkipIntroButton,
-                onLongClick = {},
-            )
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        ControlsButton(
+            icon = Icons.Default.ClosedCaption,
+            onClick = onSubtitlesClick,
+            onLongClick = onSubtitlesLongClick,
+            horizontalSpacing = 8.dp,
+            iconSize = 26.dp,
+        )
+        ControlsButton(
+            onClick = onEpisodesClick,
+            horizontalSpacing = 8.dp,
+            iconSize = 26.dp,
+        ) {
+            NuvioEpisodesIcon()
         }
-
-        if (PlayerLayoutSlot.CustomButton in layoutSlots && customButton != null) {
-            FilledControlsButton(
-                text = customButtonTitle,
-                onClick = customButton::execute,
-                onLongClick = customButton::executeLongPress,
-            )
-        }
-
-        if (PlayerLayoutSlot.PictureInPicture in layoutSlots && isPipAvailable) {
+        ControlsButton(
+            icon = Icons.Default.CloudDownload,
+            onClick = onDownloadClick,
+            horizontalSpacing = 8.dp,
+            iconSize = 26.dp,
+        )
+        if (isPipAvailable) {
             ControlsButton(
-                Icons.Default.PictureInPictureAlt,
+                icon = Icons.Default.PictureInPictureAlt,
                 onClick = onPipClick,
+                horizontalSpacing = 8.dp,
+                iconSize = 26.dp,
             )
         }
+        ControlsButton(
+            icon = Icons.Default.Speed,
+            onClick = onSpeedClick,
+            onLongClick = onSpeedLongClick,
+            horizontalSpacing = 8.dp,
+            iconSize = 26.dp,
+        )
+        ControlsButton(
+            icon = Icons.AutoMirrored.Filled.ChevronRight,
+            onClick = onMoreClick,
+            horizontalSpacing = 8.dp,
+            iconSize = 26.dp,
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        val interactionSource = remember { MutableInteractionSource() }
+        Text(
+            text = positionText,
+            fontSize = 14.sp,
+            color = Color.White,
+            modifier = Modifier
+                .clip(CircleShape)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = ripple(),
+                    onClick = onTimeClick,
+                ),
+        )
+    }
+}
 
-        if (PlayerLayoutSlot.AspectRatio in layoutSlots) {
-            ControlsButton(
-                Icons.Default.AspectRatio,
-                onClick = onAspectClick,
+/**
+ * The episodes glyph from the Nuvio design: a small square with
+ * three lines above it.
+ */
+@Composable
+private fun NuvioEpisodesIcon(
+    modifier: Modifier = Modifier,
+) {
+    Canvas(
+        modifier = modifier.size(26.dp),
+    ) {
+        val stroke = 1.8.dp.toPx()
+        val w = size.width
+        val h = size.height
+        // Three lines above the square.
+        listOf(0.10f, 0.24f, 0.38f).forEach { fraction ->
+            val y = h * fraction
+            drawLine(
+                color = Color.White,
+                start = Offset(w * 0.08f, y),
+                end = Offset(w * 0.92f, y),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
             )
         }
+        // The square below them.
+        drawRoundRect(
+            color = Color.White,
+            topLeft = Offset(w * 0.08f, h * 0.54f),
+            size = Size(w * 0.84f, h * 0.38f),
+            cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+            style = Stroke(width = stroke),
+        )
     }
 }

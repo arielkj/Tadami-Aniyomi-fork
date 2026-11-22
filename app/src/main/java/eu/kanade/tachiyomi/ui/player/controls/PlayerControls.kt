@@ -17,7 +17,6 @@
 
 package eu.kanade.tachiyomi.ui.player.controls
 
-import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
@@ -61,7 +60,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -72,8 +70,9 @@ import androidx.constraintlayout.compose.Dimension
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import eu.kanade.presentation.more.settings.screen.player.custombutton.getButtons
 import eu.kanade.presentation.theme.playerRippleConfiguration
+import eu.kanade.presentation.util.formatEpisodeNumber
+import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.ui.player.Dialogs
-import eu.kanade.tachiyomi.ui.player.LongPressGesture
 import eu.kanade.tachiyomi.ui.player.Panels
 import eu.kanade.tachiyomi.ui.player.PlayerActivity
 import eu.kanade.tachiyomi.ui.player.PlayerUpdates
@@ -83,18 +82,19 @@ import eu.kanade.tachiyomi.ui.player.VideoAspect
 import eu.kanade.tachiyomi.ui.player.controls.components.BrightnessOverlay
 import eu.kanade.tachiyomi.ui.player.controls.components.BrightnessSlider
 import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
-import eu.kanade.tachiyomi.ui.player.controls.components.SeekbarWithTimers
+import eu.kanade.tachiyomi.ui.player.controls.components.FilledControlsButton
+import eu.kanade.tachiyomi.ui.player.controls.components.SlimSeekbar
 import eu.kanade.tachiyomi.ui.player.controls.components.TextPlayerUpdate
 import eu.kanade.tachiyomi.ui.player.controls.components.VolumeSlider
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.toFixed
-import eu.kanade.tachiyomi.ui.player.layout.PlayerLayoutOrientation
-import eu.kanade.tachiyomi.ui.player.layout.PlayerLayoutRegion
-import eu.kanade.tachiyomi.ui.player.resolveVisibleCustomButton
+import eu.kanade.tachiyomi.ui.player.execute
+import eu.kanade.tachiyomi.ui.player.executeLongPress
 import eu.kanade.tachiyomi.ui.player.settings.AudioPreferences
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
 import `is`.xyz.mpv.MPVLib
+import `is`.xyz.mpv.Utils
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
@@ -104,6 +104,9 @@ import tachiyomi.presentation.core.util.collectAsStateWithLifecycle
 import tachiyomi.source.local.entries.anime.LocalAnimeSource
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 @Suppress("CompositionLocalAllowlist")
 val LocalPlayerButtonsClickEvent = staticCompositionLocalOf { {} }
@@ -137,29 +140,46 @@ fun PlayerControls(
     val currentBrightness by viewModel.currentBrightness.collectAsStateWithLifecycle()
     val isDynamicSpeedActive by viewModel.isDynamicSpeedActive.collectAsStateWithLifecycle()
     val gesturePlaybackSpeed by viewModel.gesturePlaybackSpeed.collectAsStateWithLifecycle()
-    val longPressAction by gesturePreferences.longPressGesture().collectAsStateWithLifecycle()
 
     val playerTimeToDisappear by playerPreferences.playerTimeToDisappear().collectAsStateWithLifecycle()
     val showCustomButtons by playerPreferences.showCustomButtons().collectAsStateWithLifecycle()
-    val playerLayoutConfig by viewModel.playerLayoutConfig.collectAsStateWithLifecycle()
     var isSeeking by remember { mutableStateOf(false) }
     var resetControls by remember { mutableStateOf(true) }
 
     val customButtons by viewModel.customButtons.collectAsStateWithLifecycle()
     val customButton by viewModel.primaryButton.collectAsStateWithLifecycle()
-    val activeLayoutOrientation = if (LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-        PlayerLayoutOrientation.Landscape
-    } else {
-        PlayerLayoutOrientation.Portrait
+
+    val mediaTitle by viewModel.mediaTitle.collectAsStateWithLifecycle()
+    val animeTitle by viewModel.animeTitle.collectAsStateWithLifecycle()
+    val currentEpisode by viewModel.currentEpisode.collectAsStateWithLifecycle()
+    val anime by viewModel.currentAnime.collectAsStateWithLifecycle()
+    val playlist by viewModel.currentPlaylist.collectAsStateWithLifecycle()
+    val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
+    val invertDuration by playerPreferences.invertDuration().collectAsStateWithLifecycle()
+    val autoPlayEnabled by playerPreferences.autoplayEnabled().collectAsStateWithLifecycle()
+    val aspectRatio by playerPreferences.aspectState().collectAsStateWithLifecycle()
+
+    // Nuvio-style title block data, derived from the title's own metadata.
+    val warnings = remember(anime) { contentWarningsFor(anime?.displayGenre) }
+    val episodeLine = remember(anime, currentEpisode, mediaTitle) {
+        val season = anime?.seasonNumber?.let { formatEpisodeNumber(it) }.orEmpty()
+        val epNum = currentEpisode?.episode_number?.toDouble()?.let { formatEpisodeNumber(it) }.orEmpty()
+        val name = mediaTitle.ifBlank { currentEpisode?.name.orEmpty() }
+        when {
+            season.isNotBlank() && epNum.isNotBlank() && name.isNotBlank() -> "T$season E$epNum · $name"
+            name.isNotBlank() -> name
+            else -> ""
+        }
     }
-    val bottomLeftLayoutSlots = playerLayoutConfig.slotsForRegion(
-        orientation = activeLayoutOrientation,
-        region = PlayerLayoutRegion.BottomLeft,
-    ).toSet()
-    val bottomRightLayoutSlots = playerLayoutConfig.slotsForRegion(
-        orientation = activeLayoutOrientation,
-        region = PlayerLayoutRegion.BottomRight,
-    ).toSet()
+    val yearLine = remember(anime, playlist) {
+        val firstDate = playlist.minOfOrNull { it.date_upload }?.takeIf { it > 0L } ?: return@remember null
+        val year = LocalDate.ofInstant(Instant.ofEpochMilli(firstDate), ZoneId.systemDefault()).year
+        if (anime?.status != SAnime.COMPLETED.toLong()) "$year–" else "$year"
+    }
+    val timeText = remember(position, duration, invertDuration) {
+        val durationValue = if (invertDuration) position - duration else duration
+        "${Utils.prettyTime(position.toInt())} / ${Utils.prettyTime(durationValue.toInt(), invertDuration)}"
+    }
 
     LaunchedEffect(
         controlsShown,
@@ -208,14 +228,14 @@ fun PlayerControls(
                 val (topLeftControls, topRightControls) = createRefs()
                 val (volumeSlider, brightnessSlider) = createRefs()
                 val unlockControlsButton = createRef()
-                val (bottomRightControls, bottomLeftControls) = createRefs()
                 val centerControls = createRef()
+                val titleBlock = createRef()
+                val actionButtons = createRef()
                 val seekbar = createRef()
+                val bottomRow = createRef()
                 val (playerUpdates) = createRefs()
                 val speedPill = createRef()
 
-                val hasPreviousEpisode by viewModel.hasPreviousEpisode.collectAsStateWithLifecycle()
-                val hasNextEpisode by viewModel.hasNextEpisode.collectAsStateWithLifecycle()
                 val isBrightnessSliderShown by viewModel.isBrightnessSliderShown.collectAsStateWithLifecycle()
                 val isVolumeSliderShown by viewModel.isVolumeSliderShown.collectAsStateWithLifecycle()
                 val brightness by viewModel.currentBrightness.collectAsStateWithLifecycle()
@@ -319,7 +339,6 @@ fun PlayerControls(
                 }
 
                 val currentPlayerUpdate by viewModel.playerUpdate.collectAsStateWithLifecycle()
-                val aspectRatio by playerPreferences.aspectState().collectAsStateWithLifecycle()
                 LaunchedEffect(currentPlayerUpdate, aspectRatio) {
                     if (currentPlayerUpdate is PlayerUpdates.DoubleSpeed || currentPlayerUpdate is PlayerUpdates.None) {
                         return@LaunchedEffect
@@ -379,10 +398,6 @@ fun PlayerControls(
                 ) {
                     val showLoadingCircle by playerPreferences.showLoadingCircle().collectAsStateWithLifecycle()
                     MiddlePlayerControls(
-                        hasPrevious = hasPreviousEpisode,
-                        onSkipPrevious = { viewModel.changeEpisode(true) },
-                        hasNext = hasNextEpisode,
-                        onSkipNext = { viewModel.changeEpisode(false) },
                         isLoading = isLoading,
                         isLoadingEpisode = isLoadingEpisode,
                         controlsShown = controlsShown,
@@ -391,10 +406,14 @@ fun PlayerControls(
                         paused = paused,
                         gestureSeekAmount = gestureSeekAmount,
                         onPlayPauseClick = viewModel::pauseUnpause,
+                        onSeekBack = { viewModel.seekBy(-10) },
+                        onSeekForward = { viewModel.seekBy(10) },
                         enter = fadeIn(playerControlsEnterAnimationSpec()),
                         exit = fadeOut(playerControlsExitAnimationSpec()),
                     )
                 }
+                // Nuvio-style slim progress bar, no timers (the clock lives
+                // in the bottom action row).
                 AnimatedVisibility(
                     visible = (controlsShown || seekBarShown) && !areControlsLocked && !isDynamicSpeedActive,
                     enter = if (!reduceMotion) {
@@ -410,13 +429,14 @@ fun PlayerControls(
                         fadeOut(playerControlsExitAnimationSpec())
                     },
                     modifier = Modifier.constrainAs(seekbar) {
-                        bottom.linkTo(parent.bottom, spacing.medium)
+                        bottom.linkTo(bottomRow.top, spacing.extraSmall)
+                        start.linkTo(parent.start)
+                        end.linkTo(parent.end)
                     },
                 ) {
-                    val invertDuration by playerPreferences.invertDuration().collectAsStateWithLifecycle()
                     val readAhead by viewModel.readAhead.collectAsStateWithLifecycle()
                     val preciseSeeking by gesturePreferences.playerSmoothSeek().collectAsStateWithLifecycle()
-                    SeekbarWithTimers(
+                    SlimSeekbar(
                         position = position,
                         duration = duration,
                         readAheadValue = readAhead,
@@ -426,14 +446,10 @@ fun PlayerControls(
                             viewModel.seekTo(it.toInt(), preciseSeeking)
                         },
                         onValueChangeFinished = { isSeeking = false },
-                        timersInverted = Pair(false, invertDuration),
-                        durationTimerOnCLick = { playerPreferences.invertDuration().set(!invertDuration) },
-                        positionTimerOnClick = {},
                         chapters = chapters.map { it.toSegment() }.toImmutableList(),
                     )
                 }
-                val mediaTitle by viewModel.mediaTitle.collectAsStateWithLifecycle()
-                val animeTitle by viewModel.animeTitle.collectAsStateWithLifecycle()
+                // Content warnings, top-left.
                 AnimatedVisibility(
                     controlsShown && !areControlsLocked && !isDynamicSpeedActive,
                     enter = if (!reduceMotion) {
@@ -456,15 +472,10 @@ fun PlayerControls(
                     },
                 ) {
                     TopLeftPlayerControls(
-                        animeTitle = animeTitle,
-                        mediaTitle = mediaTitle,
-                        onTitleClick = { viewModel.showEpisodeListDialog() },
-                        onBackClick = onBackPress,
+                        warnings = warnings,
                     )
                 }
-                // Top right controls
-                val autoPlayEnabled by playerPreferences.autoplayEnabled().collectAsStateWithLifecycle()
-                val isEpisodeOnline by viewModel.isEpisodeOnline.collectAsStateWithLifecycle()
+                // Top right controls: aspect, watch party, lock, back.
                 AnimatedVisibility(
                     controlsShown && !areControlsLocked && !isDynamicSpeedActive,
                     enter = if (!reduceMotion) {
@@ -485,57 +496,6 @@ fun PlayerControls(
                     },
                 ) {
                     TopRightPlayerControls(
-                        autoPlayEnabled = autoPlayEnabled,
-                        onToggleAutoPlay = { viewModel.setAutoPlay(it) },
-                        onSubtitlesClick = { viewModel.showSheet(Sheets.SubtitleTracks) },
-                        onSubtitlesLongClick = { viewModel.showPanel(Panels.SubtitleSettings) },
-                        onAudioClick = { viewModel.showSheet(Sheets.AudioTracks) },
-                        onAudioLongClick = { viewModel.showPanel(Panels.AudioDelay) },
-                        onQualityClick = { viewModel.showSheet(Sheets.QualityTracks) },
-                        isEpisodeOnline = isEpisodeOnline,
-                        onMoreClick = { viewModel.showSheet(Sheets.More) },
-                        onMoreLongClick = { viewModel.showPanel(Panels.VideoFilters) },
-                        showScreenshotButton = longPressAction == LongPressGesture.PlaybackSpeed,
-                        onScreenshotClick = { viewModel.showSheet(Sheets.Screenshot) },
-                    )
-                }
-                // Bottom right controls
-                val skipIntroButton by viewModel.skipIntroText.collectAsStateWithLifecycle()
-                val customButtonTitle by viewModel.primaryButtonTitle.collectAsStateWithLifecycle()
-                val visibleCustomButton = resolveVisibleCustomButton(showCustomButtons, customButton)
-                val visibleSkipIntroButton = skipIntroButton
-                AnimatedVisibility(
-                    controlsShown && !areControlsLocked && !isDynamicSpeedActive,
-                    enter = if (!reduceMotion) {
-                        slideInHorizontally(playerControlsEnterAnimationSpec()) { it } +
-                            fadeIn(playerControlsEnterAnimationSpec())
-                    } else {
-                        fadeIn(playerControlsEnterAnimationSpec())
-                    },
-                    exit = if (!reduceMotion) {
-                        slideOutHorizontally(playerControlsExitAnimationSpec()) { it } +
-                            fadeOut(playerControlsExitAnimationSpec())
-                    } else {
-                        fadeOut(playerControlsExitAnimationSpec())
-                    },
-                    modifier = Modifier.constrainAs(bottomRightControls) {
-                        bottom.linkTo(seekbar.top)
-                        end.linkTo(seekbar.end)
-                    },
-                ) {
-                    val activity = LocalContext.current as PlayerActivity
-                    BottomRightPlayerControls(
-                        layoutSlots = bottomRightLayoutSlots,
-                        customButton = visibleCustomButton,
-                        customButtonTitle = customButtonTitle,
-                        skipIntroButton = visibleSkipIntroButton,
-                        onPressSkipIntroButton = viewModel::onSkipIntro,
-                        isPipAvailable = activity.isPipSupportedAndEnabled,
-                        onPipClick = {
-                            if (!viewModel.isLoadingEpisode.value) {
-                                activity.enterPictureInPictureMode(activity.createPipParams())
-                            }
-                        },
                         onAspectClick = {
                             viewModel.changeVideoAspect(
                                 when (aspectRatio) {
@@ -545,41 +505,128 @@ fun PlayerControls(
                                 },
                             )
                         },
+                        onWatchPartyClick = { viewModel.showWatchPartyUnavailable() },
+                        onLockControls = viewModel::lockControls,
+                        onBackClick = onBackPress,
                     )
                 }
-                // Bottom left controls
-                val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
+                // Title block above the seekbar.
                 AnimatedVisibility(
                     controlsShown && !areControlsLocked && !isDynamicSpeedActive,
                     enter = if (!reduceMotion) {
-                        slideInHorizontally(playerControlsEnterAnimationSpec()) { -it } +
+                        slideInVertically(playerControlsEnterAnimationSpec()) { it } +
                             fadeIn(playerControlsEnterAnimationSpec())
                     } else {
                         fadeIn(playerControlsEnterAnimationSpec())
                     },
                     exit = if (!reduceMotion) {
-                        slideOutHorizontally(playerControlsExitAnimationSpec()) { -it } +
+                        slideOutVertically(playerControlsExitAnimationSpec()) { it } +
                             fadeOut(playerControlsExitAnimationSpec())
                     } else {
                         fadeOut(playerControlsExitAnimationSpec())
                     },
-                    modifier = Modifier.constrainAs(bottomLeftControls) {
-                        bottom.linkTo(seekbar.top)
-                        start.linkTo(seekbar.start)
+                    modifier = Modifier.constrainAs(titleBlock) {
+                        bottom.linkTo(seekbar.top, spacing.small)
+                        start.linkTo(parent.start)
                         width = Dimension.fillToConstraints
-                        end.linkTo(bottomRightControls.start)
+                        end.linkTo(actionButtons.start, spacing.medium)
                     },
                 ) {
                     BottomLeftPlayerControls(
-                        layoutSlots = bottomLeftLayoutSlots,
-                        playbackSpeed = playbackSpeed,
-                        currentChapter = currentChapter?.toSegment(),
-                        onLockControls = viewModel::lockControls,
-                        onCycleRotation = viewModel::cycleScreenRotations,
-                        onPlaybackSpeedChange = {
-                            MPVLib.setPropertyDouble("speed", it.toDouble())
+                        animeTitle = animeTitle,
+                        episodeLine = episodeLine,
+                        yearLine = yearLine,
+                    )
+                }
+                // Skip intro / custom button, above the seekbar on the right.
+                val skipIntroButton by viewModel.skipIntroText.collectAsStateWithLifecycle()
+                val customButtonTitle by viewModel.primaryButtonTitle.collectAsStateWithLifecycle()
+                val visibleCustomButton = resolveVisibleCustomButton(showCustomButtons, customButton)
+                val visibleSkipIntroButton = skipIntroButton
+                AnimatedVisibility(
+                    controlsShown && !areControlsLocked && !isDynamicSpeedActive &&
+                        (visibleSkipIntroButton != null || visibleCustomButton != null),
+                    enter = if (!reduceMotion) {
+                        slideInVertically(playerControlsEnterAnimationSpec()) { it } +
+                            fadeIn(playerControlsEnterAnimationSpec())
+                    } else {
+                        fadeIn(playerControlsEnterAnimationSpec())
+                    },
+                    exit = if (!reduceMotion) {
+                        slideOutVertically(playerControlsExitAnimationSpec()) { it } +
+                            fadeOut(playerControlsExitAnimationSpec())
+                    } else {
+                        fadeOut(playerControlsExitAnimationSpec())
+                    },
+                    modifier = Modifier.constrainAs(actionButtons) {
+                        bottom.linkTo(seekbar.top, spacing.small)
+                        end.linkTo(parent.end)
+                    },
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(spacing.small),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (visibleSkipIntroButton != null) {
+                            FilledControlsButton(
+                                text = visibleSkipIntroButton,
+                                onClick = viewModel::onSkipIntro,
+                                onLongClick = {},
+                            )
+                        }
+                        if (visibleCustomButton != null) {
+                            FilledControlsButton(
+                                text = customButtonTitle,
+                                onClick = visibleCustomButton::execute,
+                                onLongClick = visibleCustomButton::executeLongPress,
+                            )
+                        }
+                    }
+                }
+                // Bottom action row: subtitles, episodes, download, PiP,
+                // speed, more — with the clock at the far right.
+                AnimatedVisibility(
+                    controlsShown && !areControlsLocked && !isDynamicSpeedActive,
+                    enter = if (!reduceMotion) {
+                        slideInVertically(playerControlsEnterAnimationSpec()) { it } +
+                            fadeIn(playerControlsEnterAnimationSpec())
+                    } else {
+                        fadeIn(playerControlsEnterAnimationSpec())
+                    },
+                    exit = if (!reduceMotion) {
+                        slideOutVertically(playerControlsExitAnimationSpec()) { it } +
+                            fadeOut(playerControlsExitAnimationSpec())
+                    } else {
+                        fadeOut(playerControlsExitAnimationSpec())
+                    },
+                    modifier = Modifier.constrainAs(bottomRow) {
+                        bottom.linkTo(parent.bottom, spacing.medium)
+                        start.linkTo(parent.start)
+                        end.linkTo(parent.end)
+                        width = Dimension.fillToConstraints
+                    },
+                ) {
+                    val activity = LocalContext.current as PlayerActivity
+                    BottomRightPlayerControls(
+                        positionText = timeText,
+                        onSubtitlesClick = { viewModel.showSheet(Sheets.SubtitleTracks) },
+                        onSubtitlesLongClick = { viewModel.showPanel(Panels.SubtitleSettings) },
+                        onEpisodesClick = { viewModel.showEpisodeListDialog() },
+                        onDownloadClick = { viewModel.downloadCurrentEpisode() },
+                        isPipAvailable = activity.isPipSupportedAndEnabled,
+                        onPipClick = {
+                            if (!viewModel.isLoadingEpisode.value) {
+                                activity.enterPictureInPictureMode(activity.createPipParams())
+                            }
                         },
-                        onOpenSheet = viewModel::showSheet,
+                        onSpeedClick = {
+                            val newSpeed = if (playbackSpeed >= 2) 0.25f else playbackSpeed + 0.25f
+                            MPVLib.setPropertyDouble("speed", newSpeed.toDouble())
+                            playerPreferences.playerSpeed().set(newSpeed)
+                        },
+                        onSpeedLongClick = { viewModel.showSheet(Sheets.PlaybackSpeed) },
+                        onMoreClick = { viewModel.showSheet(Sheets.More) },
+                        onTimeClick = { playerPreferences.invertDuration().set(!invertDuration) },
                     )
                 }
 
@@ -662,6 +709,11 @@ fun PlayerControls(
             onSpeedChange = { MPVLib.setPropertyDouble("speed", it.toFixed(2).toDouble()) },
             sleepTimerTimeRemaining = sleepTimerTimeRemaining,
             onStartSleepTimer = viewModel::startTimer,
+            autoPlayEnabled = autoPlayEnabled,
+            onToggleAutoPlay = viewModel::setAutoPlay,
+            onOpenSheet = viewModel::showSheet,
+            onCycleRotation = viewModel::cycleScreenRotations,
+            hasChapters = currentChapter != null,
             buttons = if (showCustomButtons) {
                 customButtons.getButtons().toImmutableList()
             } else {
@@ -692,8 +744,6 @@ fun PlayerControls(
 
         val activity = LocalContext.current as PlayerActivity
         val dialog by viewModel.dialogShown.collectAsStateWithLifecycle()
-        val anime by viewModel.currentAnime.collectAsStateWithLifecycle()
-        val playlist by viewModel.currentPlaylist.collectAsStateWithLifecycle()
 
         PlayerDialogs(
             dialogShown = dialog,
@@ -702,8 +752,7 @@ fun PlayerControls(
             currentEpisodeIndex = viewModel.getCurrentEpisodeIndex(),
             dateRelativeTime = viewModel.relativeTime,
             dateFormat = viewModel.dateFormat,
-            onBookmarkClicked = viewModel::bookmarkEpisode,
-            onFillermarkClicked = viewModel::fillermarkEpisode,
+            anime = anime,
             onEpisodeClicked = {
                 viewModel.showDialog(Dialogs.None)
                 activity.changeEpisode(it)

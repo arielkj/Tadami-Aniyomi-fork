@@ -476,6 +476,14 @@
     <string name="player_sheets_qualities_title">Calidades</string>
     <string name="player_sheets_decoder_formatted">%1$s (%2$s)</string>
     <string name="player_sheets_more_title">Más</string>
+    <string name="player_content_violence">Violencia</string>
+    <string name="player_content_profanity">Blasfemia</string>
+    <string name="player_content_disturbing">Alarmante</string>
+    <string name="player_content_mild">Leve</string>
+    <string name="player_watch_party_unavailable">Ver juntos aún no está disponible</string>
+    <string name="player_download_started">Descargando episodio</string>
+    <string name="player_autoplay">Reproducción automática</string>
+    <string name="player_cycle_rotation">Cambiar rotación de pantalla</string>
     <string name="pref_audio_channels">Canales de audio</string>
     <string name="player_sheets_stats_page_title">Pagina de estadísticas predeterminada</string>
     <string name="player_sheets_tracks_off">Desactivado</string>

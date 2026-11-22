@@ -17,75 +17,72 @@
 
 package eu.kanade.tachiyomi.ui.player.controls
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
 import tachiyomi.presentation.core.components.material.padding
+import tachiyomi.presentation.core.i18n.stringResource
 
+/**
+ * Nuvio-style content warnings at the top-left of the player: a white
+ * vertical bar with one "Label · Severity" line per warning, derived from
+ * the title's own genres. Renders nothing when there are no warnings.
+ */
 @Composable
 fun TopLeftPlayerControls(
-    animeTitle: String,
-    mediaTitle: String,
-    onTitleClick: () -> Unit,
-    onBackClick: () -> Unit,
+    warnings: List<ContentWarning>,
     modifier: Modifier = Modifier,
 ) {
+    if (warnings.isEmpty()) return
     Row(
-        modifier = modifier,
+        modifier = modifier.height(IntrinsicSize.Min),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.mediumSmall),
+        horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
     ) {
-        ControlsButton(
-            icon = Icons.AutoMirrored.Default.ArrowBack,
-            onClick = onBackClick,
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .fillMaxHeight()
+                .background(Color.White, RoundedCornerShape(50)),
         )
         Column(
-            verticalArrangement = Arrangement.spacedBy(-MaterialTheme.padding.extraSmall),
-            modifier = Modifier
-                .clickable(onClick = onTitleClick),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(
-                animeTitle,
-                fontSize = 16.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyLarge,
-            )
-            Text(
-                mediaTitle,
-                fontSize = 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = Color.White.copy(alpha = 0.5f),
-                style = MaterialTheme.typography.bodyLarge,
-                fontStyle = FontStyle.Italic,
-            )
+            warnings.forEach { warning ->
+                Text(
+                    text = buildAnnotatedString {
+                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.SemiBold)) {
+                            append(stringResource(warning.label))
+                        }
+                        withStyle(SpanStyle(color = Color.White.copy(alpha = 0.6f))) {
+                            append(" · ${stringResource(warning.severity)}")
+                        }
+                    },
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                )
+            }
         }
+        Spacer(modifier = Modifier.width(MaterialTheme.padding.small))
     }
-}
-
-@Preview
-@Composable
-fun TopLeftPlayerControlsPreview() {
-    TopLeftPlayerControls(
-        animeTitle = "Bleach",
-        mediaTitle = "Episode 1 - A Shinigami is born",
-        onTitleClick = {},
-        onBackClick = {},
-    )
 }

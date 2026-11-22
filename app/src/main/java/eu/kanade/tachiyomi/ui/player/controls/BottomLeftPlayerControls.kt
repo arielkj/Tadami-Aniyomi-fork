@@ -17,77 +17,59 @@
 
 package eu.kanade.tachiyomi.ui.player.controls
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import dev.vivvvek.seeker.Segment
-import eu.kanade.tachiyomi.ui.player.Sheets
-import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
-import eu.kanade.tachiyomi.ui.player.controls.components.CurrentChapter
-import eu.kanade.tachiyomi.ui.player.layout.PlayerLayoutSlot
-import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
-import tachiyomi.i18n.aniyomi.AYMR
-import tachiyomi.presentation.core.i18n.stringResource
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 
+/**
+ * Nuvio-style title block above the seekbar: the anime title, the
+ * "T1 E8 · Episodio 8" line and the year line.
+ */
 @Composable
 fun BottomLeftPlayerControls(
-    layoutSlots: Set<PlayerLayoutSlot>,
-    playbackSpeed: Float,
-    currentChapter: Segment?,
-    onLockControls: () -> Unit,
-    onCycleRotation: () -> Unit,
-    onPlaybackSpeedChange: (Float) -> Unit,
-    onOpenSheet: (Sheets) -> Unit,
+    animeTitle: String,
+    episodeLine: String,
+    yearLine: String?,
     modifier: Modifier = Modifier,
 ) {
-    val playerPreferences = remember { Injekt.get<PlayerPreferences>() }
-
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        if (PlayerLayoutSlot.LockControls in layoutSlots) {
-            ControlsButton(
-                Icons.Default.LockOpen,
-                onClick = onLockControls,
+        Text(
+            text = animeTitle,
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = Color.White,
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        if (episodeLine.isNotBlank()) {
+            Text(
+                text = episodeLine,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = Color.White.copy(alpha = 0.8f),
+                style = MaterialTheme.typography.bodyLarge,
             )
         }
-        if (PlayerLayoutSlot.RotateScreen in layoutSlots) {
-            ControlsButton(
-                icon = Icons.Default.ScreenRotation,
-                onClick = onCycleRotation,
-            )
-        }
-        if (PlayerLayoutSlot.PlaybackSpeed in layoutSlots) {
-            ControlsButton(
-                text = stringResource(AYMR.strings.player_speed, playbackSpeed),
-                onClick = {
-                    val newSpeed = if (playbackSpeed >= 2) 0.25f else playbackSpeed + 0.25f
-                    onPlaybackSpeedChange(newSpeed)
-                    playerPreferences.playerSpeed().set(newSpeed)
-                },
-                onLongClick = { onOpenSheet(Sheets.PlaybackSpeed) },
-            )
-        }
-        AnimatedVisibility(
-            currentChapter != null && playerPreferences.showCurrentChapter().get(),
-            enter = fadeIn(),
-            exit = fadeOut(),
-        ) {
-            CurrentChapter(
-                chapter = currentChapter!!,
-                onClick = { onOpenSheet(Sheets.Chapters) },
+        if (!yearLine.isNullOrBlank()) {
+            Text(
+                text = yearLine,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = Color.White.copy(alpha = 0.6f),
+                style = MaterialTheme.typography.bodyLarge,
             )
         }
     }
