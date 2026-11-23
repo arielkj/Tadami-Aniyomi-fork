@@ -86,6 +86,7 @@ fun Screen.animeSourcesTab(): TabContent {
                 searchQuery = state.searchQuery,
                 onChangeSearchQuery = screenModel::search,
                 onToggleLanguage = screenModel::toggleLanguage,
+                onRetry = screenModel::retry,
             )
 
             state.dialog?.let { dialog ->

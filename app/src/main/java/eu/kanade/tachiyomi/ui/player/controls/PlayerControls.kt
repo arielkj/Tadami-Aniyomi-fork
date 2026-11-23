@@ -204,11 +204,13 @@ fun PlayerControls(
         }
     }
 
-    // Reveal the long timeline while the mini bar (or the long bar
-    // itself) is dragged, or while a gesture seek is showing the bar;
-    // hide it again shortly after the drag ends.
-    LaunchedEffect(isMiniScrubbing, isSeeking, seekBarShown) {
-        if (isMiniScrubbing || isSeeking || seekBarShown) {
+    // Reveal the long timeline ONLY while the mini bar (or the long bar
+    // itself, once revealed by the mini bar) is being dragged; hide it
+    // again shortly after the drag ends. Gesture seeks and entering a
+    // video never reveal it: at rest only the small centered bar below
+    // is visible.
+    LaunchedEffect(isMiniScrubbing, isSeeking) {
+        if (isMiniScrubbing || isSeeking) {
             showLongBar = true
         } else {
             delay(700)
@@ -255,7 +257,6 @@ fun PlayerControls(
                 val titleBlock = createRef()
                 val actionButtons = createRef()
                 val seekbar = createRef()
-                val miniSeekbar = createRef()
                 val bottomRow = createRef()
                 val (playerUpdates) = createRefs()
                 val speedPill = createRef()
@@ -438,10 +439,10 @@ fun PlayerControls(
                 }
                 // Nuvio-style slim progress bar, no timers (the clock lives
                 // in the bottom action row). The long bar is only revealed
-                // while the mini bar is dragged (or a gesture seek is
-                // showing it); at rest only the small centered bar below
-                // is visible. The slot keeps its height so the title block
-                // above never jumps when the long bar fades in or out.
+                // while the mini bar is dragged; at rest only the small
+                // bar in the bottom row is visible. The slot keeps its
+                // height so the title block above never jumps when the
+                // long bar fades in or out.
                 // The bar is inset from the screen sides — it never runs
                 // from one edge of the screen to the other.
                 AnimatedVisibility(
@@ -459,7 +460,7 @@ fun PlayerControls(
                         fadeOut(playerControlsExitAnimationSpec())
                     },
                     modifier = Modifier.constrainAs(seekbar) {
-                        bottom.linkTo(miniSeekbar.top, spacing.extraSmall)
+                        bottom.linkTo(bottomRow.top, spacing.extraSmall)
                         start.linkTo(parent.start, spacing.large)
                         end.linkTo(parent.end, spacing.large)
                         width = Dimension.fillToConstraints
@@ -490,51 +491,6 @@ fun PlayerControls(
                                 chapters = chapters.map { it.toSegment() }.toImmutableList(),
                             )
                         }
-                    }
-                }
-                // Mini timeline: the only bar visible at rest, centered in
-                // the middle. Dragging it reveals the long bar above and
-                // drives it — the mini bar is the mouse of the long bar.
-                AnimatedVisibility(
-                    visible = controlsShown && !areControlsLocked && !isDynamicSpeedActive,
-                    enter = if (!reduceMotion) {
-                        slideInVertically(playerControlsEnterAnimationSpec()) { it } +
-                            fadeIn(playerControlsEnterAnimationSpec())
-                    } else {
-                        fadeIn(playerControlsEnterAnimationSpec())
-                    },
-                    exit = if (!reduceMotion) {
-                        slideOutVertically(playerControlsExitAnimationSpec()) { it } +
-                            fadeOut(playerControlsExitAnimationSpec())
-                    } else {
-                        fadeOut(playerControlsExitAnimationSpec())
-                    },
-                    modifier = Modifier.constrainAs(miniSeekbar) {
-                        bottom.linkTo(bottomRow.top, spacing.extraSmall)
-                        start.linkTo(parent.start)
-                        end.linkTo(parent.end)
-                        width = Dimension.fillToConstraints
-                    },
-                ) {
-                    val readAhead by viewModel.readAhead.collectAsStateWithLifecycle()
-                    val preciseSeeking by gesturePreferences.playerSmoothSeek().collectAsStateWithLifecycle()
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        MiniSeekbar(
-                            position = position,
-                            duration = duration,
-                            readAheadValue = readAhead,
-                            onValueChange = {
-                                isMiniScrubbing = true
-                                viewModel.updatePlayBackPos(it)
-                                viewModel.seekTo(it.toInt(), preciseSeeking)
-                            },
-                            onValueChangeFinished = { isMiniScrubbing = false },
-                            chapters = chapters.map { it.toSegment() }.toImmutableList(),
-                            modifier = Modifier.fillMaxWidth(0.45f),
-                        )
                     }
                 }
                 // Content warnings, top-left.
@@ -672,7 +628,8 @@ fun PlayerControls(
                     }
                 }
                 // Bottom action row: subtitles, episodes, download, PiP,
-                // speed, quality, more — with the clock at the far right.
+                // speed, quality, more — with the mini timeline centered
+                // in the middle of the row and the clock at the far right.
                 // Inset from the screen sides: the row never runs from
                 // one edge of the screen to the other.
                 AnimatedVisibility(
@@ -697,8 +654,30 @@ fun PlayerControls(
                     },
                 ) {
                     val activity = LocalContext.current as PlayerActivity
+                    val readAhead by viewModel.readAhead.collectAsStateWithLifecycle()
+                    val preciseSeeking by gesturePreferences.playerSmoothSeek().collectAsStateWithLifecycle()
                     BottomRightPlayerControls(
                         positionText = timeText,
+                        // Mini timeline, inline on the same row as the
+                        // buttons: the only bar visible at rest, centered
+                        // in the middle of the row. Dragging it reveals
+                        // the long bar above and drives it — the mini bar
+                        // is the mouse of the long bar.
+                        miniSeekbarContent = {
+                            MiniSeekbar(
+                                position = position,
+                                duration = duration,
+                                readAheadValue = readAhead,
+                                onValueChange = {
+                                    isMiniScrubbing = true
+                                    viewModel.updatePlayBackPos(it)
+                                    viewModel.seekTo(it.toInt(), preciseSeeking)
+                                },
+                                onValueChangeFinished = { isMiniScrubbing = false },
+                                chapters = chapters.map { it.toSegment() }.toImmutableList(),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        },
                         onSubtitlesClick = { viewModel.showSheet(Sheets.SubtitleTracks) },
                         onSubtitlesLongClick = { viewModel.showPanel(Panels.SubtitleSettings) },
                         onEpisodesClick = { viewModel.showEpisodeListDialog() },

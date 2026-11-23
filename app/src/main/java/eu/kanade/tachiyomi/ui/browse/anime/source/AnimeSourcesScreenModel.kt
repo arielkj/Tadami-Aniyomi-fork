@@ -17,8 +17,10 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
@@ -62,33 +64,75 @@ class AnimeSourcesScreenModel(
     private var sourcesEmitted = false
 
     init {
-        screenModelScope.launchIO {
-            // BRN-15: wait for manager initialization - the early EMPTY emission flipped
-            // isLoading=false and cold start flashed "no sources" (manga etalon).
-            // V6: las extensiones se cargan bajo demanda; arrancar la carga aquí.
-            sourceManager?.ensureExtensionsLoaded()
-            sourceManager?.isInitialized?.first { it }
-            getEnabledAnimeSources.subscribe()
-                .catch {
-                    logcat(LogPriority.ERROR, it)
-                    // La suscripción falló: no hay lista que esperar; mostrar el
-                    // estado vacío (con el evento de error) en vez de girar siempre.
-                    sourcesEmitted = true
-                    updateState()
-                    _events.send(Event.FailedFetchingSources)
-                }
-                .collectLatest { sources ->
-                    rawSources = sources
-                    sourcesEmitted = true
-                    updateState()
-                }
-        }
+        subscribeSources()
         sourcePreferences.verticalPinnedLayout().changes()
             .onEach {
                 mutableState.update { state -> state.copy(verticalPinnedLayout = it) }
                 updateState()
             }
             .launchIn(screenModelScope)
+    }
+
+    // V7.9.31: the subscription job, so a manual retry can cancel a stuck
+    // or failed one and start over.
+    private var sourcesJob: Job? = null
+
+    // V7.9.31: how many times a failed subscription is retried on its own
+    // before giving up and showing the empty state.
+    private companion object {
+        const val MAX_SOURCE_LOAD_ATTEMPTS = 3
+        const val SOURCE_LOAD_RETRY_DELAY_MS = 1000L
+    }
+
+    private fun subscribeSources() {
+        sourcesJob?.cancel()
+        sourcesJob = screenModelScope.launchIO {
+            // BRN-15: wait for manager initialization - the early EMPTY emission flipped
+            // isLoading=false and cold start flashed "no sources" (manga etalon).
+            // V6: las extensiones se cargan bajo demanda; arrancar la carga aquí.
+            sourceManager?.ensureExtensionsLoaded()
+            sourceManager?.isInitialized?.first { it }
+            var attempt = 0
+            while (true) {
+                try {
+                    getEnabledAnimeSources.subscribe()
+                        .collectLatest { sources ->
+                            rawSources = sources
+                            sourcesEmitted = true
+                            updateState()
+                        }
+                    // The flow completed without an error (not expected for
+                    // an infinite subscription): nothing more to do.
+                    break
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logcat(LogPriority.ERROR, e) {
+                        "Anime sources subscription failed (attempt $attempt)"
+                    }
+                    attempt++
+                    if (attempt > MAX_SOURCE_LOAD_ATTEMPTS) {
+                        // La suscripción falló demasiadas veces: mostrar el
+                        // estado vacío (con el evento de error) en vez de
+                        // girar siempre. El usuario puede reintentarlo con
+                        // el botón de la pantalla vacía.
+                        sourcesEmitted = true
+                        updateState()
+                        _events.send(Event.FailedFetchingSources)
+                        break
+                    }
+                    delay(SOURCE_LOAD_RETRY_DELAY_MS)
+                }
+            }
+        }
+    }
+
+    // V7.9.31: manual retry from the empty state. Restarts the extension
+    // load and the subscription from scratch.
+    fun retry() {
+        sourcesEmitted = false
+        mutableState.update { it.copy(isLoading = true) }
+        subscribeSources()
     }
 
     private fun updateState() {

@@ -21,9 +21,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -53,11 +54,13 @@ import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
 
 /**
  * Nuvio-style bottom action row: subtitles, episodes, download, PiP,
- * playback speed, quality (servers/qualities) and more — with the
- * position / duration clock at the far right (tap it to switch between
- * total and remaining time). The quality button uses the old player's
- * HighQuality glyph on purpose, so it never looks like the episodes
- * button (square with lines).
+ * playback speed, quality (servers/qualities) and more — with the mini
+ * timeline centered in the middle of the row and the position / duration
+ * clock at the far right (tap it to switch between total and remaining
+ * time). The quality button uses the old player's HighQuality glyph on
+ * purpose, so it never looks like the episodes button (square with
+ * lines). The icons are kept small (22dp) so the mini bar fits on the
+ * same row.
  */
 @Composable
 fun BottomRightPlayerControls(
@@ -73,6 +76,7 @@ fun BottomRightPlayerControls(
     onQualityClick: () -> Unit,
     onMoreClick: () -> Unit,
     onTimeClick: () -> Unit,
+    miniSeekbarContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -84,50 +88,57 @@ fun BottomRightPlayerControls(
             icon = Icons.Default.ClosedCaption,
             onClick = onSubtitlesClick,
             onLongClick = onSubtitlesLongClick,
-            horizontalSpacing = 8.dp,
-            iconSize = 26.dp,
+            horizontalSpacing = 4.dp,
+            iconSize = 22.dp,
         )
         ControlsButton(
             onClick = onEpisodesClick,
-            horizontalSpacing = 8.dp,
-            iconSize = 26.dp,
+            horizontalSpacing = 4.dp,
+            iconSize = 22.dp,
         ) {
             NuvioEpisodesIcon()
         }
         ControlsButton(
             icon = Icons.Default.CloudDownload,
             onClick = onDownloadClick,
-            horizontalSpacing = 8.dp,
-            iconSize = 26.dp,
+            horizontalSpacing = 4.dp,
+            iconSize = 22.dp,
         )
         if (isPipAvailable) {
             ControlsButton(
                 icon = Icons.Default.PictureInPictureAlt,
                 onClick = onPipClick,
-                horizontalSpacing = 8.dp,
-                iconSize = 26.dp,
+                horizontalSpacing = 4.dp,
+                iconSize = 22.dp,
             )
         }
         ControlsButton(
             icon = Icons.Default.Speed,
             onClick = onSpeedClick,
             onLongClick = onSpeedLongClick,
-            horizontalSpacing = 8.dp,
-            iconSize = 26.dp,
+            horizontalSpacing = 4.dp,
+            iconSize = 22.dp,
         )
         ControlsButton(
             icon = Icons.Default.HighQuality,
             onClick = onQualityClick,
-            horizontalSpacing = 8.dp,
-            iconSize = 26.dp,
+            horizontalSpacing = 4.dp,
+            iconSize = 22.dp,
         )
         ControlsButton(
             icon = Icons.Outlined.ChevronRight,
             onClick = onMoreClick,
-            horizontalSpacing = 8.dp,
-            iconSize = 26.dp,
+            horizontalSpacing = 4.dp,
+            iconSize = 22.dp,
         )
-        Spacer(modifier = Modifier.weight(1f))
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            miniSeekbarContent()
+        }
         val interactionSource = remember { MutableInteractionSource() }
         Text(
             text = positionText,
@@ -153,7 +164,7 @@ private fun NuvioEpisodesIcon(
     modifier: Modifier = Modifier,
 ) {
     Canvas(
-        modifier = modifier.size(26.dp),
+        modifier = modifier.size(22.dp),
     ) {
         val stroke = 1.8.dp.toPx()
         val w = size.width

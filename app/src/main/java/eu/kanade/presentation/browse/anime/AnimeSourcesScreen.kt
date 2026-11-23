@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.PushPin
@@ -55,6 +56,7 @@ import eu.kanade.tachiyomi.ui.browse.anime.source.AnimeSourcesScreenModel
 import eu.kanade.tachiyomi.ui.browse.anime.source.browse.BrowseAnimeSourceScreenModel.Listing
 import eu.kanade.tachiyomi.util.system.LocaleHelper
 import eu.kanade.tachiyomi.util.system.PINNED_KEY
+import kotlinx.collections.immutable.persistentListOf
 import tachiyomi.domain.source.anime.model.AnimeSource
 import tachiyomi.domain.source.anime.model.Pin
 import tachiyomi.i18n.MR
@@ -64,6 +66,7 @@ import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.components.material.topSmallPaddingValues
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.screens.EmptyScreen
+import tachiyomi.presentation.core.screens.EmptyScreenAction
 import tachiyomi.presentation.core.screens.LoadingScreen
 import tachiyomi.presentation.core.theme.header
 import tachiyomi.presentation.core.util.plus
@@ -79,6 +82,7 @@ fun AnimeSourcesScreen(
     searchQuery: String? = null,
     onChangeSearchQuery: ((String) -> Unit)? = null,
     onToggleLanguage: ((String) -> Unit)? = null,
+    onRetry: (() -> Unit)? = null,
 ) {
     val colors = AuroraTheme.colors
     val hasSearchQuery = !searchQuery.isNullOrBlank()
@@ -87,6 +91,19 @@ fun AnimeSourcesScreen(
         state.isEmpty && !hasSearchQuery -> EmptyScreen(
             stringRes = MR.strings.source_empty_screen,
             modifier = Modifier.padding(contentPadding),
+            // V7.9.31: retry the extension load + subscription. If the
+            // load failed once, the old code latched the empty state
+            // forever; the button lets the user (or the auto-retry in
+            // the model) recover without restarting the app.
+            actions = onRetry?.let {
+                persistentListOf(
+                    EmptyScreenAction(
+                        stringRes = MR.strings.action_retry,
+                        icon = Icons.Filled.Refresh,
+                        onClick = it,
+                    ),
+                )
+            },
         )
         else -> {
             FastScrollLazyColumn(

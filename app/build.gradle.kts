@@ -18,9 +18,9 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 242
+        versionCode = 243
 
-        versionName = "0.63.25"
+        versionName = "0.63.26"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
