@@ -101,7 +101,10 @@ data class AutoMigrationScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (state.otherRun != null) {
+                        // Smart cast does not work on the delegated
+                        // state property, so capture it in a local first.
+                        val otherRun = state.otherRun
+                        if (otherRun != null) {
                             // Another source's run is active: the progress
                             // lives in THAT source's screen, so say which
                             // one it is and let the user jump straight to
@@ -115,14 +118,14 @@ data class AutoMigrationScreen(
                                 onClick = {
                                     navigator.push(
                                         AutoMigrationScreen(
-                                            isManga = state.otherRun.isManga,
-                                            sourceId = state.otherRun.sourceId,
+                                            isManga = otherRun.isManga,
+                                            sourceId = otherRun.sourceId,
                                         ),
                                     )
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text(text = state.otherRun.sourceName)
+                                Text(text = otherRun.sourceName)
                             }
                         } else {
                             Button(
