@@ -538,7 +538,7 @@ class AutoMigrationCompareScreenModel(
     /** Which summary section opened this screen — only that section's
      * data is subscribed to and counted (load only what the user
      * is actually looking at). */
-    private val section: Int,
+    private val section: String,
     private val store: AutoMigrationStore = AutoMigrationStore(Injekt.get<Application>()),
     private val getManga: GetManga = Injekt.get(),
     private val getAnime: GetAnime = Injekt.get(),
