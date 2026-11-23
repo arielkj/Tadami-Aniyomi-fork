@@ -53,25 +53,25 @@ fun TopRightPlayerControls(
             icon = Icons.Default.AspectRatio,
             onClick = onAspectClick,
             horizontalSpacing = 8.dp,
-            iconSize = 24.dp,
+            iconSize = 22.dp,
         )
         ControlsButton(
             icon = Icons.Default.Group,
             onClick = onWatchPartyClick,
             horizontalSpacing = 8.dp,
-            iconSize = 24.dp,
+            iconSize = 22.dp,
         )
         ControlsButton(
             icon = Icons.Default.Lock,
             onClick = onLockControls,
             horizontalSpacing = 8.dp,
-            iconSize = 24.dp,
+            iconSize = 22.dp,
         )
         ControlsButton(
             icon = Icons.AutoMirrored.Default.ArrowBack,
             onClick = onBackClick,
             horizontalSpacing = 8.dp,
-            iconSize = 24.dp,
+            iconSize = 22.dp,
         )
     }
 }

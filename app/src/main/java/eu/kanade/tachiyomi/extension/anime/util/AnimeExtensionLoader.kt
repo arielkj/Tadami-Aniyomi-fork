@@ -25,6 +25,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import logcat.LogPriority
+import mihon.data.extension.model.normalizeAnimeLibVersion
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.injectLazy
 import java.io.File
@@ -372,11 +373,18 @@ internal object AnimeExtensionLoader {
             return AnimeLoadResult.Error
         }
 
-        // Validate lib version
-        val rawLibVersion = appInfo.metaData?.getDouble(METADATA_EXTENSION_LIB)?.takeUnless { it == 0.0 }
-            ?: appInfo.metaData?.getFloat(METADATA_EXTENSION_LIB)?.toDouble()?.takeUnless { it == 0.0 }
-            ?: versionName.substringBeforeLast('.').toDoubleOrNull()
-        val libVersion = if (rawLibVersion != null) kotlin.math.round(rawLibVersion * 100.0) / 100.0 else null
+        // Validate lib version. MetaData values can be stored as Float, Double, Integer
+        // or String depending on how the extension manifest declares them; the typed
+        // Bundle getters return 0.0 on a type mismatch (e.g. an Integer "16"), so read
+        // the raw value and convert explicitly (same approach as the manga loader).
+        // A Mihon-style lib ("1.6") means anime lib 16, not lib 1.6.
+        @Suppress("DEPRECATION") // Bundle.get(String) is deprecated in API 33; no raw-value replacement exists
+        val rawLibVersion = when (val value = appInfo.metaData?.get(METADATA_EXTENSION_LIB)) {
+            is Number -> value.toDouble().takeUnless { it == 0.0 }
+            is String -> value.toDoubleOrNull()?.takeUnless { it == 0.0 }
+            else -> null
+        } ?: versionName.substringBeforeLast('.').toDoubleOrNull()
+        val libVersion = rawLibVersion?.let(::normalizeAnimeLibVersion)
         if (libVersion == null || libVersion !in SUPPORTED_LIB_VERSIONS) {
             logcat(LogPriority.WARN) {
                 "Lib version is $libVersion, while only versions " +

@@ -106,15 +106,12 @@ fun GestureHandler(
         isDoubleTapSeeking = false
         viewModel.updateSeekAmount(0)
         viewModel.updateSeekText(null)
-        delay(100)
-        viewModel.hideSeekBar()
     }
 
     val gestureVolumeBrightness = gesturePreferences.gestureVolumeBrightness().get()
     val swapVolumeBrightness by gesturePreferences.swapVolumeBrightness().collectAsStateWithLifecycle()
     val seekGesture by gesturePreferences.gestureHorizontalSeek().collectAsStateWithLifecycle()
     val preciseSeeking by gesturePreferences.playerSmoothSeek().collectAsStateWithLifecycle()
-    val showSeekbar by gesturePreferences.showSeekBar().collectAsStateWithLifecycle()
     var isLongPressing by remember { mutableStateOf(false) }
     val currentVolume by viewModel.currentVolume.collectAsStateWithLifecycle()
     val currentMPVVolume by viewModel.currentMPVVolume.collectAsStateWithLifecycle()
@@ -287,7 +284,6 @@ fun GestureHandler(
                     },
                     onDragEnd = {
                         viewModel.gestureSeekAmount.update { null }
-                        viewModel.hideSeekBar()
                         if (!wasPlayerAlreadyPause) viewModel.unpause()
                     },
                 ) { change, dragAmount ->
@@ -303,8 +299,6 @@ fun GestureHandler(
                         }
                         viewModel.seekTo(it.coerceIn(0, duration.toInt()), preciseSeeking)
                     }
-
-                    if (showSeekbar) viewModel.showSeekBar()
                 }
             }
             .pointerInput(areControlsLocked) {

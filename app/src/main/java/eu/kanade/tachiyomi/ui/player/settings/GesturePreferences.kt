@@ -18,7 +18,6 @@ class GesturePreferences(
     // Seeking
 
     fun gestureHorizontalSeek() = preferenceStore.getBoolean("pref_gesture_horizontal_seek", true)
-    fun showSeekBar() = preferenceStore.getBoolean("pref_show_seekbar", false)
     fun defaultIntroLength() = preferenceStore.getInt("pref_default_intro_length", 85)
     fun skipLengthPreference() = preferenceStore.getInt("pref_skip_length_preference", 10)
     fun playerSmoothSeek() = preferenceStore.getBoolean("pref_player_smooth_seek", false)

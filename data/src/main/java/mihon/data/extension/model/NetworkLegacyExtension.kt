@@ -29,7 +29,10 @@ data class NetworkLegacyExtension(
         storeBaseUrl: String,
     ): AvailableExtensionData? {
         // One malformed entry must not fail the whole store index (see service mapNotNull).
-        val libVersion = version.substringBeforeLast('.').toDoubleOrNull() ?: return null
+        // Legacy entries carry no lib-version field: it is derived from the version
+        // string, and Mihon-style "1.6.x" means anime lib 16, not lib 1.6.
+        val libVersion = version.substringBeforeLast('.').toDoubleOrNull()
+            ?.let(::normalizeAnimeLibVersion) ?: return null
         return AvailableExtensionData(
             name = name.stripLegacyExtensionNamePrefix(),
             pkgName = pkg,

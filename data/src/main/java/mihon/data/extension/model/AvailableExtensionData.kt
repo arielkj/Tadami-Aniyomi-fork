@@ -32,7 +32,9 @@ fun NetworkExtensionStore.ExtensionList.toAvailableExtensionData(store: Extensio
             pkgName = extension.packageName,
             apkUrl = extension.resources.apkUrl,
             iconUrl = extension.resources.iconUrl,
-            libVersion = extension.extensionLib.toDouble(),
+            // A new-format store may also declare a Mihon-style lib ("1.6"):
+            // that means anime lib 16, not lib 1.6.
+            libVersion = normalizeAnimeLibVersion(extension.extensionLib.toDouble()),
             versionCode = extension.versionCode,
             versionName = extension.versionName,
             lang = if (langs.size == 1) langs.first() else "all",

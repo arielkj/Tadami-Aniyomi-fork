@@ -37,11 +37,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -87,7 +85,6 @@ import eu.kanade.tachiyomi.ui.player.controls.components.BrightnessSlider
 import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
 import eu.kanade.tachiyomi.ui.player.controls.components.FilledControlsButton
 import eu.kanade.tachiyomi.ui.player.controls.components.MiniSeekbar
-import eu.kanade.tachiyomi.ui.player.controls.components.SlimSeekbar
 import eu.kanade.tachiyomi.ui.player.controls.components.TextPlayerUpdate
 import eu.kanade.tachiyomi.ui.player.controls.components.VolumeSlider
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.toFixed
@@ -131,7 +128,6 @@ fun PlayerControls(
 
     val controlsShown by viewModel.controlsShown.collectAsStateWithLifecycle()
     val areControlsLocked by viewModel.areControlsLocked.collectAsStateWithLifecycle()
-    val seekBarShown by viewModel.seekBarShown.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val isLoadingEpisode by viewModel.isLoadingEpisode.collectAsStateWithLifecycle()
     val duration by viewModel.duration.collectAsStateWithLifecycle()
@@ -148,12 +144,7 @@ fun PlayerControls(
 
     val playerTimeToDisappear by playerPreferences.playerTimeToDisappear().collectAsStateWithLifecycle()
     val showCustomButtons by playerPreferences.showCustomButtons().collectAsStateWithLifecycle()
-    var isSeeking by remember { mutableStateOf(false) }
-    // The mini timeline is being dragged, and whether the long timeline
-    // is currently revealed. The long bar only appears while the mini
-    // bar (or the long bar itself) is being dragged, then fades out.
     var isMiniScrubbing by remember { mutableStateOf(false) }
-    var showLongBar by remember { mutableStateOf(false) }
     var resetControls by remember { mutableStateOf(true) }
 
     val customButtons by viewModel.customButtons.collectAsStateWithLifecycle()
@@ -194,27 +185,12 @@ fun PlayerControls(
     LaunchedEffect(
         controlsShown,
         paused,
-        isSeeking,
         isMiniScrubbing,
         resetControls,
     ) {
-        if (controlsShown && !paused && !isSeeking && !isMiniScrubbing) {
+        if (controlsShown && !paused && !isMiniScrubbing) {
             delay(playerTimeToDisappear.toLong())
             viewModel.hideControls()
-        }
-    }
-
-    // Reveal the long timeline ONLY while the mini bar (or the long bar
-    // itself, once revealed by the mini bar) is being dragged; hide it
-    // again shortly after the drag ends. Gesture seeks and entering a
-    // video never reveal it: at rest only the small centered bar below
-    // is visible.
-    LaunchedEffect(isMiniScrubbing, isSeeking) {
-        if (isMiniScrubbing || isSeeking) {
-            showLongBar = true
-        } else {
-            delay(700)
-            showLongBar = false
         }
     }
 
@@ -256,7 +232,6 @@ fun PlayerControls(
                 val centerControls = createRef()
                 val titleBlock = createRef()
                 val actionButtons = createRef()
-                val seekbar = createRef()
                 val bottomRow = createRef()
                 val (playerUpdates) = createRefs()
                 val speedPill = createRef()
@@ -437,62 +412,6 @@ fun PlayerControls(
                         exit = fadeOut(playerControlsExitAnimationSpec()),
                     )
                 }
-                // Nuvio-style slim progress bar, no timers (the clock lives
-                // in the bottom action row). The long bar is only revealed
-                // while the mini bar is dragged; at rest only the small
-                // bar in the bottom row is visible. The slot keeps its
-                // height so the title block above never jumps when the
-                // long bar fades in or out.
-                // The bar is inset from the screen sides — it never runs
-                // from one edge of the screen to the other.
-                AnimatedVisibility(
-                    visible = (controlsShown || seekBarShown) && !areControlsLocked && !isDynamicSpeedActive,
-                    enter = if (!reduceMotion) {
-                        slideInVertically(playerControlsEnterAnimationSpec()) { it } +
-                            fadeIn(playerControlsEnterAnimationSpec())
-                    } else {
-                        fadeIn(playerControlsEnterAnimationSpec())
-                    },
-                    exit = if (!reduceMotion) {
-                        slideOutVertically(playerControlsExitAnimationSpec()) { it } +
-                            fadeOut(playerControlsExitAnimationSpec())
-                    } else {
-                        fadeOut(playerControlsExitAnimationSpec())
-                    },
-                    modifier = Modifier.constrainAs(seekbar) {
-                        bottom.linkTo(bottomRow.top, spacing.extraSmall)
-                        start.linkTo(parent.start, spacing.large)
-                        end.linkTo(parent.end, spacing.large)
-                        width = Dimension.fillToConstraints
-                    },
-                ) {
-                    val readAhead by viewModel.readAhead.collectAsStateWithLifecycle()
-                    val preciseSeeking by gesturePreferences.playerSmoothSeek().collectAsStateWithLifecycle()
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(28.dp),
-                    ) {
-                        AnimatedVisibility(
-                            visible = showLongBar,
-                            enter = fadeIn(tween(250)),
-                            exit = fadeOut(tween(300)),
-                        ) {
-                            SlimSeekbar(
-                                position = position,
-                                duration = duration,
-                                readAheadValue = readAhead,
-                                onValueChange = {
-                                    isSeeking = true
-                                    viewModel.updatePlayBackPos(it)
-                                    viewModel.seekTo(it.toInt(), preciseSeeking)
-                                },
-                                onValueChangeFinished = { isSeeking = false },
-                                chapters = chapters.map { it.toSegment() }.toImmutableList(),
-                            )
-                        }
-                    }
-                }
                 // Content warnings, top-left.
                 AnimatedVisibility(
                     controlsShown && !areControlsLocked && !isDynamicSpeedActive,
@@ -554,7 +473,9 @@ fun PlayerControls(
                         onBackClick = onBackPress,
                     )
                 }
-                // Title block above the seekbar.
+                // Title block above the bottom action row. It sits a
+                // little in from the left edge (aligned with the bottom
+                // row) and just above the row, not stuck to the corner.
                 AnimatedVisibility(
                     controlsShown && !areControlsLocked && !isDynamicSpeedActive,
                     enter = if (!reduceMotion) {
@@ -570,8 +491,8 @@ fun PlayerControls(
                         fadeOut(playerControlsExitAnimationSpec())
                     },
                     modifier = Modifier.constrainAs(titleBlock) {
-                        bottom.linkTo(seekbar.top, spacing.small)
-                        start.linkTo(parent.start)
+                        bottom.linkTo(bottomRow.top, spacing.extraSmall)
+                        start.linkTo(parent.start, spacing.large)
                         width = Dimension.fillToConstraints
                         end.linkTo(actionButtons.start, spacing.medium)
                     },
@@ -582,7 +503,8 @@ fun PlayerControls(
                         yearLine = yearLine,
                     )
                 }
-                // Skip intro / custom button, above the seekbar on the right.
+                // Skip intro / custom button, above the bottom action
+                // row on the right.
                 val skipIntroButton by viewModel.skipIntroText.collectAsStateWithLifecycle()
                 val customButtonTitle by viewModel.primaryButtonTitle.collectAsStateWithLifecycle()
                 val visibleCustomButton = resolveVisibleCustomButton(showCustomButtons, customButton)
@@ -603,7 +525,7 @@ fun PlayerControls(
                         fadeOut(playerControlsExitAnimationSpec())
                     },
                     modifier = Modifier.constrainAs(actionButtons) {
-                        bottom.linkTo(seekbar.top, spacing.small)
+                        bottom.linkTo(bottomRow.top, spacing.extraSmall)
                         end.linkTo(parent.end)
                     },
                 ) {
@@ -659,10 +581,8 @@ fun PlayerControls(
                     BottomRightPlayerControls(
                         positionText = timeText,
                         // Mini timeline, inline on the same row as the
-                        // buttons: the only bar visible at rest, centered
-                        // in the middle of the row. Dragging it reveals
-                        // the long bar above and drives it — the mini bar
-                        // is the mouse of the long bar.
+                        // buttons: the only timeline. Dragging it seeks
+                        // directly — there is no long bar anymore.
                         miniSeekbarContent = {
                             MiniSeekbar(
                                 position = position,

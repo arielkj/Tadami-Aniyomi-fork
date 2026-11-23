@@ -73,7 +73,7 @@ fun MiddlePlayerControls(
                 ControlsButton(
                     Icons.Filled.Replay10,
                     onClick = onSeekBack,
-                    iconSize = 44.dp,
+                    iconSize = 36.dp,
                     horizontalSpacing = MaterialTheme.padding.medium,
                 )
             }
@@ -98,7 +98,7 @@ fun MiddlePlayerControls(
                 )
             }
 
-            (isLoading || isLoadingEpisode) && showLoadingCircle -> CircularProgressIndicator(Modifier.size(96.dp))
+            (isLoading || isLoadingEpisode) && showLoadingCircle -> CircularProgressIndicator(Modifier.size(80.dp))
             else -> {
                 AnimatedVisibility(
                     visible = controlsShown && !areControlsLocked,
@@ -108,7 +108,7 @@ fun MiddlePlayerControls(
                     Image(
                         painter = rememberAnimatedVectorPainter(icon, !paused),
                         modifier = Modifier
-                            .size(96.dp)
+                            .size(80.dp)
                             .clip(CircleShape)
                             .clickable(
                                 interaction,
@@ -131,7 +131,7 @@ fun MiddlePlayerControls(
                 ControlsButton(
                     Icons.Filled.Forward10,
                     onClick = onSeekForward,
-                    iconSize = 44.dp,
+                    iconSize = 36.dp,
                     horizontalSpacing = MaterialTheme.padding.medium,
                 )
             }

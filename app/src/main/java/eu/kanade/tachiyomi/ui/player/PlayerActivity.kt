@@ -879,7 +879,6 @@ class PlayerActivity : BaseActivity() {
         } else {
             setPictureInPictureParams(createPipParams())
             viewModel.hideControls()
-            viewModel.hideSeekBar()
             viewModel.isBrightnessSliderShown.update { false }
             viewModel.isVolumeSliderShown.update { false }
             viewModel.sheetShown.update { Sheets.None }

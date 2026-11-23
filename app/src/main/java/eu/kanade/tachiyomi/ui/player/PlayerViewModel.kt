@@ -307,8 +307,6 @@ class PlayerViewModel @JvmOverloads constructor(
 
     private val _controlsShown = MutableStateFlow(!playerPreferences.hideControls().get())
     val controlsShown = _controlsShown.asStateFlow()
-    private val _seekBarShown = MutableStateFlow(!playerPreferences.hideControls().get())
-    val seekBarShown = _seekBarShown.asStateFlow()
     private val _areControlsLocked = MutableStateFlow(false)
     val areControlsLocked = _areControlsLocked.asStateFlow()
 
@@ -1012,15 +1010,6 @@ class PlayerViewModel @JvmOverloads constructor(
         _controlsShown.update { false }
     }
 
-    fun hideSeekBar() {
-        _seekBarShown.update { false }
-    }
-
-    fun showSeekBar() {
-        if (sheetShown.value != Sheets.None) return
-        _seekBarShown.update { true }
-    }
-
     fun lockControls() {
         _areControlsLocked.update { true }
     }
@@ -1309,14 +1298,12 @@ class PlayerViewModel @JvmOverloads constructor(
 
     private val doubleTapToSeekDuration = gesturePreferences.skipLengthPreference().get()
     private val preciseSeek = gesturePreferences.playerSmoothSeek().get()
-    private val showSeekBar = gesturePreferences.showSeekBar().get()
 
     private fun seekToWithText(seekValue: Int, text: String?) {
         _isSeekingForwards.value = seekValue > 0
         _doubleTapSeekAmount.value = seekValue - pos.value.toInt()
         _seekText.update { _ -> text }
         seekTo(seekValue, preciseSeek)
-        if (showSeekBar) showSeekBar()
     }
 
     private fun seekByWithText(value: Int, text: String?) {
@@ -1326,7 +1313,6 @@ class PlayerViewModel @JvmOverloads constructor(
         _seekText.update { text }
         _isSeekingForwards.value = value > 0
         seekBy(value, preciseSeek)
-        if (showSeekBar) showSeekBar()
     }
 
     fun updateSeekAmount(amount: Int) {
@@ -1343,7 +1329,6 @@ class PlayerViewModel @JvmOverloads constructor(
         }
         _isSeekingForwards.value = false
         seekBy(-doubleTapToSeekDuration, preciseSeek)
-        if (showSeekBar) showSeekBar()
     }
 
     fun rightSeek() {
@@ -1352,7 +1337,6 @@ class PlayerViewModel @JvmOverloads constructor(
         }
         _isSeekingForwards.value = true
         seekBy(doubleTapToSeekDuration, preciseSeek)
-        if (showSeekBar) showSeekBar()
     }
 
     fun resetHosterState() {
