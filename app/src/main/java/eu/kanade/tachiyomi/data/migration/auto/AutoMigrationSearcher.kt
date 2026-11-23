@@ -4,7 +4,7 @@ import eu.kanade.domain.entries.anime.model.toDomainAnime
 import eu.kanade.domain.entries.manga.model.toDomainManga
 import eu.kanade.tachiyomi.animesource.AnimeCatalogueSource
 import eu.kanade.tachiyomi.animesource.model.FetchType
-import eu.kanade.tachiyomi.domain.source.service.SourcePreferences
+import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.tachiyomi.network.HttpException
 import eu.kanade.tachiyomi.source.CatalogueSource
 import kotlinx.coroutines.currentCoroutineContext

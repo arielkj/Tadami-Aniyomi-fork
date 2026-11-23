@@ -61,7 +61,8 @@ import eu.kanade.tachiyomi.ui.browse.anime.migration.search.MigrateAnimeSearchSc
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.flow.updateimport logcat.LogPriority
+import kotlinx.coroutines.flow.update
+import logcat.LogPriority
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.entries.anime.interactor.GetAnime
@@ -369,14 +370,14 @@ class AutoMigrationReviewScreenModel(
             mutableState.update { it.copy(searchingIds = it.searchingIds + item.entryId) }
             try {
                 val candidates = if (isManga) {
-                    val oldManga = getManga.await(item.entryId) ?: return@launch
+                    val oldManga = getManga.await(item.entryId) ?: return@launchIO
                     val queries = listOfNotNull(
                         trimmed,
                         parseOriginalTitle(oldManga.description)?.trim()?.takeIf { it.isNotEmpty() },
                     ).distinct()
                     searcher.searchManga(oldManga, queries, sourceId).candidates
                 } else {
-                    val oldAnime = getAnime.await(item.entryId) ?: return@launch
+                    val oldAnime = getAnime.await(item.entryId) ?: return@launchIO
                     val queries = listOfNotNull(
                         trimmed,
                         parseOriginalTitle(oldAnime.description)?.trim()?.takeIf { it.isNotEmpty() },
