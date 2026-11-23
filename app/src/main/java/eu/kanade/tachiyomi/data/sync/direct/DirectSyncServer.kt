@@ -97,7 +97,7 @@ class DirectSyncServer(
         }
     }
 
-    private fun handleConnection(socket: Socket) {
+    private suspend fun handleConnection(socket: Socket) {
         try {
             socket.soTimeout = 120_000
             val input = BufferedInputStream(socket.getInputStream())

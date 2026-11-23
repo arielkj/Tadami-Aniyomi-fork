@@ -30,17 +30,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.StateScreenModel
 import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.core.model.screenModelScope
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.domain.sync.DeviceSyncPreferences
 import eu.kanade.presentation.more.settings.SettingsScaffold
+import eu.kanade.presentation.more.settings.canScroll
 import eu.kanade.presentation.more.settings.rememberResolvedSettingsUiStyle
 import eu.kanade.presentation.more.settings.widget.ListPreferenceWidget
 import eu.kanade.presentation.more.settings.widget.PreferenceGroupHeader
 import eu.kanade.presentation.more.settings.widget.TextPreferenceWidget
 import eu.kanade.tachiyomi.data.sync.direct.DirectSyncManager
 import eu.kanade.tachiyomi.data.sync.direct.DirectSyncState
+import eu.kanade.presentation.util.Screen
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.i18n.aniyomi.AYMR
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,7 +52,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tachiyomi.domain.category.anime.interactor.GetAnimeCategories
 import tachiyomi.domain.category.manga.interactor.GetMangaCategories
-import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.category.novel.interactor.GetNovelCategories
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.LabeledCheckbox
@@ -344,7 +345,7 @@ class DeviceSyncScreen : Screen() {
     @Composable
     private fun CategorySection(
         title: String,
-        categories: List<Category>,
+        categories: List<SyncCategoryOption>,
         excluded: Set<String>,
         expanded: Boolean,
         onToggleExpand: () -> Unit,
@@ -384,10 +385,15 @@ class DeviceSyncScreen : Screen() {
     }
 }
 
+private data class SyncCategoryOption(
+    val id: Long,
+    val name: String,
+)
+
 private data class SyncCategories(
-    val anime: List<Category> = emptyList(),
-    val manga: List<Category> = emptyList(),
-    val novel: List<Category> = emptyList(),
+    val anime: List<SyncCategoryOption> = emptyList(),
+    val manga: List<SyncCategoryOption> = emptyList(),
+    val novel: List<SyncCategoryOption> = emptyList(),
 )
 
 private class DeviceSyncScreenModel(
@@ -409,10 +415,13 @@ private class DeviceSyncScreenModel(
             refreshServerInfo()
             val anime = runCatching { getAnimeCategories.await() }.getOrNull().orEmpty()
                 .filterNot { it.isSystemCategory }
+                .map { SyncCategoryOption(it.id, it.name) }
             val manga = runCatching { getMangaCategories.await() }.getOrNull().orEmpty()
                 .filterNot { it.isSystemCategory }
+                .map { SyncCategoryOption(it.id, it.name) }
             val novel = runCatching { getNovelCategories.await() }.getOrNull().orEmpty()
-                .filterNot { it.isSystemCategory }
+                .filter { it.id > 0L }
+                .map { SyncCategoryOption(it.id, it.name) }
             mutableState.update { SyncCategories(anime, manga, novel) }
         }
     }
