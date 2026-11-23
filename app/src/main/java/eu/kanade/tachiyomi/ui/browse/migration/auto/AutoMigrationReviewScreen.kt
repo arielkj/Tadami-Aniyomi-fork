@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
@@ -43,19 +44,14 @@ import cafe.adriel.voyager.core.model.screenModelScope
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
 import coil3.compose.AsyncImage
-import eu.kanade.domain.entries.anime.interactor.MigrateAnimeUseCase
-import eu.kanade.domain.entries.manga.interactor.MigrateMangaUseCase
 import eu.kanade.domain.metadata.interactor.parseOriginalTitle
 import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.util.Screen
-import eu.kanade.tachiyomi.data.library.updateerror.LibraryUpdateErrorMedia
-import eu.kanade.tachiyomi.data.library.updateerror.LibraryUpdateErrorStore
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationCandidate
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationReviewItem
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationSearcher
+import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationStagedPair
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationStore
-import eu.kanade.tachiyomi.data.migration.auto.autoMigrationAnimeFlags
-import eu.kanade.tachiyomi.data.migration.auto.autoMigrationMangaFlags
 import eu.kanade.tachiyomi.data.migration.auto.isExactTitleMatch
 import eu.kanade.tachiyomi.ui.browse.anime.migration.search.MigrateAnimeSearchScreen
 import kotlinx.collections.immutable.ImmutableList
@@ -131,6 +127,7 @@ data class AutoMigrationReviewScreen(
                         onSeasonCandidate = { navigator.push(MigrateAnimeSearchScreen(item.entryId)) },
                         onResearch = { query -> screenModel.research(item, query) },
                         onSkip = { screenModel.skip(item) },
+                        onExclude = { screenModel.skip(item) },
                     )
                 }
             }
@@ -147,6 +144,7 @@ data class AutoMigrationReviewScreen(
         onSeasonCandidate: () -> Unit,
         onResearch: (String) -> Unit,
         onSkip: () -> Unit,
+        onExclude: () -> Unit,
     ) {
         var queryText by remember(item.entryId) {
             mutableStateOf(item.lastQuery ?: item.title)
@@ -193,6 +191,17 @@ data class AutoMigrationReviewScreen(
                     }
                     if (isMigrating) {
                         CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    }
+                    // X: excludes this entry from the migration — it stays
+                    // in the old source and Confirmar never touches it.
+                    IconButton(
+                        onClick = onExclude,
+                        enabled = !isMigrating,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = stringResource(MR.strings.migration_skip_entry),
+                        )
                     }
                 }
 
@@ -312,8 +321,6 @@ class AutoMigrationReviewScreenModel(
     private val sourceId: Long,
     private val store: AutoMigrationStore = AutoMigrationStore(Injekt.get<Application>()),
     private val searcher: AutoMigrationSearcher = AutoMigrationSearcher(),
-    private val migrateManga: MigrateMangaUseCase = MigrateMangaUseCase(),
-    private val migrateAnime: MigrateAnimeUseCase = MigrateAnimeUseCase(),
     private val getManga: GetManga = Injekt.get(),
     private val getAnime: GetAnime = Injekt.get(),
 ) : StateScreenModel<AutoMigrationReviewScreenModel.State>(State()) {
@@ -332,30 +339,47 @@ class AutoMigrationReviewScreenModel(
         }
     }
 
+    /**
+     * Two-phase: tapping a candidate only STAGES the choice (old -> new
+     * pair waiting for "Confirmar") — nothing migrates from here.
+     * Season-type anime candidates still open the manual season flow,
+     * which is an explicit user-driven migration, not an automatic one.
+     */
     fun migrateNow(item: AutoMigrationReviewItem, candidate: AutoMigrationCandidate) {
         screenModelScope.launchIO {
             mutableState.update { it.copy(migratingIds = it.migratingIds + item.entryId) }
             try {
+                val oldTitle: String
+                val oldThumbnail: String?
                 if (isManga) {
                     val oldManga = getManga.await(item.entryId) ?: return@launchIO
-                    val target = getManga.await(candidate.entryId) ?: return@launchIO
-                    migrateManga.migrateManga(oldManga, target, replace = true, flags = autoMigrationMangaFlags(oldManga))
-                    LibraryUpdateErrorStore.markResolved(
-                        media = LibraryUpdateErrorMedia.Manga,
-                        entryId = oldManga.id,
-                    )
+                    oldTitle = oldManga.title
+                    oldThumbnail = oldManga.thumbnailUrl
                 } else {
                     val oldAnime = getAnime.await(item.entryId) ?: return@launchIO
-                    val target = getAnime.await(candidate.entryId) ?: return@launchIO
-                    migrateAnime.migrateAnime(oldAnime, target, replace = true, flags = autoMigrationAnimeFlags(oldAnime))
-                    LibraryUpdateErrorStore.markResolved(
-                        media = LibraryUpdateErrorMedia.Anime,
-                        entryId = oldAnime.id,
-                    )
+                    oldTitle = oldAnime.title
+                    oldThumbnail = oldAnime.thumbnailUrl
                 }
+                store.addStagedPair(
+                    AutoMigrationStagedPair(
+                        isManga = isManga,
+                        sourceId = sourceId,
+                        oldEntryId = item.entryId,
+                        oldTitle = oldTitle,
+                        oldThumbnailUrl = oldThumbnail,
+                        oldSourceName = item.originSourceName,
+                        newEntryId = candidate.entryId,
+                        newSourceId = candidate.sourceId,
+                        newSourceName = candidate.sourceName,
+                        newTitle = candidate.title,
+                        newThumbnailUrl = candidate.thumbnailUrl,
+                        auto = false,
+                        isSeasonType = candidate.isSeasonType,
+                    ),
+                )
                 store.removeReviewItem(item.entryId, isManga)
             } catch (e: Exception) {
-                logcat(LogPriority.ERROR, e) { "Auto-migration review: failed to migrate ${item.entryId}" }
+                logcat(LogPriority.ERROR, e) { "Auto-migration review: failed to stage ${item.entryId}" }
             } finally {
                 mutableState.update { it.copy(migratingIds = it.migratingIds - item.entryId) }
             }

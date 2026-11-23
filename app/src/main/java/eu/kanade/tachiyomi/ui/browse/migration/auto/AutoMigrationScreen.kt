@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.browse.migration.auto
 
 import android.app.Application
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -135,7 +136,13 @@ data class AutoMigrationScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        CountRows(run = run)
+                        CountRows(
+                            run = run,
+                            stagedCount = state.stagedCount,
+                            onSectionClick = { section ->
+                                navigator.push(AutoMigrationCompareScreen(isManga, sourceId, section))
+                            },
+                        )
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
                             modifier = Modifier.fillMaxWidth(),
@@ -160,9 +167,81 @@ data class AutoMigrationScreen(
                             }
                         }
                     }
+                    run.isApplying -> {
+                        Text(text = stringResource(MR.strings.auto_migration_applying))
+                        LinearProgressIndicator(
+                            progress = { (run.processed.toFloat() / run.total.coerceAtLeast(1)).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(
+                            text = stringResource(
+                                MR.strings.auto_migration_processed,
+                                run.processed,
+                                run.total,
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        run.currentTitle?.let { current ->
+                            Text(
+                                text = stringResource(MR.strings.auto_migration_applying_title, current),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        CountRows(
+                            run = run,
+                            stagedCount = state.stagedCount,
+                            onSectionClick = { section ->
+                                navigator.push(AutoMigrationCompareScreen(isManga, sourceId, section))
+                            },
+                        )
+                    }
+                    run.isAwaitingConfirmation -> {
+                        Text(text = stringResource(MR.strings.auto_migration_awaiting_confirmation))
+                        CountRows(
+                            run = run,
+                            stagedCount = state.stagedCount,
+                            onSectionClick = { section ->
+                                navigator.push(AutoMigrationCompareScreen(isManga, sourceId, section))
+                            },
+                        )
+                        // Two-phase: nothing migrated yet. The staged pairs
+                        // wait here until the user taps Confirmar.
+                        Button(
+                            onClick = { screenModel.confirmRun(context) },
+                            enabled = state.stagedCount > 0,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(text = stringResource(MR.strings.auto_migration_confirm))
+                        }
+                        Button(
+                            onClick = { navigator.push(AutoMigrationReviewScreen(isManga, sourceId)) },
+                            enabled = state.reviewCount > 0,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    MR.strings.auto_migration_review_count,
+                                    state.reviewCount,
+                                ),
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = navigator::pop,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(text = stringResource(MR.strings.action_close))
+                        }
+                    }
                     else -> {
                         Text(text = stringResource(MR.strings.auto_migration_finished))
-                        CountRows(run = run)
+                        CountRows(
+                            run = run,
+                            stagedCount = state.stagedCount,
+                            onSectionClick = { section ->
+                                navigator.push(AutoMigrationCompareScreen(isManga, sourceId, section))
+                            },
+                        )
                         Button(
                             onClick = { navigator.push(AutoMigrationReviewScreen(isManga, sourceId)) },
                             enabled = state.reviewCount > 0,
@@ -188,19 +267,35 @@ data class AutoMigrationScreen(
     }
 
     @Composable
-    private fun CountRows(run: AutoMigrationRunState) {
+    private fun CountRows(
+        run: AutoMigrationRunState,
+        stagedCount: Int,
+        onSectionClick: (String) -> Unit,
+    ) {
         Column(verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small)) {
-            CountRow(
-                label = stringResource(MR.strings.auto_migration_auto_migrated),
-                count = run.autoMigrated,
-            )
+            if (run.isFinished) {
+                // After applying, the staged pairs are gone (they were
+                // migrated), so there is nothing left to compare here.
+                CountRow(
+                    label = stringResource(MR.strings.auto_migration_auto_migrated),
+                    count = run.autoMigrated,
+                )
+            } else {
+                CountRow(
+                    label = stringResource(MR.strings.auto_migration_ready_to_confirm),
+                    count = stagedCount,
+                    onClick = { onSectionClick(AutoMigrationCompareScreen.SECTION_STAGED) },
+                )
+            }
             CountRow(
                 label = stringResource(MR.strings.auto_migration_awaiting_review),
                 count = run.awaitingReview,
+                onClick = { onSectionClick(AutoMigrationCompareScreen.SECTION_REVIEW) },
             )
             CountRow(
                 label = stringResource(MR.strings.auto_migration_no_candidates),
                 count = run.noCandidates,
+                onClick = { onSectionClick(AutoMigrationCompareScreen.SECTION_NO_CANDIDATES) },
             )
             if (run.failed > 0) {
                 CountRow(
@@ -212,9 +307,16 @@ data class AutoMigrationScreen(
     }
 
     @Composable
-    private fun CountRow(label: String, count: Int) {
+    private fun CountRow(label: String, count: Int, onClick: (() -> Unit)? = null) {
+        val modifier = if (onClick != null) {
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+        } else {
+            Modifier.fillMaxWidth()
+        }
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = modifier,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(text = label, style = MaterialTheme.typography.bodyLarge)
@@ -265,11 +367,25 @@ class AutoMigrationScreenModel(
                 }
             }
         }
+        screenModelScope.launchIO {
+            AutoMigrationStore.stagedPairsFlow.collect { pairs ->
+                mutableState.update {
+                    it.copy(stagedCount = pairs.count { pair -> pair.isManga == isManga && pair.sourceId == sourceId })
+                }
+            }
+        }
     }
 
     fun startRun(context: android.content.Context) {
         if (store.isRunActive()) return
         AutoMigrationJob.start(context, isManga, sourceId)
+    }
+
+    /** Enqueues the APPLY phase: migrates every staged pair at once. */
+    fun confirmRun(context: android.content.Context) {
+        val run = store.currentRun() ?: return
+        if (!run.isAwaitingConfirmation) return
+        AutoMigrationJob.startApply(context, isManga, sourceId)
     }
 
     fun cancelRun(context: android.content.Context) {
@@ -281,6 +397,7 @@ class AutoMigrationScreenModel(
         val entryCount: Int? = null,
         val run: AutoMigrationRunState? = null,
         val reviewCount: Int = 0,
+        val stagedCount: Int = 0,
         val otherRunActive: Boolean = false,
         val isLoading: Boolean = true,
     )

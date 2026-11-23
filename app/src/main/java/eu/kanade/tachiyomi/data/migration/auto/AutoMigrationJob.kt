@@ -19,6 +19,8 @@ import eu.kanade.domain.entries.anime.interactor.MigrateAnimeUseCase
 import eu.kanade.domain.entries.manga.interactor.MigrateMangaUseCase
 import eu.kanade.domain.metadata.interactor.parseOriginalTitle
 import eu.kanade.tachiyomi.animesource.model.FetchType
+import eu.kanade.tachiyomi.data.library.updateerror.LibraryUpdateErrorMedia
+import eu.kanade.tachiyomi.data.library.updateerror.LibraryUpdateErrorStore
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.ui.main.MainActivity
 import eu.kanade.tachiyomi.util.system.notificationBuilder
@@ -45,12 +47,12 @@ import kotlin.coroutines.coroutineContext
 /**
  * Background worker for automatic per-source migration.
  *
- * One run covers ONE origin source (manga or anime) and only runs while
- * the user started it — no always-on background work. For every library
- * entry of the origin source it searches the enabled sources (paced,
- * sequential, 429-aware) and migrates it on the spot when another source
- * has the exact same title. Entries without an exact match are saved to
- * the review list instead of being guessed.
+ * Two phases, never automatic: the SEARCH phase (one run covers ONE
+ * origin source, manga or anime) only looks for substitutes — exact
+ * title matches are STAGED, everything else lands in the review list.
+ * Nothing is migrated until the user taps "Confirmar", which enqueues
+ * the APPLY phase: it migrates every staged pair at once. Only runs
+ * while the user started it — no always-on background work.
  */
 class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : CoroutineWorker(context, workerParams) {
 
@@ -84,15 +86,23 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
     override suspend fun doWork(): Result {
         val isManga = inputData.getBoolean(KEY_IS_MANGA, true)
         val sourceId = inputData.getLong(KEY_SOURCE_ID, 0L)
+        val mode = inputData.getString(KEY_MODE) ?: MODE_SEARCH
         if (sourceId == 0L) return Result.failure()
 
         setForegroundSafely()
 
         return try {
-            if (isManga) runManga(sourceId) else runAnime(sourceId)
+            if (mode == MODE_APPLY) {
+                if (isManga) applyManga(sourceId) else applyAnime(sourceId)
+            } else {
+                if (isManga) runManga(sourceId) else runAnime(sourceId)
+            }
             Result.success()
         } catch (e: CancellationException) {
             store.finishRun(AutoMigrationRunState.STATUS_CANCELLED)
+            // Cancel discards the staged run: nothing staged or pending
+            // review survives it.
+            store.clearRunData()
             postFinishedNotification(cancelled = true)
             Result.success()
         } catch (e: Exception) {
@@ -100,6 +110,106 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
             store.finishRun(AutoMigrationRunState.STATUS_CANCELLED)
             Result.failure()
         }
+    }
+
+    /**
+     * APPLY phase (after the user taps "Confirmar"): migrates every
+     * staged pair at once with the existing use cases (replace=true,
+     * standard flags, old downloads kept). Progress is reported in the
+     * same run state so the screen shows "Aplicando… X de Y".
+     */
+    private suspend fun applyManga(sourceId: Long) {
+        val pairs = store.stagedPairsFor(isManga = true, sourceId = sourceId)
+        if (pairs.isEmpty()) {
+            store.finishRun(AutoMigrationRunState.STATUS_FINISHED)
+            return
+        }
+        store.updateRun {
+            it.copy(status = AutoMigrationRunState.STATUS_APPLYING, total = pairs.size, processed = 0, autoMigrated = 0, failed = 0, currentTitle = null)
+        }
+        postProgressNotification()
+
+        var applied = 0
+        var failed = 0
+        for ((index, pair) in pairs.withIndex()) {
+            coroutineContext.ensureActive()
+            store.updateRun { it.copy(processed = index, currentTitle = pair.oldTitle) }
+            postProgressNotification()
+            try {
+                val oldManga = getManga.await(pair.oldEntryId)
+                val target = getManga.await(pair.newEntryId)
+                if (oldManga == null || target == null) {
+                    failed++
+                } else {
+                    migrateManga.migrateManga(oldManga, target, replace = true, flags = autoMigrationMangaFlags(oldManga))
+                    LibraryUpdateErrorStore.markResolved(
+                        media = LibraryUpdateErrorMedia.Manga,
+                        entryId = oldManga.id,
+                    )
+                    applied++
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e) { "Auto-migration apply failed for manga ${pair.oldEntryId}" }
+                failed++
+            }
+            store.removeStagedPair(pair.oldEntryId, isManga = true)
+            store.updateRun {
+                it.copy(processed = index + 1, autoMigrated = applied, failed = failed, currentTitle = null)
+            }
+            postProgressNotification()
+        }
+
+        store.finishRun(AutoMigrationRunState.STATUS_FINISHED)
+        postFinishedNotification(cancelled = false)
+    }
+
+    private suspend fun applyAnime(sourceId: Long) {
+        val pairs = store.stagedPairsFor(isManga = false, sourceId = sourceId)
+        if (pairs.isEmpty()) {
+            store.finishRun(AutoMigrationRunState.STATUS_FINISHED)
+            return
+        }
+        store.updateRun {
+            it.copy(status = AutoMigrationRunState.STATUS_APPLYING, total = pairs.size, processed = 0, autoMigrated = 0, failed = 0, currentTitle = null)
+        }
+        postProgressNotification()
+
+        var applied = 0
+        var failed = 0
+        for ((index, pair) in pairs.withIndex()) {
+            coroutineContext.ensureActive()
+            store.updateRun { it.copy(processed = index, currentTitle = pair.oldTitle) }
+            postProgressNotification()
+            try {
+                val oldAnime = getAnime.await(pair.oldEntryId)
+                val target = getAnime.await(pair.newEntryId)
+                if (oldAnime == null || target == null) {
+                    failed++
+                } else {
+                    migrateAnime.migrateAnime(oldAnime, target, replace = true, flags = autoMigrationAnimeFlags(oldAnime))
+                    LibraryUpdateErrorStore.markResolved(
+                        media = LibraryUpdateErrorMedia.Anime,
+                        entryId = oldAnime.id,
+                    )
+                    applied++
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e) { "Auto-migration apply failed for anime ${pair.oldEntryId}" }
+                failed++
+            }
+            store.removeStagedPair(pair.oldEntryId, isManga = false)
+            store.updateRun {
+                it.copy(processed = index + 1, autoMigrated = applied, failed = failed, currentTitle = null)
+            }
+            postProgressNotification()
+        }
+
+        store.finishRun(AutoMigrationRunState.STATUS_FINISHED)
+        postFinishedNotification(cancelled = false)
     }
 
     private suspend fun runManga(sourceId: Long) {
@@ -110,7 +220,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
         store.startRun(isManga = true, sourceId = sourceId, sourceName = source.name, total = entries.size)
         postProgressNotification()
 
-        var autoMigrated = 0
+        var staged = 0
         var awaitingReview = 0
         var noCandidates = 0
         var failed = 0
@@ -125,18 +235,25 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
                 val result = searcher.searchManga(entry, queries, sourceId)
                 val exact = result.exactMatch
                 if (exact != null) {
-                    val target = getManga.await(exact.entryId)
-                    if (target == null) {
-                        failed++
-                    } else {
-                        migrateManga.migrateManga(
-                            entry,
-                            target,
-                            replace = true,
-                            flags = autoMigrationMangaFlags(entry),
-                        )
-                        autoMigrated++
-                    }
+                    // Two-phase: stage the pair, do NOT migrate yet —
+                    // nothing moves until the user taps "Confirmar".
+                    store.addStagedPair(
+                        AutoMigrationStagedPair(
+                            isManga = true,
+                            sourceId = sourceId,
+                            oldEntryId = entry.id,
+                            oldTitle = entry.title,
+                            oldThumbnailUrl = entry.thumbnailUrl,
+                            oldSourceName = source.name,
+                            newEntryId = exact.entryId,
+                            newSourceId = exact.sourceId,
+                            newSourceName = exact.sourceName,
+                            newTitle = exact.title,
+                            newThumbnailUrl = exact.thumbnailUrl,
+                            auto = true,
+                        ),
+                    )
+                    staged++
                 } else {
                     store.addReviewItem(
                         AutoMigrationReviewItem(
@@ -163,7 +280,6 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
             store.updateRun {
                 it.copy(
                     processed = index + 1,
-                    autoMigrated = autoMigrated,
                     awaitingReview = awaitingReview,
                     noCandidates = noCandidates,
                     failed = failed,
@@ -173,8 +289,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
             postProgressNotification()
         }
 
-        store.finishRun(AutoMigrationRunState.STATUS_FINISHED)
-        postFinishedNotification(cancelled = false)
+        finishSearch(staged, awaitingReview)
     }
 
     private suspend fun runAnime(sourceId: Long) {
@@ -185,7 +300,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
         store.startRun(isManga = false, sourceId = sourceId, sourceName = source.name, total = entries.size)
         postProgressNotification()
 
-        var autoMigrated = 0
+        var staged = 0
         var awaitingReview = 0
         var noCandidates = 0
         var failed = 0
@@ -219,18 +334,25 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
                     val result = searcher.searchAnime(entry, queries, sourceId)
                     val exact = result.exactMatch
                     if (exact != null && !exact.isSeasonType) {
-                        val target = getAnime.await(exact.entryId)
-                        if (target == null) {
-                            failed++
-                        } else {
-                            migrateAnime.migrateAnime(
-                                entry,
-                                target,
-                                replace = true,
-                                flags = autoMigrationAnimeFlags(entry),
-                            )
-                            autoMigrated++
-                        }
+                        // Two-phase: stage the pair, do NOT migrate yet.
+                        store.addStagedPair(
+                            AutoMigrationStagedPair(
+                                isManga = false,
+                                sourceId = sourceId,
+                                oldEntryId = entry.id,
+                                oldTitle = entry.title,
+                                oldThumbnailUrl = entry.thumbnailUrl,
+                                oldSourceName = source.name,
+                                newEntryId = exact.entryId,
+                                newSourceId = exact.sourceId,
+                                newSourceName = exact.sourceName,
+                                newTitle = exact.title,
+                                newThumbnailUrl = exact.thumbnailUrl,
+                                auto = true,
+                                isSeasonType = false,
+                            ),
+                        )
+                        staged++
                     } else {
                         // No exact match, or the exact match is a
                         // season-type entry: review it by hand.
@@ -265,7 +387,6 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
             store.updateRun {
                 it.copy(
                     processed = index + 1,
-                    autoMigrated = autoMigrated,
                     awaitingReview = awaitingReview,
                     noCandidates = noCandidates,
                     failed = failed,
@@ -275,7 +396,24 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
             postProgressNotification()
         }
 
-        store.finishRun(AutoMigrationRunState.STATUS_FINISHED)
+        finishSearch(staged, awaitingReview)
+    }
+
+    /**
+     * The search is done — but nothing migrated yet. If there is
+     * anything to confirm (staged pairs or review items), the run waits
+     * for the user to tap "Confirmar"; otherwise it is simply finished.
+     */
+    private fun finishSearch(staged: Int, awaitingReview: Int) {
+        val state = store.currentRun()
+        val status = if (staged > 0 || awaitingReview > 0) {
+            AutoMigrationRunState.STATUS_AWAITING_CONFIRMATION
+        } else {
+            AutoMigrationRunState.STATUS_FINISHED
+        }
+        if (state != null) {
+            store.updateRun { it.copy(status = status, currentTitle = null, finishedAt = System.currentTimeMillis()) }
+        }
         postFinishedNotification(cancelled = false)
     }
 
@@ -318,6 +456,13 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
             setContentText(
                 if (cancelled || state == null) {
                     applicationContext.stringResource(MR.strings.auto_migration_cancelled)
+                } else if (state.isAwaitingConfirmation) {
+                    val staged = store.stagedPairsFor(state.isManga, state.sourceId).size
+                    applicationContext.stringResource(
+                        MR.strings.auto_migration_notification_ready,
+                        staged,
+                        state.awaitingReview,
+                    )
                 } else {
                     applicationContext.stringResource(
                         MR.strings.auto_migration_notification_finished,
@@ -350,6 +495,9 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
     companion object {
         const val KEY_IS_MANGA = "is_manga"
         const val KEY_SOURCE_ID = "source_id"
+        const val KEY_MODE = "mode"
+        const val MODE_SEARCH = "search"
+        const val MODE_APPLY = "apply"
 
         /** One automatic migration run at a time, like the downloaders. */
         private const val UNIQUE_WORK_NAME = "AutoMigration"
@@ -363,6 +511,30 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
                     workDataOf(
                         KEY_IS_MANGA to isManga,
                         KEY_SOURCE_ID to sourceId,
+                        KEY_MODE to MODE_SEARCH,
+                    ),
+                )
+                .addTag(UNIQUE_WORK_NAME)
+                .build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(UNIQUE_WORK_NAME, ExistingWorkPolicy.KEEP, request)
+        }
+
+        /**
+         * Enqueues the APPLY phase (the user tapped "Confirmar"): migrates
+         * every staged pair at once. KEEP so a double tap cannot apply
+         * the same run twice.
+         */
+        fun startApply(context: Context, isManga: Boolean, sourceId: Long) {
+            val request = OneTimeWorkRequestBuilder<AutoMigrationJob>()
+                .setConstraints(
+                    Constraints(requiredNetworkType = NetworkType.CONNECTED),
+                )
+                .setInputData(
+                    workDataOf(
+                        KEY_IS_MANGA to isManga,
+                        KEY_SOURCE_ID to sourceId,
+                        KEY_MODE to MODE_APPLY,
                     ),
                 )
                 .addTag(UNIQUE_WORK_NAME)

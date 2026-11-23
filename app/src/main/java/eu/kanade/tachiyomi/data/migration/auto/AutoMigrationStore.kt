@@ -27,12 +27,16 @@ class AutoMigrationStore(
         private const val PREFS_NAME = "auto_migration"
         private const val KEY_RUN_STATE = "run_state"
         private const val KEY_REVIEW_ITEMS = "review_items"
+        private const val KEY_STAGED_PAIRS = "staged_pairs"
 
         private val runStateFlowInternal = MutableStateFlow<AutoMigrationRunState?>(null)
         val runStateFlow: StateFlow<AutoMigrationRunState?> = runStateFlowInternal.asStateFlow()
 
         private val reviewItemsFlowInternal = MutableStateFlow<List<AutoMigrationReviewItem>>(emptyList())
         val reviewItemsFlow: StateFlow<List<AutoMigrationReviewItem>> = reviewItemsFlowInternal.asStateFlow()
+
+        private val stagedPairsFlowInternal = MutableStateFlow<List<AutoMigrationStagedPair>>(emptyList())
+        val stagedPairsFlow: StateFlow<List<AutoMigrationStagedPair>> = stagedPairsFlowInternal.asStateFlow()
 
         private val lock = Any()
     }
@@ -53,6 +57,13 @@ class AutoMigrationStore(
             runCatching {
                 preferences.getString(KEY_REVIEW_ITEMS, null)?.let {
                     reviewItemsFlowInternal.value = json.decodeFromString<List<AutoMigrationReviewItem>>(it)
+                }
+            }
+        }
+        if (stagedPairsFlowInternal.value.isEmpty()) {
+            runCatching {
+                preferences.getString(KEY_STAGED_PAIRS, null)?.let {
+                    stagedPairsFlowInternal.value = json.decodeFromString<List<AutoMigrationStagedPair>>(it)
                 }
             }
         }
@@ -80,6 +91,13 @@ class AutoMigrationStore(
         synchronized(lock) {
             runStateFlowInternal.value = state
             persistRunState(state)
+            // A new run supersedes the previous one: drop its staged
+            // pairs and review items so nothing from the old run can be
+            // confirmed by mistake.
+            stagedPairsFlowInternal.value = emptyList()
+            persistStagedPairs(emptyList())
+            reviewItemsFlowInternal.value = emptyList()
+            persistReviewItems(emptyList())
         }
     }
 
@@ -133,10 +151,27 @@ class AutoMigrationStore(
     fun removeReviewItem(entryId: Long, isManga: Boolean) {
         synchronized(lock) {
             val current = reviewItemsFlowInternal.value
-            val updated = current.filterNot { it.entryId == entryId && it.isManga == isManga }
-            if (updated.size != current.size) {
-                reviewItemsFlowInternal.value = updated
-                persistReviewItems(updated)
+            val removed = current.firstOrNull { it.entryId == entryId && it.isManga == isManga }
+                ?: return
+            val updated = current - removed
+            reviewItemsFlowInternal.value = updated
+            persistReviewItems(updated)
+            // The entry leaves the review set, so the run counts follow
+            // it: it no longer awaits review, and if it had no
+            // candidates it no longer counts as "no candidates" either.
+            // This is what the X (exclude) and Omitir both rely on.
+            val currentRun = runStateFlowInternal.value
+            if (currentRun != null) {
+                val updatedRun = currentRun.copy(
+                    awaitingReview = (currentRun.awaitingReview - 1).coerceAtLeast(0),
+                    noCandidates = if (removed.candidates.isEmpty()) {
+                        (currentRun.noCandidates - 1).coerceAtLeast(0)
+                    } else {
+                        currentRun.noCandidates
+                    },
+                )
+                runStateFlowInternal.value = updatedRun
+                persistRunState(updatedRun)
             }
         }
     }
@@ -145,11 +180,50 @@ class AutoMigrationStore(
         return reviewItemsFlowInternal.value.filter { it.isManga == isManga && it.sourceId == sourceId }
     }
 
+    fun addStagedPair(pair: AutoMigrationStagedPair) {
+        synchronized(lock) {
+            val current = stagedPairsFlowInternal.value
+            // One staged pair per old entry: a re-pick replaces the old one.
+            val updated = current.filterNot { it.oldEntryId == pair.oldEntryId && it.isManga == pair.isManga } + pair
+            stagedPairsFlowInternal.value = updated
+            persistStagedPairs(updated)
+        }
+    }
+
+    fun removeStagedPair(oldEntryId: Long, isManga: Boolean) {
+        synchronized(lock) {
+            val current = stagedPairsFlowInternal.value
+            val updated = current.filterNot { it.oldEntryId == oldEntryId && it.isManga == isManga }
+            if (updated.size != current.size) {
+                stagedPairsFlowInternal.value = updated
+                persistStagedPairs(updated)
+            }
+        }
+    }
+
+    fun stagedPairsFor(isManga: Boolean, sourceId: Long): List<AutoMigrationStagedPair> {
+        return stagedPairsFlowInternal.value.filter { it.isManga == isManga && it.sourceId == sourceId }
+    }
+
+    /** Discards the staged run (Cancel): staged pairs + review items. */
+    fun clearRunData() {
+        synchronized(lock) {
+            stagedPairsFlowInternal.value = emptyList()
+            persistStagedPairs(emptyList())
+            reviewItemsFlowInternal.value = emptyList()
+            persistReviewItems(emptyList())
+        }
+    }
+
     private fun persistRunState(state: AutoMigrationRunState) {
         preferences.edit { putString(KEY_RUN_STATE, json.encodeToString(state)) }
     }
 
     private fun persistReviewItems(items: List<AutoMigrationReviewItem>) {
         preferences.edit { putString(KEY_REVIEW_ITEMS, json.encodeToString(items)) }
+    }
+
+    private fun persistStagedPairs(pairs: List<AutoMigrationStagedPair>) {
+        preferences.edit { putString(KEY_STAGED_PAIRS, json.encodeToString(pairs)) }
     }
 }
