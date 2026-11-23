@@ -5,6 +5,7 @@ import android.net.Uri
 import android.util.Base64
 import eu.kanade.domain.sync.DeviceSyncPreferences
 import eu.kanade.domain.sync.SyncPreferences
+import eu.kanade.tachiyomi.data.backup.BackupNotifier
 import eu.kanade.tachiyomi.data.backup.create.BackupOptions
 import eu.kanade.tachiyomi.data.backup.create.creators.AnimeBackupCreator
 import eu.kanade.tachiyomi.data.backup.create.creators.AnimeCategoriesBackupCreator
@@ -109,7 +110,6 @@ class DirectSyncManager(
     private val context: Context,
     private val prefs: DeviceSyncPreferences = Injekt.get(),
     private val syncPrefs: SyncPreferences = Injekt.get(),
-    private val backupRestorer: BackupRestorer = Injekt.get(),
     private val protoBuf: ProtoBuf = Injekt.get(),
     private val getAnimeFavorites: GetAnimeFavorites = Injekt.get(),
     private val getMangaFavorites: GetMangaFavorites = Injekt.get(),
@@ -124,6 +124,18 @@ class DirectSyncManager(
     private val updateManga: UpdateManga = Injekt.get(),
     private val updateNovel: UpdateNovel = Injekt.get(),
 ) {
+    // v7.9.37: BackupRestorer is NOT registered in Injekt anywhere — it is
+    // built by hand in BackupRestoreJob and in SyncManager. Asking for it
+    // with Injekt.get() threw InjektionException and crashed the sync
+    // screen on open. Built directly here, same as SyncManager
+    // (isSync = true). Every other Injekt.get() in this class was audited
+    // against AppModule/DomainModule and is registered.
+    private val backupRestorer: BackupRestorer = BackupRestorer(
+        context = context,
+        notifier = BackupNotifier(context),
+        isSync = true,
+    )
+
     private val json = Json {
         encodeDefaults = true
         ignoreUnknownKeys = true

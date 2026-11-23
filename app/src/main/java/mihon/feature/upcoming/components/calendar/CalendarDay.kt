@@ -15,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -30,6 +29,16 @@ private const val MAX_EVENTS = 3
 // de letra era el mismo: tres tamaños distintos en una sola pantalla.
 private const val PAST_DAY_ALPHA = 0.6f
 
+// v7.9.37: tamaño fijo del círculo del día. El circleLayout() anterior
+// forzaba la celda a un cuadrado de max(ancho, alto); en la tira de
+// semana ancha de la tablet cada celda mide ~1/7 de una fila de ~1100dp
+// y el círculo de "hoy" crecía a ~150dp. Ahora el círculo mide 44dp
+// (igual que en el teléfono, donde la celda mide ~45-50dp) centrado en
+// la celda, que sigue ocupando su hueco para que la fila quede repartida.
+// De paso se quita el modificador de layout a medida: una pasada menos
+// de medida por cada celda de día.
+private val DayCircleSize = 44.dp
+
 @Composable
 fun CalendarDay(
     date: LocalDate,
@@ -43,70 +52,60 @@ fun CalendarDay(
 
     Box(
         modifier = modifier
-            .then(
-                if (today == date) {
-                    Modifier.border(
-                        border = BorderStroke(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.onBackground,
-                        ),
-                        shape = CircleShape,
-                    )
-                } else {
-                    Modifier
-                },
-            )
-            .clip(shape = CircleShape)
-            .clickable(onClick = onDayClick)
-            .circleLayout(),
+            .clickable(onClick = onDayClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = date.dayOfMonth.toString(),
-            textAlign = TextAlign.Center,
-            fontSize = 16.sp,
-            color = if (date.isBefore(today)) {
-                MaterialTheme.colorScheme.onBackground.copy(alpha = PAST_DAY_ALPHA)
-            } else {
-                MaterialTheme.colorScheme.onBackground
-            },
-            fontWeight = FontWeight.SemiBold,
-        )
-        Row(Modifier.offset(y = 12.dp)) {
-            val size = events.coerceAtMost(MAX_EVENTS)
-            for (index in 0 until size) {
-                CalendarIndicator(
-                    index = index,
-                    size = 56.dp,
-                    color = MaterialTheme.colorScheme.primary,
+        Box(
+            modifier = Modifier
+                .size(DayCircleSize)
+                .then(
+                    if (today == date) {
+                        Modifier.border(
+                            border = BorderStroke(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.onBackground,
+                            ),
+                            shape = CircleShape,
+                        )
+                    } else {
+                        Modifier
+                    },
                 )
-            }
-            // Fechas manuales: puntos ámbar, distintos de los de emisión.
-            // (El índice reinicia: la fila ya ordena los puntos; el índice
-            // solo controla la opacidad progresiva del indicador.)
-            val customSize = customEvents.coerceAtMost(MAX_EVENTS - size)
-            for (index in 0 until customSize) {
-                CalendarIndicator(
-                    index = index,
-                    size = 56.dp,
-                    color = Color(0xFFFFA726),
-                )
+                .clip(shape = CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = date.dayOfMonth.toString(),
+                textAlign = TextAlign.Center,
+                fontSize = 16.sp,
+                color = if (date.isBefore(today)) {
+                    MaterialTheme.colorScheme.onBackground.copy(alpha = PAST_DAY_ALPHA)
+                } else {
+                    MaterialTheme.colorScheme.onBackground
+                },
+                fontWeight = FontWeight.SemiBold,
+            )
+            Row(Modifier.offset(y = 12.dp)) {
+                val size = events.coerceAtMost(MAX_EVENTS)
+                for (index in 0 until size) {
+                    CalendarIndicator(
+                        index = index,
+                        size = 56.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                // Fechas manuales: puntos ámbar, distintos de los de emisión.
+                // (El índice reinicia: la fila ya ordena los puntos; el índice
+                // solo controla la opacidad progresiva del indicador.)
+                val customSize = customEvents.coerceAtMost(MAX_EVENTS - size)
+                for (index in 0 until customSize) {
+                    CalendarIndicator(
+                        index = index,
+                        size = 56.dp,
+                        color = Color(0xFFFFA726),
+                    )
+                }
             }
         }
-    }
-}
-
-private fun Modifier.circleLayout() = layout { measurable, constraints ->
-    val placeable = measurable.measure(constraints)
-
-    val currentHeight = placeable.height
-    val currentWidth = placeable.width
-    val newDiameter = maxOf(currentHeight, currentWidth)
-
-    layout(newDiameter, newDiameter) {
-        placeable.placeRelative(
-            x = (newDiameter - currentWidth) / 2,
-            y = (newDiameter - currentHeight) / 2,
-        )
     }
 }
