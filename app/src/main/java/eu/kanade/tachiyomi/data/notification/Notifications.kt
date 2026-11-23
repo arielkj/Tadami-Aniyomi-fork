@@ -45,6 +45,12 @@ object Notifications {
     const val ID_NOVEL_LIBRARY_ERROR = -112
 
     /**
+     * Notification channel and id used by automatic migration.
+     */
+    const val CHANNEL_AUTO_MIGRATION_PROGRESS = "auto_migration_progress_channel"
+    const val ID_AUTO_MIGRATION_PROGRESS = -901
+
+    /**
      * Notification channel and ids used by the downloader.
      */
     private const val GROUP_DOWNLOADER = "group_downloader"
@@ -206,6 +212,11 @@ object Notifications {
                 },
                 buildNotificationChannel(CHANNEL_LIBRARY_ERROR, IMPORTANCE_LOW) {
                     setName(context.stringResource(MR.strings.channel_errors))
+                    setGroup(GROUP_LIBRARY)
+                    setShowBadge(false)
+                },
+                buildNotificationChannel(CHANNEL_AUTO_MIGRATION_PROGRESS, IMPORTANCE_LOW) {
+                    setName(context.stringResource(MR.strings.auto_migration_channel))
                     setGroup(GROUP_LIBRARY)
                     setShowBadge(false)
                 },

@@ -11,6 +11,7 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.presentation.browse.manga.MigrateMangaScreen
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.ui.browse.manga.migration.search.MigrateMangaSearchScreen
+import eu.kanade.tachiyomi.ui.browse.migration.auto.AutoMigrationScreen
 import eu.kanade.tachiyomi.ui.entries.manga.MangaScreen
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.flow.collectLatest
@@ -40,6 +41,7 @@ data class MigrateMangaScreen(
             state = state,
             onClickItem = { navigator.push(MigrateMangaSearchScreen(it.id)) },
             onClickCover = { navigator.push(MangaScreen(it.id)) },
+            onClickAutoMigrate = { navigator.push(AutoMigrationScreen(isManga = true, sourceId = sourceId)) },
         )
 
         LaunchedEffect(Unit) {
