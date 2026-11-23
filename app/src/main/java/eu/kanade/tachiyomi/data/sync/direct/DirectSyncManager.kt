@@ -200,48 +200,99 @@ class DirectSyncManager(
         }
     }
 
-    /** One-time pairing from this device to the peer at [address] using the code shown on the peer. */
-    suspend fun pair(address: String, code: String): Boolean = withContext(Dispatchers.IO) {
-        val trimmed = address.trim()
-        check(trimmed.isNotBlank()) { "empty address" }
-        val info = client.info(trimmed)
-        val response = client.pair(trimmed, code.trim(), deviceId, deviceName)
-        if (!response.ok) return@withContext false
+    /**
+     * One-time pairing from this device to the peer at [address] using the code shown on the peer.
+     * v7.9.38 — pairing is ONE-SIDED: only this device types anything. The
+     * handshake sends this device's own WiFi address and its own pairing
+     * code, so the peer links itself automatically and can sync back
+     * without typing anything. Returns "ok", "invalid_address" (the typed
+     * address cannot be used — e.g. a port above 65535) or "failed".
+     */
+    suspend fun pair(address: String, code: String): String = withContext(Dispatchers.IO) {
+        val normalized = DirectSyncAddress.normalize(address) ?: return@withContext "invalid_address"
+        // The peer needs OUR address to link back: start our server first.
+        startServer()
+        val ownAddress = localAddressText().orEmpty()
+        val ownCode = ensurePairCode()
+        val info = runCatching { client.info(normalized) }.getOrNull() ?: return@withContext "failed"
+        val response = runCatching {
+            client.pair(normalized, code.trim(), deviceId, deviceName, ownAddress, ownCode)
+        }.getOrNull() ?: return@withContext "failed"
+        if (!response.ok) return@withContext "failed"
         prefs.pairedDeviceId().set(response.deviceId.ifBlank { info.deviceId })
         prefs.pairedDeviceName().set(response.deviceName.ifBlank { info.deviceName })
-        prefs.pairedDeviceAddress().set(trimmed)
+        prefs.pairedDeviceAddress().set(normalized)
         prefs.pairedDeviceCode().set(code.trim())
-        startServer()
-        true
+        "ok"
     }
 
     /** Manual "Sincronizar ahora": syncs with the paired device. */
     suspend fun syncNow(): DirectSyncState {
-        val address = prefs.pairedDeviceAddress().get()
+        // v7.9.38: always sync to the STORED linked-device address (the
+        // address field on screen is only for pairing). Normalize it here
+        // too: an address stored by v7.9.36/37 without a port (bare IP)
+        // gets the default port instead of silently becoming port 80.
+        val address = DirectSyncAddress.normalize(prefs.pairedDeviceAddress().get())
+            ?: return DirectSyncState.Error("invalid_address")
         val code = prefs.pairedDeviceCode().get()
-        if (address.isBlank() || code.isBlank()) {
+        if (code.isBlank()) {
             return DirectSyncState.Error("no_paired_device")
         }
         return syncTo(address, code, silent = false)
     }
 
     suspend fun syncTo(address: String, code: String, silent: Boolean): DirectSyncState {
+        val normalized = DirectSyncAddress.normalize(address)
+            ?: return DirectSyncState.Error("invalid_address").also {
+                if (!silent) _state.value = it
+            }
         if (!silent) _state.value = DirectSyncState.Running
-        return try {
+        // Exchange phase: build our payload and send it. Any failure here
+        // is classified so the screen shows the real cause instead of a
+        // generic "sync_failed".
+        val merged: DirectSyncPayload
+        try {
             val payload = buildPayload()
-            val merged = client.exchange(address, code, deviceId, payload)
-            val counts = applyMerged(merged)
+            merged = client.exchange(normalized, code, deviceId, payload)
             markSent(payload)
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "DirectSync: sync with $normalized failed" }
+            val state = DirectSyncState.Error(classifySyncError(e))
+            if (!silent) _state.value = state
+            return state
+        }
+        // Apply phase: merge the reply into our library. A failure here
+        // means the exchange worked but the data could not be applied.
+        return try {
+            val counts = applyMerged(merged)
             prefs.lastSyncAt().set(System.currentTimeMillis())
             val message = "synced:${counts.manga + counts.anime + counts.novel}"
             if (!silent) _state.value = DirectSyncState.Success(message)
-            logcat { "DirectSync: sync with $address OK ($message)" }
+            logcat { "DirectSync: sync with $normalized OK ($message)" }
             DirectSyncState.Success(message)
         } catch (e: Exception) {
-            logcat(LogPriority.WARN, e) { "DirectSync: sync with $address failed" }
-            val state = DirectSyncState.Error(e.message ?: "sync_failed")
+            logcat(LogPriority.WARN, e) { "DirectSync: sync with $normalized failed applying the reply" }
+            val state = DirectSyncState.Error("apply_failed")
             if (!silent) _state.value = state
             state
+        }
+    }
+
+    /**
+     * v7.9.38 — turns a sync failure into a specific, diagnosable code
+     * (the screen shows a sentence for each one). The generic "sync_failed"
+     * is only a last resort now: the v7.9.37 failure ("Failed to connect
+     * to /192.168.0.141:80") was diagnosable from the message itself, and
+     * the fix keeps that visibility.
+     */
+    private fun classifySyncError(e: Exception): String {
+        return when {
+            e is IllegalArgumentException && e.message == "invalid_address" -> "invalid_address"
+            e is java.net.UnknownHostException -> "unreachable_host"
+            e is java.net.ConnectException || e is java.net.SocketTimeoutException -> "cannot_connect"
+            e is IllegalStateException && (e.message?.contains("401") == true) -> "wrong_code"
+            e is kotlinx.serialization.SerializationException -> "bad_response"
+            else -> "sync_failed"
         }
     }
 

@@ -19,6 +19,12 @@ private val LIBRARY_GRID_CONTENT_EXTRA_PADDING = PaddingValues(8.dp)
 private val LIBRARY_GRID_VERTICAL_ARRANGEMENT = Arrangement.spacedBy(CommonEntryItemDefaults.GridVerticalSpacer)
 private val LIBRARY_GRID_HORIZONTAL_ARRANGEMENT = Arrangement.spacedBy(CommonEntryItemDefaults.GridHorizontalSpacer)
 
+// v7.9.38 — celda mínima adaptable que usa la rejilla cuando el
+// llamador no pasa ninguna (la rejilla compacta no pasa ninguna): el
+// encabezado de "Seguir viendo" tiene que calcular la celda con este
+// mismo valor para la rejilla compacta, o la portada sale de otro tamaño.
+const val LAZY_LIBRARY_GRID_DEFAULT_ADAPTIVE_MIN_CELL_DP = 128
+
 @Composable
 internal fun LazyLibraryGrid(
     modifier: Modifier = Modifier,
@@ -30,7 +36,7 @@ internal fun LazyLibraryGrid(
 ) {
     val gridCells = remember(columns, adaptiveMinCellDp) {
         if (columns <= 0) {
-            GridCells.Adaptive((adaptiveMinCellDp ?: 128).dp)
+            GridCells.Adaptive((adaptiveMinCellDp ?: LAZY_LIBRARY_GRID_DEFAULT_ADAPTIVE_MIN_CELL_DP).dp)
         } else {
             GridCells.Fixed(columns)
         }

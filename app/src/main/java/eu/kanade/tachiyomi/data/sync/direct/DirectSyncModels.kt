@@ -35,6 +35,14 @@ data class DirectSyncPairRequest(
     val deviceId: String,
     val deviceName: String,
     val code: String,
+    /**
+     * v7.9.38 — one-sided pairing: the sender's own WiFi address
+     * ("host:port" of its local server) and its own pairing code, so the
+     * receiving device links itself automatically — it never has to type
+     * anything. The receiver stores these to sync back later.
+     */
+    val ownAddress: String = "",
+    val ownCode: String = "",
 )
 
 @Serializable

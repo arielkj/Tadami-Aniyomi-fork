@@ -1190,7 +1190,7 @@
     <string name="device_sync_this_device">Este dispositivo</string>
     <string name="device_sync_pair_code">Código de vinculación</string>
     <string name="device_sync_code_not_generated">Toca para generar un código</string>
-    <string name="device_sync_pair_code_summary">Toca el código para generar uno nuevo. El otro dispositivo escribe este código una vez para vincularse.</string>
+    <string name="device_sync_pair_code_summary">Toca el código para generar uno nuevo. El otro dispositivo escribe este código una vez, desde su pantalla, para vincularse; este se vincula solo, sin escribir nada.</string>
     <string name="device_sync_address">Dirección en este WiFi</string>
     <string name="device_sync_server_off">Servidor apagado: toca para encenderlo</string>
     <string name="device_sync_address_summary">Ambos dispositivos deben estar en el mismo WiFi (o el teléfono compartiendo su punto de acceso). Nada sale de tu red local.</string>
@@ -1205,6 +1205,12 @@
     <string name="device_sync_now">Sincronizar ahora</string>
     <string name="device_sync_success">Sincronización terminada.</string>
     <string name="device_sync_failed">La sincronización falló: %1$s</string>
+    <string name="device_sync_error_invalid_address">Revisa la dirección del otro dispositivo: el puerto no es válido.</string>
+    <string name="device_sync_error_unreachable_host">No se encontró el otro dispositivo en esta red WiFi.</string>
+    <string name="device_sync_error_cannot_connect">No se pudo conectar con el otro dispositivo. Abre la app en el otro aparato y revisa que estén en el mismo WiFi.</string>
+    <string name="device_sync_error_wrong_code">El código de vinculación no coincide. Vuelve a vincular los dispositivos.</string>
+    <string name="device_sync_error_bad_response">El otro dispositivo respondió algo inesperado.</string>
+    <string name="device_sync_error_apply_failed">Se recibió la biblioteca pero no se pudo aplicar. Inténtalo de nuevo.</string>
     <string name="device_sync_last">Última sincronización: %1$s</string>
     <string name="pref_tablet_tv_mode">Modo tablet / TV</string>
     <string name="pref_tablet_tv_mode_summary">En horizontal, usa el diseño ancho con el riel lateral. En vertical todo queda igual.</string>

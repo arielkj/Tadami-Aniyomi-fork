@@ -1245,7 +1245,7 @@
     <string name="device_sync_this_device">This device</string>
     <string name="device_sync_pair_code">Pairing code</string>
     <string name="device_sync_code_not_generated">Tap to generate a code</string>
-    <string name="device_sync_pair_code_summary">Tap the code to generate a new one. The other device types this code once to pair.</string>
+    <string name="device_sync_pair_code_summary">Tap the code to generate a new one. The other device types this code once, from its own screen, to pair — this device then links itself automatically, without typing anything.</string>
     <string name="device_sync_address">Address on this WiFi</string>
     <string name="device_sync_server_off">Server off — tap to start it</string>
     <string name="device_sync_address_summary">Both devices must be on the same WiFi (or the phone sharing its hotspot). Nothing leaves your local network.</string>
@@ -1260,6 +1260,12 @@
     <string name="device_sync_now">Sync now</string>
     <string name="device_sync_success">Sync finished.</string>
     <string name="device_sync_failed">Sync failed: %1$s</string>
+    <string name="device_sync_error_invalid_address">Check the other device’s address: the port isn’t valid.</string>
+    <string name="device_sync_error_unreachable_host">The other device wasn’t found on this WiFi network.</string>
+    <string name="device_sync_error_cannot_connect">Couldn’t connect to the other device. Open the app on the other device and check both are on the same WiFi.</string>
+    <string name="device_sync_error_wrong_code">The pairing code doesn’t match. Pair the devices again.</string>
+    <string name="device_sync_error_bad_response">The other device sent an unexpected reply.</string>
+    <string name="device_sync_error_apply_failed">The library was received but couldn’t be applied. Try again.</string>
     <string name="device_sync_last">Last sync: %1$s</string>
     <string name="pref_tablet_tv_mode">Tablet / TV mode</string>
     <string name="pref_tablet_tv_mode_summary">In landscape, use the wide layout with the side rail. Portrait stays as it is.</string>

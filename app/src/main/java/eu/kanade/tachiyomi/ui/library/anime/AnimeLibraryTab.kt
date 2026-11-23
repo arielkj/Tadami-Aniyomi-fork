@@ -151,6 +151,7 @@ import eu.kanade.presentation.library.anime.AnimeLibraryAuroraContent
 import eu.kanade.presentation.library.anime.AnimeLibraryContent
 import eu.kanade.presentation.library.anime.AnimeLibrarySettingsDialog
 import eu.kanade.presentation.library.components.AnimeLibraryFeaturedHeader
+import eu.kanade.presentation.library.components.LAZY_LIBRARY_GRID_DEFAULT_ADAPTIVE_MIN_CELL_DP
 import eu.kanade.presentation.library.components.LibraryToolbar
 import eu.kanade.presentation.library.components.MangaLibraryFeaturedHeader
 import eu.kanade.presentation.library.manga.MangaLibraryAuroraContent
@@ -886,7 +887,18 @@ data object AnimeLibraryTab : Tab {
                                 // portada de "Seguir viendo" tenga el mismo
                                 // tamaño que las de la cuadrícula.
                                 columns = animeColumns,
-                                adaptiveMinCellDp = auroraAdaptiveSpec.compactGridAdaptiveMinCellDp,
+                                // v7.9.38: la celda mínima adaptable tiene
+                                // que ser la MISMA que usa la rejilla para
+                                // el modo activo, o el cálculo de la celda
+                                // sale distinto: la compacta usa el valor
+                                // por defecto de la rejilla (128dp), la de
+                                // solo portadas su propio valor y la cómoda
+                                // el suyo.
+                                adaptiveMinCellDp = when (animeDisplayMode) {
+                                    LibraryDisplayMode.CompactGrid -> LAZY_LIBRARY_GRID_DEFAULT_ADAPTIVE_MIN_CELL_DP
+                                    LibraryDisplayMode.CoverOnlyGrid -> auroraAdaptiveSpec.coverOnlyGridAdaptiveMinCellDp
+                                    else -> auroraAdaptiveSpec.comfortableGridAdaptiveMinCellDp
+                                },
                                 // v7.9.15: fuentes ocultas en Ajustes
                                 // (privacidad) y avance automático del
                                 // destacado solo si el encabezado está
@@ -902,9 +914,12 @@ data object AnimeLibraryTab : Tab {
                                 // modo de vista, para que la portada de
                                 // "Seguir viendo" mida EXACTAMENTE lo mismo
                                 // que la de la cuadrícula en la tablet/TV.
+                                // v7.9.38: se pasa el modo de vista entero —
+                                // cada modo dibuja la portada de la cuadrícula
+                                // con su propia geometría.
                                 isWideLayout = auroraAdaptiveSpec.deviceClass != AuroraDeviceClass.Phone,
                                 useGlowContourCards = auroraCardStyle == AuroraLibraryCardStyle.GlowContour,
-                                showMetadata = animeDisplayMode != LibraryDisplayMode.CoverOnlyGrid,
+                                displayMode = animeDisplayMode,
                                 onDetailsClick = { item ->
                                     when (item) {
                                         is AnimeLibraryItem.Single -> {
@@ -1177,7 +1192,14 @@ data object AnimeLibraryTab : Tab {
                                 // la rejilla para el tamaño de la portada
                                 // de "Seguir viendo".
                                 columns = mangaColumns,
-                                adaptiveMinCellDp = auroraAdaptiveSpec.compactGridAdaptiveMinCellDp,
+                                // v7.9.38: igual que en anime — la celda
+                                // mínima adaptable tiene que ser la MISMA
+                                // que usa la rejilla para el modo activo.
+                                adaptiveMinCellDp = when (mangaDisplayMode) {
+                                    LibraryDisplayMode.CompactGrid -> LAZY_LIBRARY_GRID_DEFAULT_ADAPTIVE_MIN_CELL_DP
+                                    LibraryDisplayMode.CoverOnlyGrid -> auroraAdaptiveSpec.coverOnlyGridAdaptiveMinCellDp
+                                    else -> auroraAdaptiveSpec.comfortableGridAdaptiveMinCellDp
+                                },
                                 // v7.9.15: igual que en anime — fuentes
                                 // ocultas y avance automático solo con el
                                 // encabezado visible.
@@ -1189,9 +1211,10 @@ data object AnimeLibraryTab : Tab {
                                 // v7.9.37: igual que en anime — diseño ancho,
                                 // estilo de tarjeta y modo de vista para el
                                 // tamaño exacto de la portada en la tablet/TV.
+                                // v7.9.38: se pasa el modo de vista entero.
                                 isWideLayout = auroraAdaptiveSpec.deviceClass != AuroraDeviceClass.Phone,
                                 useGlowContourCards = auroraCardStyle == AuroraLibraryCardStyle.GlowContour,
-                                showMetadata = mangaDisplayMode != LibraryDisplayMode.CoverOnlyGrid,
+                                displayMode = mangaDisplayMode,
                                 onDetailsClick = { item ->
                                     when (item) {
                                         is MangaLibraryItem.Single -> {

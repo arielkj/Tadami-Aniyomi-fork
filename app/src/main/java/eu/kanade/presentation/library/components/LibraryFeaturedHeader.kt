@@ -41,6 +41,7 @@ import eu.kanade.tachiyomi.ui.library.anime.AnimeLibraryItem
 import eu.kanade.tachiyomi.ui.library.manga.MangaLibraryItem
 import tachiyomi.domain.entries.anime.model.AnimeCover
 import tachiyomi.domain.entries.manga.model.MangaCover
+import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -171,9 +172,13 @@ fun AnimeLibraryFeaturedHeader(
     headerVisible: () -> Boolean = { true },
     // v7.9.37: tamaño exacto de la portada de la cuadrícula para
     // "Seguir viendo" en el diseño ancho (tablet/TV).
+    // v7.9.38: el modo de vista de la biblioteca (CompactGrid /
+    // ComfortableGrid / CoverOnlyGrid) — cada uno dibuja la portada de
+    // la cuadrícula con una geometría distinta y "Seguir viendo" tiene
+    // que copiar la del modo activo, no una fórmula única.
     isWideLayout: Boolean = false,
     useGlowContourCards: Boolean = true,
-    showMetadata: Boolean = true,
+    displayMode: LibraryDisplayMode = LibraryDisplayMode.ComfortableGrid,
 ) {
     // v7.9.15: primero se quitan las fuentes ocultas — TODO lo de
     // abajo (en curso, destacado y sus respaldos) sale de los visibles,
@@ -236,7 +241,7 @@ fun AnimeLibraryFeaturedHeader(
         headerVisible = headerVisible,
         isWideLayout = isWideLayout,
         useGlowContourCards = useGlowContourCards,
-        showMetadata = showMetadata,
+        displayMode = displayMode,
     )
 }
 
@@ -261,9 +266,11 @@ fun MangaLibraryFeaturedHeader(
     headerVisible: () -> Boolean = { true },
     // v7.9.37: tamaño exacto de la portada de la cuadrícula para
     // "Seguir viendo" en el diseño ancho (tablet/TV).
+    // v7.9.38: el modo de vista de la biblioteca (ver el comentario en
+    // el encabezado de anime).
     isWideLayout: Boolean = false,
     useGlowContourCards: Boolean = true,
-    showMetadata: Boolean = true,
+    displayMode: LibraryDisplayMode = LibraryDisplayMode.ComfortableGrid,
 ) {
     // v7.9.15: primero se quitan las fuentes ocultas (ver el comentario
     // en el destacado de anime).
@@ -313,7 +320,7 @@ fun MangaLibraryFeaturedHeader(
         headerVisible = headerVisible,
         isWideLayout = isWideLayout,
         useGlowContourCards = useGlowContourCards,
-        showMetadata = showMetadata,
+        displayMode = displayMode,
     )
 }
 
@@ -331,9 +338,11 @@ private fun LibraryFeaturedHeaderContent(
     // viendo" mide EXACTAMENTE lo mismo que la portada de la
     // cuadrícula de la biblioteca (ancho y alto). En el teléfono se
     // queda la regla de la v7.9.18 (ancho = celda − 8dp, 2:3).
+    // v7.9.38: el modo de vista de la biblioteca (ver el comentario en
+    // el encabezado de anime).
     isWideLayout: Boolean = false,
     useGlowContourCards: Boolean = true,
-    showMetadata: Boolean = true,
+    displayMode: LibraryDisplayMode = LibraryDisplayMode.ComfortableGrid,
 ) {
     if (featuredEntries.isEmpty() && continueEntries.isEmpty()) return
     Column(modifier = modifier.fillMaxWidth()) {
@@ -376,26 +385,41 @@ private fun LibraryFeaturedHeaderContent(
                 // ítem lleva 4dp de padding por lado (GridItemSelectable).
                 // v7.9.37: en el diseño ancho (tablet/TV) la portada de
                 // "Seguir viendo" mide EXACTAMENTE lo mismo que la de la
-                // cuadrícula, no solo el mismo ancho. En el teléfono la
-                // regla de la v7.9.18 basta (ahí la diferencia de alto
-                // es solo ~13%). En la tablet con tarjetas Estándar la
-                // portada de la cuadrícula solo ocupa el 65% de una
-                // tarjeta de proporción 0.66 (Cómoda) o 0.6 (solo
-                // portadas), así que la portada 2:3 salía ~1.5x más alta
-                // que la de la biblioteca. Con tarjetas GlowContour la
-                // portada llena la tarjeta menos su padding de 4dp por
-                // lado (tarjeta de proporción 0.76).
+                // cuadrícula, no solo el mismo ancho.
+                // v7.9.38: la v7.9.37 usó UNA fórmula para las tarjetas
+                // Estándar (celda × celda/0.66×0.65) y en la rejilla
+                // compacta del usuario salió al revés: más ancha y más
+                // baja que la de la biblioteca. Cada modo dibuja la
+                // portada de la cuadrícula con su propia geometría
+                // (leída de los ítems de la rejilla, no adivinada):
+                // - GlowContour (todos los modos): la tarjeta llena la
+                //   celda con proporción 0.76 y su superficie lleva 4dp
+                //   de padding por lado; la portada llena la superficie.
+                // - Estándar Cómoda: AuroraCard de proporción 0.66 y la
+                //   portada ocupa el 68% del alto de la tarjeta
+                //   (coverHeightFraction 0.68), sin padding.
+                // - Estándar solo portadas: AuroraCard de proporción 0.6
+                //   y la portada llena toda la tarjeta (fracción 1.0).
+                // - Estándar compacta: EntryCompactGridItem, con
+                //   GridItemSelectable (4dp de padding por lado) y la
+                //   portada en proporción 2:3 (ItemCover.Book).
                 val (coverWidth, coverHeight) = if (isWideLayout) {
-                    if (useGlowContourCards) {
-                        val w = (gridCellWidth - 8.dp).coerceAtLeast(0.dp)
-                        val h = (gridCellWidth / 0.76f - 8.dp).coerceAtLeast(0.dp)
-                        w to h
-                    } else if (showMetadata) {
-                        // Estándar, Cómoda: tarjeta 0.66, portada 65% del alto.
-                        gridCellWidth to gridCellWidth / 0.66f * 0.65f
-                    } else {
-                        // Estándar, solo portadas: tarjeta 0.6, portada 65% del alto.
-                        gridCellWidth to gridCellWidth / 0.6f * 0.65f
+                    when {
+                        useGlowContourCards -> {
+                            val w = (gridCellWidth - 8.dp).coerceAtLeast(0.dp)
+                            val h = (gridCellWidth / 0.76f - 8.dp).coerceAtLeast(0.dp)
+                            w to h
+                        }
+                        displayMode == LibraryDisplayMode.CompactGrid -> {
+                            val w = (gridCellWidth - 8.dp).coerceAtLeast(0.dp)
+                            w to (w / (2f / 3f)).coerceAtLeast(0.dp)
+                        }
+                        displayMode == LibraryDisplayMode.CoverOnlyGrid -> {
+                            gridCellWidth to (gridCellWidth / 0.6f).coerceAtLeast(0.dp)
+                        }
+                        else -> {
+                            gridCellWidth to (gridCellWidth / 0.66f * 0.68f).coerceAtLeast(0.dp)
+                        }
                     }
                 } else {
                     val w = (gridCellWidth - 8.dp).coerceAtLeast(0.dp)

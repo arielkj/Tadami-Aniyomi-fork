@@ -68,6 +68,8 @@ import java.util.Date
  * No account, no server: both devices on the same WiFi (or the phone sharing its
  * hotspot), one-time pairing with a 6-digit code. First sync sends the whole selected
  * library; later syncs send only what changed. Downloads are never synced.
+ * v7.9.38 — pairing is ONE-SIDED: only one device types the other's address
+ * and code; the other links itself automatically.
  */
 class DeviceSyncScreen : Screen() {
 
@@ -264,11 +266,14 @@ class DeviceSyncScreen : Screen() {
                         onClick = {
                             scope.launch {
                                 pairMessage = null
-                                val ok = model.pair(peerAddress, peerCode)
-                                pairMessage = if (ok) {
-                                    context.stringResource(MR.strings.device_sync_pair_success)
-                                } else {
-                                    context.stringResource(MR.strings.device_sync_pair_failed)
+                                // v7.9.38: pairing is one-sided — only this
+                                // device types anything; the other links
+                                // itself automatically.
+                                val result = model.pair(peerAddress, peerCode)
+                                pairMessage = when (result) {
+                                    "ok" -> context.stringResource(MR.strings.device_sync_pair_success)
+                                    "invalid_address" -> context.stringResource(MR.strings.device_sync_error_invalid_address)
+                                    else -> context.stringResource(MR.strings.device_sync_pair_failed)
                                 }
                             }
                         },
@@ -308,12 +313,21 @@ class DeviceSyncScreen : Screen() {
                     }
                 }
                 item {
+                    // v7.9.38: the error is a specific code now, not the raw
+                    // exception text — the screen shows what actually went
+                    // wrong (no connection, wrong code, bad address…) so the
+                    // next failure is diagnosable from the screen itself.
                     val statusText = when (val s = syncState) {
                         is DirectSyncState.Success -> stringResource(MR.strings.device_sync_success)
-                        is DirectSyncState.Error -> if (s.message == "no_paired_device") {
-                            stringResource(MR.strings.device_sync_no_paired_device)
-                        } else {
-                            stringResource(MR.strings.device_sync_failed, s.message)
+                        is DirectSyncState.Error -> when (s.message) {
+                            "no_paired_device" -> stringResource(MR.strings.device_sync_no_paired_device)
+                            "invalid_address" -> stringResource(MR.strings.device_sync_error_invalid_address)
+                            "unreachable_host" -> stringResource(MR.strings.device_sync_error_unreachable_host)
+                            "cannot_connect" -> stringResource(MR.strings.device_sync_error_cannot_connect)
+                            "wrong_code" -> stringResource(MR.strings.device_sync_error_wrong_code)
+                            "bad_response" -> stringResource(MR.strings.device_sync_error_bad_response)
+                            "apply_failed" -> stringResource(MR.strings.device_sync_error_apply_failed)
+                            else -> stringResource(MR.strings.device_sync_failed, s.message)
                         }
                         else -> null
                     }
@@ -452,13 +466,18 @@ private class DeviceSyncScreenModel(
         }
     }
 
-    suspend fun pair(address: String, code: String): Boolean {
+    /**
+     * v7.9.38 — returns the pairing result: "ok", "invalid_address" (the
+     * typed address cannot be used) or "failed". Pairing is one-sided:
+     * only this device types anything; the peer links itself.
+     */
+    suspend fun pair(address: String, code: String): String {
         return try {
-            val ok = manager.pair(address, code)
+            val result = manager.pair(address, code)
             refreshServerInfo()
-            ok
+            result
         } catch (e: Exception) {
-            false
+            "failed"
         }
     }
 

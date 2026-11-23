@@ -140,9 +140,21 @@ class DirectSyncServer(
                     if (request == null || request.code != expected || expected.isEmpty()) {
                         writeResponse(socket, 401, json.encodeToString(DirectSyncPairResponse(ok = false, error = "wrong_code")))
                     } else {
+                        // v7.9.38 — one-sided pairing: the sender already
+                        // sent its own address and code, so THIS device
+                        // links itself automatically — the user never has
+                        // to type anything here. Never store the bare
+                        // socket IP: v7.9.37 stored hostAddress with no
+                        // port, so the next sync went to port 80 and
+                        // failed ("Failed to connect to /…:80").
                         prefs.pairedDeviceId().set(request.deviceId)
                         prefs.pairedDeviceName().set(request.deviceName)
-                        prefs.pairedDeviceAddress().set(socket.inetAddress.hostAddress)
+                        val peerAddress = DirectSyncAddress.normalize(request.ownAddress)
+                            ?: "${socket.inetAddress.hostAddress}:${DeviceSyncPreferences.DEFAULT_PORT}"
+                        prefs.pairedDeviceAddress().set(peerAddress)
+                        if (request.ownCode.isNotBlank()) {
+                            prefs.pairedDeviceCode().set(request.ownCode)
+                        }
                         val response = DirectSyncPairResponse(
                             ok = true,
                             deviceId = deviceId,

@@ -25,12 +25,14 @@ class DirectSyncClient(
     private val jsonMediaType = "application/json".toMediaType()
 
     private fun url(address: String, path: String): String {
-        val host = address.trim()
-        return if (host.startsWith("http://") || host.startsWith("https://")) {
-            host.trimEnd('/') + path
-        } else {
-            "http://$host$path"
-        }
+        // v7.9.38: never build a URL from a raw address — a port-less
+        // address silently became port 80 ("Failed to connect to
+        // /192.168.0.141:80"). Normalize first (missing port -> 27801);
+        // an unusable address fails here with a specific error instead
+        // of a connection to the wrong port.
+        val normalized = DirectSyncAddress.normalize(address)
+            ?: throw IllegalArgumentException("invalid_address")
+        return "http://$normalized$path"
     }
 
     /** Reachability + identity check. Throws on failure. */
@@ -43,9 +45,26 @@ class DirectSyncClient(
         }
     }
 
-    /** One-time pairing: sends this device's id/name + the code typed by the user. */
-    fun pair(address: String, code: String, ownId: String, ownName: String): DirectSyncPairResponse {
-        val payload = DirectSyncPairRequest(deviceId = ownId, deviceName = ownName, code = code)
+    /**
+     * One-time pairing: sends this device's id/name + the code typed by the user.
+     * v7.9.38 — one-sided pairing: also sends this device's own WiFi address
+     * and its own pairing code, so the other device links itself automatically.
+     */
+    fun pair(
+        address: String,
+        code: String,
+        ownId: String,
+        ownName: String,
+        ownAddress: String = "",
+        ownCode: String = "",
+    ): DirectSyncPairResponse {
+        val payload = DirectSyncPairRequest(
+            deviceId = ownId,
+            deviceName = ownName,
+            code = code,
+            ownAddress = ownAddress,
+            ownCode = ownCode,
+        )
         val request = Request.Builder()
             .url(url(address, "/sync/pair"))
             .post(json.encodeToString(payload).toRequestBody(jsonMediaType))
