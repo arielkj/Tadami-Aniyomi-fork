@@ -29,6 +29,7 @@ import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationJob
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationRunState
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
 import tachiyomi.core.common.util.lang.launchIO
 import tachiyomi.domain.entries.anime.interactor.GetAnimeFavorites
@@ -352,7 +353,11 @@ class AutoMigrationScreenModel(
             }
         }
         screenModelScope.launchIO {
-            AutoMigrationStore.runStateFlow.collect { run ->
+            // Fluidity: the worker updates the run state up to twice per
+            // entry (and back-to-back in the apply phase). Sampling
+            // coalesces those bursts into at most one recomposition
+            // every 300 ms — progress still looks live.
+            AutoMigrationStore.runStateFlow.sample(300).collect { run ->
                 val matching = run?.takeIf { it.isManga == isManga && it.sourceId == sourceId }
                 val otherActive = run != null && run.isRunning && matching == null
                 mutableState.update {

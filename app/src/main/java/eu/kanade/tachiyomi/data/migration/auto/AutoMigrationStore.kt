@@ -43,6 +43,9 @@ class AutoMigrationStore(
 
     private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    /** Last run-state disk write, ms — see persistRunState. */
+    private var lastRunStatePersistMs = 0L
+
     init {
         // Restore persisted state into the shared flows (e.g. after the
         // process was killed while a run was active).
@@ -119,7 +122,7 @@ class AutoMigrationStore(
                 finishedAt = System.currentTimeMillis(),
             )
             runStateFlowInternal.value = updated
-            persistRunState(updated)
+            persistRunState(updated, force = true)
         }
     }
 
@@ -215,7 +218,15 @@ class AutoMigrationStore(
         }
     }
 
-    private fun persistRunState(state: AutoMigrationRunState) {
+    private fun persistRunState(state: AutoMigrationRunState, force: Boolean = false) {
+        // Fluidity: progress updates arrive up to twice per entry (and
+        // back-to-back in the apply phase, with no search delay). The
+        // in-memory flow always updates at once, but the disk write is
+        // throttled to one per 500 ms — finishRun forces it so the
+        // final state is never lost.
+        val now = System.currentTimeMillis()
+        if (!force && now - lastRunStatePersistMs < 500) return
+        lastRunStatePersistMs = now
         preferences.edit { putString(KEY_RUN_STATE, json.encodeToString(state)) }
     }
 

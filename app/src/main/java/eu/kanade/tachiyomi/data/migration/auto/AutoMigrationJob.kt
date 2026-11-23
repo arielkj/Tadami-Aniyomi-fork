@@ -133,8 +133,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
         var failed = 0
         for ((index, pair) in pairs.withIndex()) {
             coroutineContext.ensureActive()
-            store.updateRun { it.copy(processed = index, currentTitle = pair.oldTitle) }
-            postProgressNotification()
+            store.updateRun { it.copy(currentTitle = pair.oldTitle) }
             try {
                 val oldManga = getManga.await(pair.oldEntryId)
                 val target = getManga.await(pair.newEntryId)
@@ -158,7 +157,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
             store.updateRun {
                 it.copy(processed = index + 1, autoMigrated = applied, failed = failed, currentTitle = null)
             }
-            postProgressNotification()
+            postProgressNotificationThrottled()
         }
 
         store.finishRun(AutoMigrationRunState.STATUS_FINISHED)
@@ -180,8 +179,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
         var failed = 0
         for ((index, pair) in pairs.withIndex()) {
             coroutineContext.ensureActive()
-            store.updateRun { it.copy(processed = index, currentTitle = pair.oldTitle) }
-            postProgressNotification()
+            store.updateRun { it.copy(currentTitle = pair.oldTitle) }
             try {
                 val oldAnime = getAnime.await(pair.oldEntryId)
                 val target = getAnime.await(pair.newEntryId)
@@ -205,7 +203,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
             store.updateRun {
                 it.copy(processed = index + 1, autoMigrated = applied, failed = failed, currentTitle = null)
             }
-            postProgressNotification()
+            postProgressNotificationThrottled()
         }
 
         store.finishRun(AutoMigrationRunState.STATUS_FINISHED)
@@ -227,8 +225,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
 
         for ((index, entry) in entries.withIndex()) {
             coroutineContext.ensureActive()
-            store.updateRun { it.copy(processed = index, currentTitle = entry.title) }
-            postProgressNotification()
+            store.updateRun { it.copy(currentTitle = entry.title) }
 
             try {
                 val queries = migrationQueries(entry.title, entry.description)
@@ -286,7 +283,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
                     currentTitle = null,
                 )
             }
-            postProgressNotification()
+            postProgressNotificationThrottled()
         }
 
         finishSearch(staged, awaitingReview)
@@ -307,8 +304,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
 
         for ((index, entry) in entries.withIndex()) {
             coroutineContext.ensureActive()
-            store.updateRun { it.copy(processed = index, currentTitle = entry.title) }
-            postProgressNotification()
+            store.updateRun { it.copy(currentTitle = entry.title) }
 
             try {
                 // Season-type entries are never auto-migrated: the
@@ -393,7 +389,7 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
                     currentTitle = null,
                 )
             }
-            postProgressNotification()
+            postProgressNotificationThrottled()
         }
 
         finishSearch(staged, awaitingReview)
@@ -447,6 +443,22 @@ class AutoMigrationJob(context: Context, workerParams: WorkerParameters) : Corou
         }.build()
         NotificationManagerCompat.from(applicationContext)
             .notify(Notifications.ID_AUTO_MIGRATION_PROGRESS, notification)
+    }
+
+    /** Last progress-notification post, ms. */
+    private var lastProgressNotifyMs = 0L
+
+    /**
+     * Fluidity: the apply phase migrates pairs back-to-back with no
+     * search delay, so an unthrottled notification per pair would spam
+     * SystemUI. At most one progress notification per second; the
+     * final one is always posted by postFinishedNotification.
+     */
+    private fun postProgressNotificationThrottled() {
+        val now = System.currentTimeMillis()
+        if (now - lastProgressNotifyMs < 1000) return
+        lastProgressNotifyMs = now
+        postProgressNotification()
     }
 
     private fun postFinishedNotification(cancelled: Boolean) {

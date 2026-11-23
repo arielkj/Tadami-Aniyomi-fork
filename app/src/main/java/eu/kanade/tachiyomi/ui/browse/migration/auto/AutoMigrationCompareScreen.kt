@@ -53,6 +53,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.launchIO
@@ -97,7 +98,7 @@ data class AutoMigrationCompareScreen(
     @Composable
     override fun Content() {
         val navigator = LocalNavigator.currentOrThrow
-        val screenModel = rememberScreenModel { AutoMigrationCompareScreenModel(isManga, sourceId) }
+        val screenModel = rememberScreenModel { AutoMigrationCompareScreenModel(isManga, sourceId, section) }
         val state by screenModel.state.collectAsStateWithLifecycle()
 
         val titleRes = when (section) {
@@ -534,6 +535,10 @@ data class AutoMigrationCompareScreen(
 class AutoMigrationCompareScreenModel(
     private val isManga: Boolean,
     private val sourceId: Long,
+    /** Which summary section opened this screen — only that section's
+     * data is subscribed to and counted (load only what the user
+     * is actually looking at). */
+    private val section: Int,
     private val store: AutoMigrationStore = AutoMigrationStore(Injekt.get<Application>()),
     private val getManga: GetManga = Injekt.get(),
     private val getAnime: GetAnime = Injekt.get(),
@@ -543,9 +548,23 @@ class AutoMigrationCompareScreenModel(
 
     init {
         screenModelScope.launchIO {
+            // Load only what this section shows: staged pairs for the
+            // staged section, review items otherwise. The other flow
+            // is never subscribed to, so opening one section loads
+            // nothing for the sections the user has not opened.
+            val pairsFlow = if (section == AutoMigrationCompareScreen.SECTION_STAGED) {
+                AutoMigrationStore.stagedPairsFlow
+            } else {
+                flowOf(emptyList())
+            }
+            val itemsFlow = if (section == AutoMigrationCompareScreen.SECTION_STAGED) {
+                flowOf(emptyList())
+            } else {
+                AutoMigrationStore.reviewItemsFlow
+            }
             combine(
-                AutoMigrationStore.stagedPairsFlow,
-                AutoMigrationStore.reviewItemsFlow,
+                pairsFlow,
+                itemsFlow,
             ) { pairs, items -> pairs to items }.collect { (pairs, items) ->
                 val myPairs = pairs
                     .filter { it.isManga == isManga && it.sourceId == sourceId }
@@ -564,11 +583,23 @@ class AutoMigrationCompareScreenModel(
         pairs: ImmutableList<AutoMigrationStagedPair>,
         items: ImmutableList<AutoMigrationReviewItem>,
     ) {
+        // Load only what this section shows: staged pairs for the
+        // staged section, review items otherwise. Counts for the
+        // other sections' entries are never fetched.
         val ids = mutableSetOf<Long>()
-        pairs.forEach { ids += it.oldEntryId; ids += it.newEntryId }
-        items.forEach { item ->
-            ids += item.entryId
-            item.candidates.forEach { ids += it.entryId }
+        when (section) {
+            AutoMigrationCompareScreen.SECTION_STAGED -> {
+                pairs.forEach { ids += it.oldEntryId; ids += it.newEntryId }
+            }
+            AutoMigrationCompareScreen.SECTION_REVIEW -> {
+                items.filter { it.candidates.isNotEmpty() }.forEach { item ->
+                    ids += item.entryId
+                    item.candidates.forEach { ids += it.entryId }
+                }
+            }
+            else -> {
+                items.filter { it.candidates.isEmpty() }.forEach { ids += it.entryId }
+            }
         }
         val missing = ids.filter { it !in mutableState.value.counts }
         if (missing.isEmpty()) return
