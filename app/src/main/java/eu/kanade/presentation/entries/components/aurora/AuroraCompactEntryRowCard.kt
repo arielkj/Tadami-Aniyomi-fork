@@ -5,8 +5,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -39,6 +41,9 @@ fun AuroraCompactEntryRowCard(
     outerVerticalPadding: Dp = 6.dp,
     contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
     hazeState: HazeState? = null,
+    // v7.9.40: flat rows on pure black (tablet/TV two-pane detail, mockup
+    // v3) — no card background or border, just a hairline divider.
+    flat: Boolean = false,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
@@ -48,6 +53,30 @@ fun AuroraCompactEntryRowCard(
         selected -> colors.accent.copy(alpha = 0.14f)
         highlighted -> colors.accent.copy(alpha = 0.055f)
         else -> Color.Transparent
+    }
+
+    if (flat) {
+        Column(modifier = modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(overlayColor)
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongClick,
+                    )
+                    .padding(contentPadding),
+            ) {
+                content()
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(colors.divider),
+            )
+        }
+        return
     }
 
     // Frost family of the title-screen hero panel: live blur under a translucent surface.

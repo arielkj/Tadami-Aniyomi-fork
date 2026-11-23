@@ -84,6 +84,9 @@ import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.domain.ui.model.TitleScreenStyle
 import eu.kanade.presentation.components.AuroraBackground
+import eu.kanade.presentation.components.AuroraCoverPlaceholderVariant
+import eu.kanade.presentation.components.rememberAuroraCoverPlaceholderPainter
+import eu.kanade.presentation.components.rememberCoverReloadTick
 import eu.kanade.presentation.components.EntryDownloadDropdownMenu
 import eu.kanade.presentation.components.relativeDateTimeText
 import eu.kanade.presentation.entries.DownloadAction
@@ -95,6 +98,7 @@ import eu.kanade.presentation.entries.components.EntryBottomActionMenu
 import eu.kanade.presentation.entries.components.FinaleStamp
 import eu.kanade.presentation.entries.components.MissingItemCountListItem
 import eu.kanade.presentation.entries.components.ResolvedCover
+import eu.kanade.presentation.entries.components.aurora.AuroraDetailCoverBanner
 import eu.kanade.presentation.entries.components.aurora.AuroraTitleHeroActionFab
 import eu.kanade.presentation.entries.components.aurora.AuroraTitleStaggerState
 import eu.kanade.presentation.entries.components.aurora.AuroraZIndex
@@ -135,6 +139,8 @@ import eu.kanade.presentation.theme.aurora.adaptive.AuroraDeviceClass
 import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
 import eu.kanade.presentation.theme.aurora.adaptive.resolveAuroraAdaptiveSpec
 import eu.kanade.presentation.theme.auroraHeaderIconSurface
+import eu.kanade.tachiyomi.data.cache.MangaCoverCache
+import eu.kanade.tachiyomi.data.coil.AuroraPosterRequest
 import eu.kanade.tachiyomi.data.download.manga.model.MangaDownload
 import eu.kanade.tachiyomi.source.manga.getNameForMangaInfo
 import eu.kanade.tachiyomi.source.model.SManga
@@ -150,6 +156,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.launch
 import tachiyomi.domain.entries.manga.model.Manga
+import tachiyomi.domain.entries.manga.model.MangaCover
 import tachiyomi.domain.items.chapter.model.Chapter
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.metadata.model.MetadataSource
@@ -581,21 +588,34 @@ fun MangaScreenAuroraImpl(
             // The haze source is scoped to the background layer only: the top
             // bar lenses must blur the poster/aurora backdrop, never the
             // scrolling list content passing underneath them.
-            MangaAuroraBackgroundLayer(
-                manga = manga,
-                titleScreenStyle = titleScreenStyle,
-                scrollOffsetState = scrollOffsetState,
-                firstVisibleItemIndexState = firstVisibleItemIndexState,
-                resolvedCover = resolvedCover,
-                refererUrl = refererUrl,
-                sourceHeaders = sourceHeaders,
-                sourceClient = sourceClient,
-                hazeState = hazeState,
-                titleStaggerState = titleStaggerState,
-                showFinishedStamp = showFinishedStamp,
-                finishedStampDate = finishedStampDate,
-                colors = colors,
-            )
+            // v7.9.40: the tablet/TV two-pane detail is pure black — the
+            // poster never becomes a full-bleed backdrop, so the chapter
+            // list stays legible. The haze source stays attached so the
+            // top-bar lenses keep blurring (black).
+            if (useTwoPaneLayout) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                        .hazeSource(state = hazeState),
+                )
+            } else {
+                MangaAuroraBackgroundLayer(
+                    manga = manga,
+                    titleScreenStyle = titleScreenStyle,
+                    scrollOffsetState = scrollOffsetState,
+                    firstVisibleItemIndexState = firstVisibleItemIndexState,
+                    resolvedCover = resolvedCover,
+                    refererUrl = refererUrl,
+                    sourceHeaders = sourceHeaders,
+                    sourceClient = sourceClient,
+                    hazeState = hazeState,
+                    titleStaggerState = titleStaggerState,
+                    showFinishedStamp = showFinishedStamp,
+                    finishedStampDate = finishedStampDate,
+                    colors = colors,
+                )
+            }
 
             if (useTwoPaneLayout) {
                 TwoPanelBox(
@@ -969,6 +989,44 @@ private fun MangaAuroraTwoPaneStartContent(
     var genresExpanded by genresExpandedState
     val topContentPadding = 96.dp
 
+    // v7.9.40: cover resolution for the contained banner card (same poster
+    // logic as the glass hero card: custom cover wins, then the resolved
+    // full cover, then the list thumbnail).
+    val placeholderPainter = rememberAuroraCoverPlaceholderPainter(AuroraCoverPlaceholderVariant.Portrait)
+    val coverReloadTick = rememberCoverReloadTick()
+    val coverCache = remember { Injekt.get<MangaCoverCache>() }
+    val customCoverFile = remember(manga.id, manga.coverLastModified) {
+        coverCache.getCustomCoverFile(manga.id).takeIf { it.exists() }
+    }
+    val posterRequest = remember(
+        resolvedCover,
+        refererUrl,
+        sourceHeaders,
+        sourceClient,
+        manga.thumbnailUrl,
+        customCoverFile,
+        manga.coverLastModified,
+    ) {
+        AuroraPosterRequest(
+            primaryUrl = resolvedCover.coverUrl?.takeIf { it.isNotBlank() },
+            fallbackUrl = resolvedCover.coverUrlFallback?.takeIf { it.isNotBlank() } ?: manga.thumbnailUrl,
+            refererUrl = refererUrl?.takeIf { it.isNotBlank() },
+            headers = sourceHeaders,
+            client = sourceClient,
+            customCoverFile = customCoverFile,
+            coverLastModified = manga.coverLastModified,
+        )
+    }
+    val previewCoverModel = remember(manga.id) {
+        MangaCover(
+            mangaId = manga.id,
+            sourceId = manga.source,
+            isMangaFavorite = manga.favorite,
+            url = manga.thumbnailUrl,
+            lastModified = manga.coverLastModified,
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -988,6 +1046,23 @@ private fun MangaAuroraTwoPaneStartContent(
                 ),
         ) {
             if (titleScreenStyle == TitleScreenStyle.POSTER_IMMERSIVE) {
+                // v7.9.40: the cover lives in a card here — the full-bleed
+                // poster backdrop is gone on this pane (mockup v3).
+                AuroraDetailCoverBanner(
+                    entryId = manga.id,
+                    posterRequest = posterRequest,
+                    previewCoverModel = previewCoverModel,
+                    placeholderPainter = placeholderPainter,
+                    reloadTick = coverReloadTick,
+                    onCoverClicked = onCoverClicked,
+                    showFinishedStamp = showFinishedStamp,
+                    finishedStampDate = finishedStampDate,
+                    accent = colors.accent,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .titleScreenStagger(titleStaggerState, 1),
+                )
+                Spacer(modifier = Modifier.height(12.dp))
                 MangaDetailHero(
                     manga = manga,
                     translation = translation,

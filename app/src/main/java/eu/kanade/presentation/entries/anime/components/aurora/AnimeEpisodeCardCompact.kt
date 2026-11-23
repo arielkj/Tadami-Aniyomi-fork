@@ -87,6 +87,8 @@ fun AnimeEpisodeCardCompact(
     showPreviews: Boolean = true,
     showSummaries: Boolean = true,
     density: EpisodeListDensity = EpisodeListDensity.Comfortable,
+    // v7.9.40: flat rows on pure black for the tablet/TV two-pane detail.
+    flat: Boolean = false,
 ) {
     val colors = AuroraTheme.colors
     val episode = item.episode
@@ -164,6 +166,7 @@ fun AnimeEpisodeCardCompact(
             cornerRadius = cardCornerRadius,
             outerVerticalPadding = cardOuterVerticalPadding,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = cardContentVerticalPadding),
+            flat = flat,
             onClick = onClick,
             onLongClick = onLongClick,
         ) {
