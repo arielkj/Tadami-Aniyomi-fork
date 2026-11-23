@@ -1,6 +1,6 @@
 package eu.kanade.domain.sync
 
-import eu.kanade.tachiyomi.core.preference.PreferenceStore
+import tachiyomi.core.common.preference.PreferenceStore
 
 /**
  * v7.9.36 — Preferences for direct device-to-device library sync (no account, no server).
