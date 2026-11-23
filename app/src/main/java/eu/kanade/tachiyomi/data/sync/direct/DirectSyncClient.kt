@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.data.sync.direct
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -49,12 +51,16 @@ class DirectSyncClient(
     }
 
     /** Reachability + identity check. Throws on failure. */
-    fun info(address: String): DirectSyncInfo {
+    // v7.9.41: suspend + Dispatchers.IO — OkHttp execute() is blocking.
+    // Called from pair(), which was already IO, but a future caller on
+    // the Main thread would otherwise hit NetworkOnMainThreadException,
+    // exactly what "Sincronizar ahora" did in v7.9.39/40 via exchange().
+    suspend fun info(address: String): DirectSyncInfo = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url(address, "/sync/info")).get().build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             check(response.isSuccessful) { "info failed: ${response.code}" }
-            return json.decodeFromString(body)
+            json.decodeFromString(body)
         }
     }
 
@@ -63,14 +69,15 @@ class DirectSyncClient(
      * v7.9.38 — one-sided pairing: also sends this device's own WiFi address
      * and its own pairing code, so the other device links itself automatically.
      */
-    fun pair(
+    // v7.9.41: suspend + Dispatchers.IO, same reason as info() above.
+    suspend fun pair(
         address: String,
         code: String,
         ownId: String,
         ownName: String,
         ownAddress: String = "",
         ownCode: String = "",
-    ): DirectSyncPairResponse {
+    ): DirectSyncPairResponse = withContext(Dispatchers.IO) {
         val payload = DirectSyncPairRequest(
             deviceId = ownId,
             deviceName = ownName,
@@ -86,9 +93,10 @@ class DirectSyncClient(
             val body = response.body?.string().orEmpty()
             val parsed = runCatching { json.decodeFromString<DirectSyncPairResponse>(body) }.getOrNull()
             if (!response.isSuccessful) {
-                return parsed ?: DirectSyncPairResponse(ok = false, error = "http_${response.code}")
+                parsed ?: DirectSyncPairResponse(ok = false, error = "http_${response.code}")
+            } else {
+                parsed ?: DirectSyncPairResponse(ok = false, error = "bad_response")
             }
-            return parsed ?: DirectSyncPairResponse(ok = false, error = "bad_response")
         }
     }
 
@@ -102,7 +110,12 @@ class DirectSyncClient(
      * "sync_failed" — now the status (and the server's error detail, when
      * it sent one) travels with the failure.
      */
-    fun exchange(address: String, code: String, ownId: String, payload: DirectSyncPayload): DirectSyncPayload {
+    // v7.9.41: suspend + Dispatchers.IO. This was the actual crash:
+    // exchange() did blocking OkHttp execute() on whatever thread called
+    // it, and "Sincronizar ahora" calls it from the Main thread (see
+    // DirectSyncManager.syncTo), so Android threw
+    // NetworkOnMainThreadException before a single byte went out.
+    suspend fun exchange(address: String, code: String, ownId: String, payload: DirectSyncPayload): DirectSyncPayload = withContext(Dispatchers.IO) {
         val bodyJson = try {
             json.encodeToString(payload)
         } catch (e: kotlinx.serialization.SerializationException) {
@@ -133,7 +146,7 @@ class DirectSyncClient(
                     }
                 }
             }
-            return try {
+            try {
                 json.decodeFromString(body)
             } catch (e: kotlinx.serialization.SerializationException) {
                 throw DirectSyncFailure("bad_response")

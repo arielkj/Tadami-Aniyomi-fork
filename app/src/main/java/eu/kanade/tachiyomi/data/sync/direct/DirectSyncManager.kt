@@ -170,9 +170,14 @@ class DirectSyncManager(
         return "$address:${server.port}"
     }
 
-    fun startServer() {
+    // v7.9.41: suspend + Dispatchers.IO — ServerSocket creation must
+    // not run on the Main thread. The sync screen calls this from
+    // screenModelScope (Main) on open, and pair() needs the server up
+    // (and its address) before it continues, so this stays synchronous
+    // for the caller, just on IO instead of Main.
+    suspend fun startServer() = withContext(Dispatchers.IO) {
         ensurePairCode()
-        if (server?.isRunning == true) return
+        if (server?.isRunning == true) return@withContext
         val srv = DirectSyncServer(prefs, json, deviceId, ::handleExchange)
         srv.start()
         server = srv
@@ -237,7 +242,17 @@ class DirectSyncManager(
         return syncTo(address, code, silent = false)
     }
 
-    suspend fun syncTo(address: String, code: String, silent: Boolean): DirectSyncState {
+    // v7.9.41: the whole sync runs on Dispatchers.IO. This is the fix
+    // for NetworkOnMainThreadException: "Sincronizar ahora" is launched
+    // from the screen with rememberCoroutineScope() (Main), and syncTo()
+    // used to do everything — buildPayload(), OkHttp execute() in
+    // client.exchange() — on that same Main thread. pair() already had
+    // withContext(Dispatchers.IO); syncTo() did not, which is why
+    // pairing worked and syncing always crashed before sending anything.
+    suspend fun syncTo(address: String, code: String, silent: Boolean): DirectSyncState =
+        withContext(Dispatchers.IO) { syncToInternal(address, code, silent) }
+
+    private suspend fun syncToInternal(address: String, code: String, silent: Boolean): DirectSyncState {
         val normalized = DirectSyncAddress.normalize(address)
             ?: return DirectSyncState.Error("invalid_address").also {
                 if (!silent) _state.value = it
@@ -306,6 +321,9 @@ class DirectSyncManager(
     private fun classifySyncError(e: Exception): String {
         return when {
             e is DirectSyncFailure -> if (e.detail.isBlank()) e.code else "${e.code}|${e.detail}"
+            // v7.9.41: name it explicitly if it ever comes back — a
+            // regression here means some sync path is on Main again.
+            e is android.os.NetworkOnMainThreadException -> "sync_failed|NetworkOnMainThreadException"
             e is IllegalArgumentException && e.message == "invalid_address" -> "invalid_address"
             e is java.net.UnknownHostException -> "unreachable_host"
             e is java.net.ConnectException || e is java.net.SocketTimeoutException -> "cannot_connect"

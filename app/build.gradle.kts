@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 252
+        versionCode = 253
 
-        // v7.9.40: sin Inicio
-        versionName = "0.63.35"
+        // v7.9.41: fix NetworkOnMainThreadException en "Sincronizar ahora" (sync en IO)
+        versionName = "0.63.36"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
