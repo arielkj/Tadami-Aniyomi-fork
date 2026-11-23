@@ -525,7 +525,11 @@ fun PlayerControls(
                         fadeOut(playerControlsExitAnimationSpec())
                     },
                     modifier = Modifier.constrainAs(actionButtons) {
-                        bottom.linkTo(bottomRow.top, spacing.extraSmall)
+                        // Vertically centered on the title block: the
+                        // "+85 s" pill sits level with "Lucky" / episode
+                        // / year instead of floating higher on the right.
+                        top.linkTo(titleBlock.top)
+                        bottom.linkTo(titleBlock.bottom)
                         end.linkTo(parent.end)
                     },
                 ) {
