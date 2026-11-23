@@ -161,6 +161,7 @@ import eu.kanade.presentation.library.novel.components.AddToSeriesDialog
 import eu.kanade.presentation.library.novel.components.CreateSeriesDialog
 import eu.kanade.presentation.more.onboarding.GETTING_STARTED_URL
 import eu.kanade.presentation.theme.AuroraTheme
+import eu.kanade.presentation.theme.aurora.adaptive.AuroraDeviceClass
 import eu.kanade.presentation.theme.aurora.adaptive.auroraCenteredMaxWidth
 import eu.kanade.presentation.theme.aurora.adaptive.rememberAuroraAdaptiveSpec
 import eu.kanade.presentation.theme.auroraHeaderIconSurface
@@ -214,6 +215,7 @@ import tachiyomi.domain.entries.manga.model.Manga
 import tachiyomi.domain.items.episode.model.Episode
 import tachiyomi.domain.library.anime.LibraryAnime
 import tachiyomi.domain.library.manga.LibraryManga
+import tachiyomi.domain.library.model.AuroraLibraryCardStyle
 import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
@@ -524,6 +526,14 @@ data object AnimeLibraryTab : Tab {
         val novelDisplayMode by novelDisplayModePref.changes()
             .collectAsStateWithLifecycle(initialValue = novelDisplayModePref.get())
         val mangaDisplayMode by mangaDisplayModePref
+        // v7.9.37: estilo de tarjeta de la biblioteca (GlowContour /
+        // Estándar) — el encabezado lo usa para calcular el tamaño exacto
+        // de la portada de "Seguir viendo" en el diseño ancho.
+        val auroraCardStylePref = remember {
+            screenModel.libraryPreferences.auroraLibraryCardStyle()
+        }
+        val auroraCardStyle by auroraCardStylePref.changes()
+            .collectAsStateWithLifecycle(initialValue = auroraCardStylePref.get())
         val animeColumnsPortraitPref = remember {
             screenModel.getColumnsPreferenceForCurrentOrientation(false)
         }
@@ -888,6 +898,13 @@ data object AnimeLibraryTab : Tab {
                                     animeHeaderState.heightPx <= 0 ||
                                         animeHeaderState.offsetPx > -animeHeaderState.heightPx / 2f
                                 },
+                                // v7.9.37: diseño ancho + estilo de tarjeta +
+                                // modo de vista, para que la portada de
+                                // "Seguir viendo" mida EXACTAMENTE lo mismo
+                                // que la de la cuadrícula en la tablet/TV.
+                                isWideLayout = auroraAdaptiveSpec.deviceClass != AuroraDeviceClass.Phone,
+                                useGlowContourCards = auroraCardStyle == AuroraLibraryCardStyle.GlowContour,
+                                showMetadata = animeDisplayMode != LibraryDisplayMode.CoverOnlyGrid,
                                 onDetailsClick = { item ->
                                     when (item) {
                                         is AnimeLibraryItem.Single -> {
@@ -1169,6 +1186,12 @@ data object AnimeLibraryTab : Tab {
                                     mangaHeaderState.heightPx <= 0 ||
                                         mangaHeaderState.offsetPx > -mangaHeaderState.heightPx / 2f
                                 },
+                                // v7.9.37: igual que en anime — diseño ancho,
+                                // estilo de tarjeta y modo de vista para el
+                                // tamaño exacto de la portada en la tablet/TV.
+                                isWideLayout = auroraAdaptiveSpec.deviceClass != AuroraDeviceClass.Phone,
+                                useGlowContourCards = auroraCardStyle == AuroraLibraryCardStyle.GlowContour,
+                                showMetadata = mangaDisplayMode != LibraryDisplayMode.CoverOnlyGrid,
                                 onDetailsClick = { item ->
                                     when (item) {
                                         is MangaLibraryItem.Single -> {

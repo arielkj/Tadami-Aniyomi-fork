@@ -169,6 +169,11 @@ fun AnimeLibraryFeaturedHeader(
     // v7.9.15: el avance automático del destacado no corre si el
     // encabezado está colapsado/oculto.
     headerVisible: () -> Boolean = { true },
+    // v7.9.37: tamaño exacto de la portada de la cuadrícula para
+    // "Seguir viendo" en el diseño ancho (tablet/TV).
+    isWideLayout: Boolean = false,
+    useGlowContourCards: Boolean = true,
+    showMetadata: Boolean = true,
 ) {
     // v7.9.15: primero se quitan las fuentes ocultas — TODO lo de
     // abajo (en curso, destacado y sus respaldos) sale de los visibles,
@@ -229,6 +234,9 @@ fun AnimeLibraryFeaturedHeader(
         adaptiveMinCellDp = adaptiveMinCellDp,
         modifier = modifier,
         headerVisible = headerVisible,
+        isWideLayout = isWideLayout,
+        useGlowContourCards = useGlowContourCards,
+        showMetadata = showMetadata,
     )
 }
 
@@ -251,6 +259,11 @@ fun MangaLibraryFeaturedHeader(
     // v7.9.15: el avance automático del destacado no corre si el
     // encabezado está colapsado/oculto.
     headerVisible: () -> Boolean = { true },
+    // v7.9.37: tamaño exacto de la portada de la cuadrícula para
+    // "Seguir viendo" en el diseño ancho (tablet/TV).
+    isWideLayout: Boolean = false,
+    useGlowContourCards: Boolean = true,
+    showMetadata: Boolean = true,
 ) {
     // v7.9.15: primero se quitan las fuentes ocultas (ver el comentario
     // en el destacado de anime).
@@ -298,6 +311,9 @@ fun MangaLibraryFeaturedHeader(
         adaptiveMinCellDp = adaptiveMinCellDp,
         modifier = modifier,
         headerVisible = headerVisible,
+        isWideLayout = isWideLayout,
+        useGlowContourCards = useGlowContourCards,
+        showMetadata = showMetadata,
     )
 }
 
@@ -311,6 +327,13 @@ private fun LibraryFeaturedHeaderContent(
     // v7.9.15: el avance automático del destacado no corre si el
     // encabezado está colapsado/oculto.
     headerVisible: () -> Boolean = { true },
+    // v7.9.37: en el diseño ancho (tablet/TV) la portada de "Seguir
+    // viendo" mide EXACTAMENTE lo mismo que la portada de la
+    // cuadrícula de la biblioteca (ancho y alto). En el teléfono se
+    // queda la regla de la v7.9.18 (ancho = celda − 8dp, 2:3).
+    isWideLayout: Boolean = false,
+    useGlowContourCards: Boolean = true,
+    showMetadata: Boolean = true,
 ) {
     if (featuredEntries.isEmpty() && continueEntries.isEmpty()) return
     Column(modifier = modifier.fillMaxWidth()) {
@@ -351,7 +374,33 @@ private fun LibraryFeaturedHeaderContent(
                 }
                 // La portada de la cuadrícula no llena su celda: cada
                 // ítem lleva 4dp de padding por lado (GridItemSelectable).
-                val coverWidth = (gridCellWidth - 8.dp).coerceAtLeast(0.dp)
+                // v7.9.37: en el diseño ancho (tablet/TV) la portada de
+                // "Seguir viendo" mide EXACTAMENTE lo mismo que la de la
+                // cuadrícula, no solo el mismo ancho. En el teléfono la
+                // regla de la v7.9.18 basta (ahí la diferencia de alto
+                // es solo ~13%). En la tablet con tarjetas Estándar la
+                // portada de la cuadrícula solo ocupa el 65% de una
+                // tarjeta de proporción 0.66 (Cómoda) o 0.6 (solo
+                // portadas), así que la portada 2:3 salía ~1.5x más alta
+                // que la de la biblioteca. Con tarjetas GlowContour la
+                // portada llena la tarjeta menos su padding de 4dp por
+                // lado (tarjeta de proporción 0.76).
+                val (coverWidth, coverHeight) = if (isWideLayout) {
+                    if (useGlowContourCards) {
+                        val w = (gridCellWidth - 8.dp).coerceAtLeast(0.dp)
+                        val h = (gridCellWidth / 0.76f - 8.dp).coerceAtLeast(0.dp)
+                        w to h
+                    } else if (showMetadata) {
+                        // Estándar, Cómoda: tarjeta 0.66, portada 65% del alto.
+                        gridCellWidth to gridCellWidth / 0.66f * 0.65f
+                    } else {
+                        // Estándar, solo portadas: tarjeta 0.6, portada 65% del alto.
+                        gridCellWidth to gridCellWidth / 0.6f * 0.65f
+                    }
+                } else {
+                    val w = (gridCellWidth - 8.dp).coerceAtLeast(0.dp)
+                    w to null
+                }
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -374,6 +423,7 @@ private fun LibraryFeaturedHeaderContent(
                             modifier = Modifier.width(coverWidth + 156.dp),
                             coverWidth = coverWidth,
                             compact = true,
+                            coverHeight = coverHeight,
                         )
                     }
                 }

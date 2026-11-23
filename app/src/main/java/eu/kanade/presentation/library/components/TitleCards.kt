@@ -96,6 +96,11 @@ private val TITLE_CARD_CORNER = 4.dp
  * MISMO diseño, solo más pequeño — la portada pasa a `coverWidth` (el
  * tamaño de las de la biblioteca), menos padding y textos un poco más
  * chicos. El destacado usa los valores grandes de siempre.
+ *
+ * `coverHeight` (v7.9.37, solo el diseño ancho de tablet/TV): cuando
+ * viene, la portada mide `coverWidth` x `coverHeight` exactos (el
+ * tamaño de la portada de la cuadrícula); sin él, la proporción 2:3
+ * de siempre.
  */
 @Composable
 fun TitleCardSide(
@@ -111,6 +116,7 @@ fun TitleCardSide(
     modifier: Modifier = Modifier,
     coverWidth: Dp = 144.dp,
     compact: Boolean = false,
+    coverHeight: Dp? = null,
 ) {
     val colors = AuroraTheme.colors
     val isManga = type == stringResource(AYMR.strings.label_manga)
@@ -119,6 +125,11 @@ fun TitleCardSide(
     val secondLine = listOfNotNull(quantity, status).joinToString(" · ")
     val padding = if (compact) 8.dp else 10.dp
     val spacing = if (compact) 10.dp else 14.dp
+    val coverModifier = if (coverHeight != null) {
+        Modifier.width(coverWidth).height(coverHeight)
+    } else {
+        Modifier.width(coverWidth).aspectRatio(2f / 3f)
+    }
     Card(
         onClick = onClick,
         shape = RoundedCornerShape(TITLE_CARD_CORNER),
@@ -133,8 +144,7 @@ fun TitleCardSide(
                 cover = cover,
                 variant = AuroraCoverPlaceholderVariant.Portrait,
                 modifier = Modifier
-                    .width(coverWidth)
-                    .aspectRatio(2f / 3f)
+                    .then(coverModifier)
                     .clip(RoundedCornerShape(TITLE_CARD_CORNER)),
             )
             Column(
