@@ -53,6 +53,19 @@ data class DirectSyncPairResponse(
     val error: String? = null,
 )
 
+/**
+ * v7.9.39 — error body the server returns instead of dropping the
+ * connection: [error] is a stable code ("server_failed", "bad_payload"…),
+ * [detail] names what actually went wrong (step + exception) so the
+ * phone can show the real cause instead of the generic "sync_failed".
+ */
+@Serializable
+data class DirectSyncErrorBody(
+    val ok: Boolean = false,
+    val error: String = "",
+    val detail: String = "",
+)
+
 @Serializable
 data class DirectSyncInfo(
     val deviceId: String,

@@ -10,6 +10,15 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
 /**
+ * v7.9.39 — a sync failure with a stable [code] the screen can translate
+ * ("wrong_code", "server_error", "timeout"…), plus a human-readable
+ * [detail] (the server's error text, the HTTP status, the exception).
+ * Replaces the old pattern where every unmapped failure collapsed into
+ * the generic "sync_failed".
+ */
+class DirectSyncFailure(val code: String, val detail: String = "") : Exception(code)
+
+/**
  * v7.9.36 — HTTP client for direct device-to-device sync (local WiFi only).
  */
 class DirectSyncClient(
@@ -17,9 +26,13 @@ class DirectSyncClient(
 ) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(180, TimeUnit.SECONDS)
-        .writeTimeout(180, TimeUnit.SECONDS)
-        .callTimeout(200, TimeUnit.SECONDS)
+        // v7.9.39: a first sync sends the whole library and the peer
+        // restores it inside the request — on a big library that takes
+        // minutes, and the old 200 s call timeout fired as the
+        // unclassified InterruptedIOException ("sync_failed").
+        .readTimeout(300, TimeUnit.SECONDS)
+        .writeTimeout(300, TimeUnit.SECONDS)
+        .callTimeout(600, TimeUnit.SECONDS)
         .build()
 
     private val jsonMediaType = "application/json".toMediaType()
@@ -79,18 +92,52 @@ class DirectSyncClient(
         }
     }
 
-    /** Full exchange: sends our payload, receives the merged payload back. */
+    /**
+     * Full exchange: sends our payload, receives the merged payload back.
+     *
+     * v7.9.39: every failure is a [DirectSyncFailure] with a code, never a
+     * bare exception the caller cannot classify. The old
+     * `check(response.isSuccessful)` turned ANY non-2xx status (400/500…)
+     * into an IllegalStateException that fell through to the generic
+     * "sync_failed" — now the status (and the server's error detail, when
+     * it sent one) travels with the failure.
+     */
     fun exchange(address: String, code: String, ownId: String, payload: DirectSyncPayload): DirectSyncPayload {
+        val bodyJson = try {
+            json.encodeToString(payload)
+        } catch (e: kotlinx.serialization.SerializationException) {
+            throw DirectSyncFailure("bad_payload")
+        } catch (e: IllegalArgumentException) {
+            // JSON cannot represent a non-finite Float (a NaN rating or
+            // chapter number): encode throws IllegalArgumentException.
+            throw DirectSyncFailure("bad_payload", e.message.orEmpty())
+        }
         val request = Request.Builder()
             .url(url(address, "/sync/exchange"))
             .header("X-Sync-Device", ownId)
             .header("X-Sync-Code", code)
-            .post(json.encodeToString(payload).toRequestBody(jsonMediaType))
+            .post(bodyJson.toRequestBody(jsonMediaType))
             .build()
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
-            check(response.isSuccessful) { "exchange failed: ${response.code} $body" }
-            return json.decodeFromString(body)
+            if (!response.isSuccessful) {
+                val parsed = runCatching { json.decodeFromString<DirectSyncErrorBody>(body) }.getOrNull()
+                val serverError = parsed?.error?.takeIf { it.isNotBlank() }
+                val detail = parsed?.detail?.takeIf { it.isNotBlank() } ?: body.take(200)
+                when (response.code) {
+                    401 -> throw DirectSyncFailure("wrong_code")
+                    400 -> throw DirectSyncFailure("bad_payload", detail)
+                    else -> {
+                        val where = serverError?.let { "$it: " }.orEmpty()
+                        throw DirectSyncFailure("server_error", "$where$detail")
+                    }
+                }
+            }
+            return try {
+                json.decodeFromString(body)
+            } catch (e: kotlinx.serialization.SerializationException) {
+                throw DirectSyncFailure("bad_response")
+            }
         }
     }
 }

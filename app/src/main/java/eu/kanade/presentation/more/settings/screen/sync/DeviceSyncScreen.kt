@@ -313,21 +313,34 @@ class DeviceSyncScreen : Screen() {
                     }
                 }
                 item {
-                    // v7.9.38: the error is a specific code now, not the raw
+                    // v7.9.38/39: the error is a specific code now, not the raw
                     // exception text — the screen shows what actually went
                     // wrong (no connection, wrong code, bad address…) so the
                     // next failure is diagnosable from the screen itself.
+                    // v7.9.39: the state carries "code" or "code|detail"
+                    // (the server's error text, the exception name…).
                     val statusText = when (val s = syncState) {
                         is DirectSyncState.Success -> stringResource(MR.strings.device_sync_success)
-                        is DirectSyncState.Error -> when (s.message) {
-                            "no_paired_device" -> stringResource(MR.strings.device_sync_no_paired_device)
-                            "invalid_address" -> stringResource(MR.strings.device_sync_error_invalid_address)
-                            "unreachable_host" -> stringResource(MR.strings.device_sync_error_unreachable_host)
-                            "cannot_connect" -> stringResource(MR.strings.device_sync_error_cannot_connect)
-                            "wrong_code" -> stringResource(MR.strings.device_sync_error_wrong_code)
-                            "bad_response" -> stringResource(MR.strings.device_sync_error_bad_response)
-                            "apply_failed" -> stringResource(MR.strings.device_sync_error_apply_failed)
-                            else -> stringResource(MR.strings.device_sync_failed, s.message)
+                        is DirectSyncState.Error -> {
+                            val code = s.message.substringBefore("|")
+                            val detail = s.message.substringAfter("|", "")
+                            when (code) {
+                                "no_paired_device" -> stringResource(MR.strings.device_sync_no_paired_device)
+                                "invalid_address" -> stringResource(MR.strings.device_sync_error_invalid_address)
+                                "unreachable_host" -> stringResource(MR.strings.device_sync_error_unreachable_host)
+                                "cannot_connect" -> stringResource(MR.strings.device_sync_error_cannot_connect)
+                                "wrong_code" -> stringResource(MR.strings.device_sync_error_wrong_code)
+                                "bad_response" -> stringResource(MR.strings.device_sync_error_bad_response)
+                                "apply_failed" -> stringResource(MR.strings.device_sync_error_apply_failed)
+                                "server_error" -> stringResource(
+                                    MR.strings.device_sync_error_server_error,
+                                    detail.ifBlank { s.message },
+                                )
+                                "timeout" -> stringResource(MR.strings.device_sync_error_timeout)
+                                "build_failed" -> stringResource(MR.strings.device_sync_error_build_failed)
+                                "bad_payload" -> stringResource(MR.strings.device_sync_error_bad_payload)
+                                else -> stringResource(MR.strings.device_sync_failed, detail.ifBlank { s.message })
+                            }
                         }
                         else -> null
                     }

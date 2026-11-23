@@ -1211,6 +1211,10 @@
     <string name="device_sync_error_wrong_code">El código de vinculación no coincide. Vuelve a vincular los dispositivos.</string>
     <string name="device_sync_error_bad_response">El otro dispositivo respondió algo inesperado.</string>
     <string name="device_sync_error_apply_failed">Se recibió la biblioteca pero no se pudo aplicar. Inténtalo de nuevo.</string>
+    <string name="device_sync_error_server_error">El otro dispositivo no pudo procesar la sincronización: %1$s</string>
+    <string name="device_sync_error_timeout">La sincronización tardó demasiado. La biblioteca es grande; inténtalo de nuevo con las dos apps abiertas.</string>
+    <string name="device_sync_error_build_failed">No se pudo preparar la biblioteca para enviar. Inténtalo de nuevo.</string>
+    <string name="device_sync_error_bad_payload">Los datos de sincronización no se pudieron leer. Inténtalo de nuevo.</string>
     <string name="device_sync_last">Última sincronización: %1$s</string>
     <string name="pref_tablet_tv_mode">Modo tablet / TV</string>
     <string name="pref_tablet_tv_mode_summary">En horizontal, usa el diseño ancho con el riel lateral. En vertical todo queda igual.</string>

@@ -98,8 +98,13 @@ class DirectSyncServer(
     }
 
     private suspend fun handleConnection(socket: Socket) {
+        // v7.9.39: whether a response was already written. A throw in the
+        // exchange handler used to close the socket with NO response, so
+        // the phone only ever saw the generic "sync_failed" — the outer
+        // catch now answers HTTP 500 with the real cause instead.
+        var responded = false
         try {
-            socket.soTimeout = 120_000
+            socket.soTimeout = 300_000
             val input = BufferedInputStream(socket.getInputStream())
             val requestLine = readLine(input) ?: return
             val parts = requestLine.split(" ")
@@ -172,8 +177,29 @@ class DirectSyncServer(
                         if (incoming == null) {
                             writeResponse(socket, 400, json.encodeToString(DirectSyncPairResponse(ok = false, error = "bad_payload")))
                         } else {
-                            val merged = exchangeHandler(incoming)
-                            writeResponse(socket, 200, json.encodeToString(merged))
+                            try {
+                                val merged = exchangeHandler(incoming)
+                                writeResponse(socket, 200, json.encodeToString(merged))
+                                responded = true
+                            } catch (e: Exception) {
+                                // v7.9.39: a throw inside the exchange (build /
+                                // merge / restore on this device) used to drop
+                                // the connection silently. Answer 500 with the
+                                // step + exception so the phone shows the real
+                                // cause instead of the generic "sync_failed".
+                                logcat(LogPriority.WARN, e) { "DirectSync: exchange failed" }
+                                val detail = "${e::class.simpleName}: ${e.message}".take(300)
+                                runCatching {
+                                    writeResponse(
+                                        socket,
+                                        500,
+                                        json.encodeToString(
+                                            DirectSyncErrorBody(error = "server_failed", detail = detail),
+                                        ),
+                                    )
+                                    responded = true
+                                }
+                            }
                         }
                     }
                 }
@@ -183,6 +209,19 @@ class DirectSyncServer(
             logcat(LogPriority.WARN) { "DirectSync: connection timed out" }
         } catch (e: Exception) {
             logcat(LogPriority.WARN, e) { "DirectSync: connection failed" }
+            // v7.9.39: if nothing was answered yet, say so (500) instead of
+            // hanging up silently — a dropped connection is exactly what the
+            // phone used to report as the generic "sync_failed".
+            if (!responded) {
+                runCatching {
+                    val detail = "${e::class.simpleName}: ${e.message}".take(300)
+                    writeResponse(
+                        socket,
+                        500,
+                        json.encodeToString(DirectSyncErrorBody(error = "server_failed", detail = detail)),
+                    )
+                }
+            }
         } finally {
             try { socket.close() } catch (_: Exception) {}
         }

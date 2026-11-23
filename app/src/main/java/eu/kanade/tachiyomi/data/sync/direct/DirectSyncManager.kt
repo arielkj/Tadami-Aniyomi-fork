@@ -124,17 +124,13 @@ class DirectSyncManager(
     private val updateManga: UpdateManga = Injekt.get(),
     private val updateNovel: UpdateNovel = Injekt.get(),
 ) {
-    // v7.9.37: BackupRestorer is NOT registered in Injekt anywhere — it is
-    // built by hand in BackupRestoreJob and in SyncManager. Asking for it
-    // with Injekt.get() threw InjektionException and crashed the sync
-    // screen on open. Built directly here, same as SyncManager
-    // (isSync = true). Every other Injekt.get() in this class was audited
-    // against AppModule/DomainModule and is registered.
-    private val backupRestorer: BackupRestorer = BackupRestorer(
-        context = context,
-        notifier = BackupNotifier(context),
-        isSync = true,
-    )
+    // v7.9.39: no shared BackupRestorer field — it carries mutable progress
+    // state that interleaves when the server handler and the client apply
+    // run at the same time. restoreBackup() builds a fresh one per call
+    // (same construction as BackupRestoreJob/SyncManager, isSync = true).
+    // (v7.9.37: BackupRestorer is NOT registered in Injekt anywhere, so it
+    // is built by hand here instead of Injekt.get(), which used to crash
+    // the sync screen on open.)
 
     private val json = Json {
         encodeDefaults = true
@@ -247,12 +243,23 @@ class DirectSyncManager(
                 if (!silent) _state.value = it
             }
         if (!silent) _state.value = DirectSyncState.Running
-        // Exchange phase: build our payload and send it. Any failure here
-        // is classified so the screen shows the real cause instead of a
-        // generic "sync_failed".
+        // Build phase: prepare our payload. A failure here is ours, not the
+        // peer's — report it as "build_failed" instead of letting it fall
+        // through to the generic "sync_failed" (v7.9.39).
+        val payload: DirectSyncPayload
+        try {
+            payload = buildPayload()
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "DirectSync: cannot build payload for $normalized" }
+            val state = DirectSyncState.Error("build_failed|${e::class.simpleName}")
+            if (!silent) _state.value = state
+            return state
+        }
+        // Exchange phase: send it and get the merged payload back. Any
+        // failure here is classified so the screen shows the real cause
+        // instead of a generic "sync_failed".
         val merged: DirectSyncPayload
         try {
-            val payload = buildPayload()
             merged = client.exchange(normalized, code, deviceId, payload)
             markSent(payload)
         } catch (e: Exception) {
@@ -279,26 +286,42 @@ class DirectSyncManager(
     }
 
     /**
-     * v7.9.38 — turns a sync failure into a specific, diagnosable code
-     * (the screen shows a sentence for each one). The generic "sync_failed"
-     * is only a last resort now: the v7.9.37 failure ("Failed to connect
-     * to /192.168.0.141:80") was diagnosable from the message itself, and
-     * the fix keeps that visibility.
+     * v7.9.38/39 — turns a sync failure into a specific, diagnosable code
+     * (the screen shows a sentence for each one). The error state carries
+     * "code" or "code|detail"; the screen splits on "|".
+     *
+     * v7.9.39 diagnosis (why the generic "sync_failed" survived v7.9.38):
+     * the old classifier only covered failures the CLIENT could see. Two
+     * holes swallowed everything else: (1) the server closed the socket
+     * with NO response whenever its exchange handler threw, so the client
+     * got an EOF/IOException that mapped to nothing; (2) the client's
+     * `check(response.isSuccessful)` turned any non-401 HTTP status into an
+     * IllegalStateException that also mapped to nothing. And the old 200 s
+     * call timeout fired as InterruptedIOException — also unmapped. All
+     * three now have codes (server_error / timeout), and the server
+     * answers 500 with the step + exception instead of hanging up.
+     * "sync_failed" is only a last resort now, and it carries the
+     * exception name with it.
      */
     private fun classifySyncError(e: Exception): String {
         return when {
+            e is DirectSyncFailure -> if (e.detail.isBlank()) e.code else "${e.code}|${e.detail}"
             e is IllegalArgumentException && e.message == "invalid_address" -> "invalid_address"
             e is java.net.UnknownHostException -> "unreachable_host"
             e is java.net.ConnectException || e is java.net.SocketTimeoutException -> "cannot_connect"
+            e is java.io.InterruptedIOException -> "timeout"
+            e is java.io.EOFException -> "server_error|connection_closed"
+            e is java.io.IOException && (e.message?.contains("unexpected end of stream") == true) -> "server_error|connection_closed"
             e is IllegalStateException && (e.message?.contains("401") == true) -> "wrong_code"
             e is kotlinx.serialization.SerializationException -> "bad_response"
-            else -> "sync_failed"
+            e is IllegalArgumentException -> "bad_payload"
+            else -> "sync_failed|${e::class.simpleName}"
         }
     }
 
     /** Server side: merge the incoming payload with our library, apply it, return the merged payload. */
     private suspend fun handleExchange(incoming: DirectSyncPayload): DirectSyncPayload {
-        val local = buildPayload()
+        val local = step("build") { buildPayload() }
         val service = DirectSyncService(
             context,
             json,
@@ -307,12 +330,12 @@ class DirectSyncManager(
             peerAddress = { null },
             peerCode = { "" },
         )
-        val mergedSyncData = service.merge(local.syncData, incoming.syncData)
+        val mergedSyncData = step("merge") { service.merge(local.syncData, incoming.syncData) }
         val mergedBackup = mergedSyncData.backup
         if (mergedBackup != null) {
-            restoreBackup(mergedBackup)
+            step("restore") { restoreBackup(mergedBackup) }
         }
-        applyCovers(incoming.covers)
+        step("covers") { applyCovers(incoming.covers) }
         markSent(local)
         prefs.lastSyncAt().set(System.currentTimeMillis())
         val mergedPayload = DirectSyncPayload(
@@ -324,6 +347,20 @@ class DirectSyncManager(
         )
         logcat { "DirectSync: exchange from ${incoming.deviceName} applied (${mergedBackup?.backupManga?.size} manga, ${mergedBackup?.backupAnime?.size} anime, ${mergedBackup?.backupNovel?.size} novel)" }
         return mergedPayload
+    }
+
+    /**
+     * v7.9.39 — tags a failure inside the server-side exchange with the
+     * step that threw ("build"/"merge"/"restore"/"covers"). The server
+     * sends the message back as HTTP 500 detail, so the phone shows what
+     * actually failed instead of the generic "sync_failed".
+     */
+    private suspend fun <T> step(name: String, block: suspend () -> T): T {
+        try {
+            return block()
+        } catch (e: Exception) {
+            throw IllegalStateException("$name: ${e::class.simpleName}: ${e.message}", e)
+        }
     }
 
     private data class AppliedCounts(val manga: Int, val anime: Int, val novel: Int)
@@ -342,11 +379,21 @@ class DirectSyncManager(
 
     private suspend fun restoreBackup(backup: Backup) {
         val bytes = protoBuf.encodeToByteArray(Backup.serializer(), backup)
-        val file = File(context.cacheDir, "direct-sync-backup.tachibk")
+        // v7.9.39: unique file per call — the old fixed name was shared by
+        // the server handler and the client apply, so two overlapping
+        // exchanges clobbered each other's file.
+        val file = File(context.cacheDir, "direct-sync-backup-${System.nanoTime()}.tachibk")
         withContext(Dispatchers.IO) {
             GZIPOutputStream(file.outputStream()).use { it.write(bytes) }
         }
-        backupRestorer.restore(Uri.fromFile(file), RestoreOptions())
+        // Fresh restorer per call (see the field comment above): the shared
+        // one carried mutable progress state across concurrent restores.
+        val restorer = BackupRestorer(
+            context = context,
+            notifier = BackupNotifier(context),
+            isSync = true,
+        )
+        restorer.restore(Uri.fromFile(file), RestoreOptions())
         runCatching { file.delete() }
     }
 
@@ -441,6 +488,9 @@ class DirectSyncManager(
             backupSources = mangaSourcesBackupCreator(manga),
             backupAnimeSources = animeSourcesBackupCreator(anime),
             backupNovelSources = novelSourcesBackupCreator(novel),
+            // v7.9.39: native backups are not legacy — the default (true)
+            // used to travel in our payload and confuse origin detection.
+            isLegacy = false,
         )
 
         // Custom covers: send the file bytes when the cover changed since the last sync
