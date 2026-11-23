@@ -11,6 +11,7 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 import eu.kanade.presentation.browse.manga.MigrateMangaScreen
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.ui.browse.manga.migration.search.MigrateMangaSearchScreen
+import eu.kanade.tachiyomi.ui.browse.migration.auto.AutoMigrationProgressBanner
 import eu.kanade.tachiyomi.ui.browse.migration.auto.AutoMigrationScreen
 import eu.kanade.tachiyomi.ui.entries.manga.MangaScreen
 import eu.kanade.tachiyomi.util.system.toast
@@ -42,6 +43,17 @@ data class MigrateMangaScreen(
             onClickItem = { navigator.push(MigrateMangaSearchScreen(it.id)) },
             onClickCover = { navigator.push(MangaScreen(it.id)) },
             onClickAutoMigrate = { navigator.push(AutoMigrationScreen(isManga = true, sourceId = sourceId)) },
+            // v7.9.35: this source's active run shows its progress at the
+            // top of the list; tapping it opens the run's screen.
+            autoMigrationProgressBanner = {
+                AutoMigrationProgressBanner(
+                    isManga = true,
+                    sourceId = sourceId,
+                    onOpenRun = { _, _ ->
+                        navigator.push(AutoMigrationScreen(isManga = true, sourceId = sourceId))
+                    },
+                )
+            },
         )
 
         LaunchedEffect(Unit) {

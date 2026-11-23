@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.ui.browse.migration.auto
 
 import android.app.Application
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -33,8 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,9 +40,9 @@ import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
-import coil3.compose.AsyncImage
 import eu.kanade.domain.metadata.interactor.parseOriginalTitle
 import eu.kanade.presentation.components.AppBar
+import eu.kanade.presentation.entries.components.ItemCover
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationCandidate
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationReviewItem
@@ -121,6 +118,7 @@ data class AutoMigrationReviewScreen(
                     ReviewItemCard(
                         item = item,
                         isManga = isManga,
+                        entries = state.entries,
                         isMigrating = item.entryId in state.migratingIds,
                         isSearching = item.entryId in state.searchingIds,
                         onMigrate = { candidate -> screenModel.migrateNow(item, candidate) },
@@ -138,6 +136,7 @@ data class AutoMigrationReviewScreen(
     private fun ReviewItemCard(
         item: AutoMigrationReviewItem,
         isManga: Boolean,
+        entries: Map<Long, Any>,
         isMigrating: Boolean,
         isSearching: Boolean,
         onMigrate: (AutoMigrationCandidate) -> Unit,
@@ -161,14 +160,13 @@ data class AutoMigrationReviewScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.medium),
                 ) {
-                    AsyncImage(
-                        model = item.thumbnailUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(48.dp, 72.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                    // v7.9.35: cover through the live entry (source-aware
+                    // fetcher) so it loads in the list like everywhere
+                    // else, not through a bare URL.
+                    ItemCover.Book(
+                        data = entries[item.entryId] ?: item.thumbnailUrl,
+                        modifier = Modifier.size(48.dp, 72.dp),
+                        shape = RoundedCornerShape(4.dp),
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -267,14 +265,13 @@ data class AutoMigrationReviewScreen(
                                         .padding(vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    AsyncImage(
-                                        model = candidate.thumbnailUrl,
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(40.dp, 60.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    // v7.9.35: cover through the live entry
+                                    // (source-aware fetcher) so it loads in
+                                    // the list like everywhere else.
+                                    ItemCover.Book(
+                                        data = entries[candidate.entryId] ?: candidate.thumbnailUrl,
+                                        modifier = Modifier.size(40.dp, 60.dp),
+                                        shape = RoundedCornerShape(4.dp),
                                     )
                                     Column(
                                         modifier = Modifier
@@ -328,14 +325,36 @@ class AutoMigrationReviewScreenModel(
     init {
         screenModelScope.launchIO {
             AutoMigrationStore.reviewItemsFlow.collect { items ->
-                mutableState.update {
-                    it.copy(
-                        items = items
-                            .filter { item -> item.isManga == isManga && item.sourceId == sourceId }
-                            .toImmutableList(),
-                    )
-                }
+                val myItems = items
+                    .filter { item -> item.isManga == isManga && item.sourceId == sourceId }
+                    .toImmutableList()
+                mutableState.update { it.copy(items = myItems) }
+                loadEntries(myItems)
             }
+        }
+    }
+
+    /**
+     * Live domain entries for the visible items and their candidates,
+     * so covers load through the source-aware fetcher (see the card)
+     * instead of a bare URL — and with the freshest thumbnail.
+     */
+    private suspend fun loadEntries(items: ImmutableList<AutoMigrationReviewItem>) {
+        val ids = mutableSetOf<Long>()
+        items.forEach { item ->
+            ids += item.entryId
+            item.candidates.forEach { ids += it.entryId }
+        }
+        val missing = ids.filter { it !in mutableState.value.entries }
+        if (missing.isEmpty()) return
+        val loaded = mutableMapOf<Long, Any>()
+        for (id in missing) {
+            runCatching {
+                if (isManga) getManga.await(id) else getAnime.await(id)
+            }.getOrNull()?.let { loaded[id] = it }
+        }
+        if (loaded.isNotEmpty()) {
+            mutableState.update { it.copy(entries = it.entries + loaded) }
         }
     }
 
@@ -429,6 +448,8 @@ class AutoMigrationReviewScreenModel(
 
     data class State(
         val items: ImmutableList<AutoMigrationReviewItem> = persistentListOf(),
+        /** Live domain entries for the visible items + candidates. */
+        val entries: Map<Long, Any> = emptyMap(),
         val migratingIds: Set<Long> = emptySet(),
         val searchingIds: Set<Long> = emptySet(),
     )

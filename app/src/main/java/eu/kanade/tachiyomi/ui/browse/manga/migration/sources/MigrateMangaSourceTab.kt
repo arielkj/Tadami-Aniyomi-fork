@@ -14,6 +14,8 @@ import eu.kanade.presentation.browse.manga.MigrateMangaSourceScreen
 import eu.kanade.presentation.components.AppBar
 import eu.kanade.presentation.components.TabContent
 import eu.kanade.tachiyomi.ui.browse.manga.migration.manga.MigrateMangaScreen
+import eu.kanade.tachiyomi.ui.browse.migration.auto.AutoMigrationProgressBanner
+import eu.kanade.tachiyomi.ui.browse.migration.auto.AutoMigrationScreen
 import kotlinx.collections.immutable.persistentListOf
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
@@ -45,6 +47,16 @@ fun Screen.migrateMangaSourceTab(): TabContent {
                 },
                 onToggleSortingDirection = screenModel::toggleSortingDirection,
                 onToggleSortingMode = screenModel::toggleSortingMode,
+                // v7.9.35: an active auto-migration run shows its progress
+                // here, outside, so the user sees it without entering
+                // sources one by one. Tapping it opens that run's screen.
+                autoMigrationProgressBanner = {
+                    AutoMigrationProgressBanner(
+                        onOpenRun = { isManga, sourceId ->
+                            navigator.push(AutoMigrationScreen(isManga, sourceId))
+                        },
+                    )
+                },
             )
         },
     )

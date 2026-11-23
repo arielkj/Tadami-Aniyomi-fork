@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -59,6 +60,10 @@ fun MigrateAnimeSourceScreen(
     onClickItem: (AnimeSource) -> Unit,
     onToggleSortingDirection: () -> Unit,
     onToggleSortingMode: () -> Unit,
+    // v7.9.35: progress of an active auto-migration run, shown OUTSIDE
+    // the run's own screen so the user sees it at a glance without
+    // entering sources one by one.
+    autoMigrationProgressBanner: @Composable (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     when {
@@ -80,6 +85,7 @@ fun MigrateAnimeSourceScreen(
                 onToggleSortingMode = onToggleSortingMode,
                 sortingDirection = state.sortingDirection,
                 onToggleSortingDirection = onToggleSortingDirection,
+                autoMigrationProgressBanner = autoMigrationProgressBanner,
             )
     }
 }
@@ -94,10 +100,23 @@ private fun MigrateAnimeSourceList(
     onToggleSortingMode: () -> Unit,
     sortingDirection: SetMigrateSorting.Direction,
     onToggleSortingDirection: () -> Unit,
+    autoMigrationProgressBanner: @Composable (() -> Unit)? = null,
 ) {
     ScrollbarLazyColumn(
         contentPadding = contentPadding + topSmallPaddingValues,
     ) {
+        if (autoMigrationProgressBanner != null) {
+            item(key = "auto-migration-progress") {
+                Box(
+                    modifier = Modifier.padding(
+                        horizontal = MaterialTheme.padding.medium,
+                        vertical = MaterialTheme.padding.small,
+                    ),
+                ) {
+                    autoMigrationProgressBanner()
+                }
+            }
+        }
         stickyHeader(key = STICKY_HEADER_KEY_PREFIX) {
             Row(
                 modifier = Modifier

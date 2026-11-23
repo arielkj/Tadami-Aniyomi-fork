@@ -1,10 +1,13 @@
 package eu.kanade.presentation.browse.manga
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import eu.kanade.presentation.components.AppBar
@@ -16,6 +19,7 @@ import tachiyomi.domain.entries.manga.model.Manga
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.FastScrollLazyColumn
 import tachiyomi.presentation.core.components.material.Scaffold
+import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.screens.EmptyScreen
 
@@ -27,6 +31,9 @@ fun MigrateMangaScreen(
     onClickItem: (Manga) -> Unit,
     onClickCover: (Manga) -> Unit,
     onClickAutoMigrate: (() -> Unit)? = null,
+    // v7.9.35: progress of this source's active auto-migration run,
+    // shown at the top of the list (outside the run's own screen).
+    autoMigrationProgressBanner: @Composable (() -> Unit)? = null,
 ) {
     Scaffold(
         topBar = { scrollBehavior ->
@@ -63,6 +70,7 @@ fun MigrateMangaScreen(
             state = state,
             onClickItem = onClickItem,
             onClickCover = onClickCover,
+            autoMigrationProgressBanner = autoMigrationProgressBanner,
         )
     }
 }
@@ -73,10 +81,23 @@ private fun MigrateMangaContent(
     state: MigrateMangaScreenModel.State,
     onClickItem: (Manga) -> Unit,
     onClickCover: (Manga) -> Unit,
+    autoMigrationProgressBanner: @Composable (() -> Unit)? = null,
 ) {
     FastScrollLazyColumn(
         contentPadding = contentPadding,
     ) {
+        if (autoMigrationProgressBanner != null) {
+            item(key = "auto-migration-progress") {
+                Box(
+                    modifier = Modifier.padding(
+                        horizontal = MaterialTheme.padding.medium,
+                        vertical = MaterialTheme.padding.small,
+                    ),
+                ) {
+                    autoMigrationProgressBanner()
+                }
+            }
+        }
         items(state.titles) { manga ->
             MigrateMangaItem(
                 manga = manga,

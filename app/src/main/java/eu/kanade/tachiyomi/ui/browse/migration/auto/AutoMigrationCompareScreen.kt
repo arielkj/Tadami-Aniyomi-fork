@@ -1,12 +1,10 @@
 package eu.kanade.tachiyomi.ui.browse.migration.auto
 
 import android.app.Application
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,23 +12,29 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,14 +43,17 @@ import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
-import coil3.compose.AsyncImage
 import dev.icerock.moko.resources.StringResource
+import eu.kanade.domain.metadata.interactor.parseOriginalTitle
 import eu.kanade.presentation.components.AppBar
+import eu.kanade.presentation.entries.components.ItemCover
 import eu.kanade.presentation.util.Screen
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationCandidate
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationReviewItem
+import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationSearcher
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationStagedPair
 import eu.kanade.tachiyomi.data.migration.auto.AutoMigrationStore
+import eu.kanade.tachiyomi.data.migration.auto.isExactTitleMatch
 import eu.kanade.tachiyomi.ui.entries.anime.AnimeScreen
 import eu.kanade.tachiyomi.ui.entries.manga.MangaScreen
 import kotlinx.collections.immutable.ImmutableList
@@ -144,6 +151,7 @@ data class AutoMigrationCompareScreen(
                                 pair = pair,
                                 isManga = isManga,
                                 counts = state.counts,
+                                entries = state.entries,
                                 onOpenDetail = openDetail,
                                 onRemove = { screenModel.unstage(pair) },
                             )
@@ -171,10 +179,13 @@ data class AutoMigrationCompareScreen(
                                 item = item,
                                 isManga = isManga,
                                 counts = state.counts,
+                                entries = state.entries,
                                 isStaging = item.entryId in state.stagingIds,
+                                isSearching = item.entryId in state.searchingIds,
                                 onOpenDetail = openDetail,
                                 onStage = { candidate -> screenModel.stageCandidate(item, candidate) },
                                 onExclude = { screenModel.exclude(item) },
+                                onResearch = { query -> screenModel.research(item, query) },
                             )
                         }
                     }
@@ -200,9 +211,12 @@ data class AutoMigrationCompareScreen(
                                 item = item,
                                 isManga = isManga,
                                 counts = state.counts,
+                                entries = state.entries,
+                                isSearching = item.entryId in state.searchingIds,
                                 onOpenDetail = openDetail,
                                 onGoToReview = { navigator.push(AutoMigrationReviewScreen(isManga, sourceId)) },
                                 onExclude = { screenModel.exclude(item) },
+                                onResearch = { query -> screenModel.research(item, query) },
                             )
                         }
                     }
@@ -215,7 +229,13 @@ data class AutoMigrationCompareScreen(
     private fun EntrySide(
         title: String,
         sourceName: String,
-        thumbnailUrl: String?,
+        // v7.9.35: the live domain entry when loaded, else the snapshot
+        // URL. Routing through ItemCover (instead of a raw AsyncImage
+        // with a plain URL) is what makes the cover load: the entry's
+        // fetcher uses the source's own client + headers + Referer,
+        // which hosts like Hitomi require — a bare URL request 403s
+        // and stays blank in the list while the detail loads fine.
+        coverData: Any?,
         count: Int?,
         countLabel: StringResource,
         onOpenDetail: () -> Unit,
@@ -226,15 +246,10 @@ data class AutoMigrationCompareScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            AsyncImage(
-                model = thumbnailUrl,
-                contentDescription = title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(2f / 3f)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            ItemCover.Book(
+                data = coverData,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(4.dp),
             )
             Text(
                 text = title,
@@ -265,6 +280,7 @@ data class AutoMigrationCompareScreen(
         pair: AutoMigrationStagedPair,
         isManga: Boolean,
         counts: Map<Long, Int>,
+        entries: Map<Long, Any>,
         onOpenDetail: (Long) -> Unit,
         onRemove: () -> Unit,
     ) {
@@ -291,7 +307,7 @@ data class AutoMigrationCompareScreen(
                         EntrySide(
                             title = pair.oldTitle,
                             sourceName = pair.oldSourceName,
-                            thumbnailUrl = pair.oldThumbnailUrl,
+                            coverData = entries[pair.oldEntryId] ?: pair.oldThumbnailUrl,
                             count = counts[pair.oldEntryId],
                             countLabel = countLabel,
                             onOpenDetail = { onOpenDetail(pair.oldEntryId) },
@@ -313,7 +329,7 @@ data class AutoMigrationCompareScreen(
                         EntrySide(
                             title = pair.newTitle,
                             sourceName = pair.newSourceName,
-                            thumbnailUrl = pair.newThumbnailUrl,
+                            coverData = entries[pair.newEntryId] ?: pair.newThumbnailUrl,
                             count = counts[pair.newEntryId],
                             countLabel = countLabel,
                             onOpenDetail = { onOpenDetail(pair.newEntryId) },
@@ -337,10 +353,13 @@ data class AutoMigrationCompareScreen(
         item: AutoMigrationReviewItem,
         isManga: Boolean,
         counts: Map<Long, Int>,
+        entries: Map<Long, Any>,
         isStaging: Boolean,
+        isSearching: Boolean,
         onOpenDetail: (Long) -> Unit,
         onStage: (AutoMigrationCandidate) -> Unit,
         onExclude: () -> Unit,
+        onResearch: (String) -> Unit,
     ) {
         val countLabel = if (isManga) {
             MR.strings.auto_migration_chapters_count
@@ -356,15 +375,14 @@ data class AutoMigrationCompareScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.medium),
                 ) {
-                    AsyncImage(
-                        model = item.thumbnailUrl,
-                        contentDescription = item.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(48.dp, 72.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { onOpenDetail(item.entryId) },
+                    // v7.9.35: cover through the live entry (source-aware
+                    // fetcher) so it loads in the list like everywhere
+                    // else, not through a bare URL.
+                    ItemCover.Book(
+                        data = entries[item.entryId] ?: item.thumbnailUrl,
+                        modifier = Modifier.size(48.dp, 72.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        onClick = { onOpenDetail(item.entryId) },
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -401,6 +419,15 @@ data class AutoMigrationCompareScreen(
                         )
                     }
                 }
+                // v7.9.35: edit the name and retry the search for THIS
+                // entry only — other sources often list the same title
+                // shorter or without symbols, so the original noisy title
+                // finds nothing there.
+                ResearchRow(
+                    item = item,
+                    isSearching = isSearching,
+                    onResearch = onResearch,
+                )
                 val grouped = item.candidates.groupBy { it.sourceName }
                 for ((sourceName, group) in grouped) {
                     Text(
@@ -417,15 +444,13 @@ data class AutoMigrationCompareScreen(
                                 .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            AsyncImage(
-                                model = candidate.thumbnailUrl,
-                                contentDescription = candidate.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(40.dp, 60.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .clickable(enabled = !isStaging) { onOpenDetail(candidate.entryId) },
+                            // v7.9.35: cover through the live entry (source-aware
+                            // fetcher) so it loads in the list like everywhere else.
+                            ItemCover.Book(
+                                data = entries[candidate.entryId] ?: candidate.thumbnailUrl,
+                                modifier = Modifier.size(40.dp, 60.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                onClick = { onOpenDetail(candidate.entryId) },
                             )
                             Column(
                                 modifier = Modifier
@@ -457,9 +482,12 @@ data class AutoMigrationCompareScreen(
         item: AutoMigrationReviewItem,
         isManga: Boolean,
         counts: Map<Long, Int>,
+        entries: Map<Long, Any>,
+        isSearching: Boolean,
         onOpenDetail: (Long) -> Unit,
         onGoToReview: () -> Unit,
         onExclude: () -> Unit,
+        onResearch: (String) -> Unit,
     ) {
         val countLabel = if (isManga) {
             MR.strings.auto_migration_chapters_count
@@ -475,15 +503,14 @@ data class AutoMigrationCompareScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.medium),
                 ) {
-                    AsyncImage(
-                        model = item.thumbnailUrl,
-                        contentDescription = item.title,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(48.dp, 72.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { onOpenDetail(item.entryId) },
+                    // v7.9.35: cover through the live entry (source-aware
+                    // fetcher) so it loads in the list like everywhere
+                    // else, not through a bare URL.
+                    ItemCover.Book(
+                        data = entries[item.entryId] ?: item.thumbnailUrl,
+                        modifier = Modifier.size(48.dp, 72.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        onClick = { onOpenDetail(item.entryId) },
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -519,6 +546,14 @@ data class AutoMigrationCompareScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // v7.9.35: same per-entry retry as in "Para revisar" —
+                // edit the name (shorter, without symbols) and search
+                // again for this entry only.
+                ResearchRow(
+                    item = item,
+                    isSearching = isSearching,
+                    onResearch = onResearch,
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
@@ -527,6 +562,51 @@ data class AutoMigrationCompareScreen(
                         Text(text = stringResource(MR.strings.auto_migration_go_to_review))
                     }
                 }
+            }
+        }
+    }
+    /**
+     * Per-entry retry search: the user edits the name (shorter, without
+     * the original's symbols) and re-searches ONLY this entry — never
+     * the whole list or run.
+     */
+    @Composable
+    private fun ResearchRow(
+        item: AutoMigrationReviewItem,
+        isSearching: Boolean,
+        onResearch: (String) -> Unit,
+    ) {
+        var queryText by remember(item.entryId) {
+            mutableStateOf(item.lastQuery ?: item.title)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = queryText,
+                onValueChange = { queryText = it },
+                placeholder = { Text(text = stringResource(MR.strings.auto_migration_search_hint)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(
+                    onSearch = { onResearch(queryText) },
+                ),
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = { onResearch(queryText) },
+                enabled = !isSearching,
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = stringResource(MR.strings.action_search),
+                )
+            }
+        }
+        if (isSearching) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
             }
         }
     }
@@ -540,6 +620,7 @@ class AutoMigrationCompareScreenModel(
      * is actually looking at). */
     private val section: String,
     private val store: AutoMigrationStore = AutoMigrationStore(Injekt.get<Application>()),
+    private val searcher: AutoMigrationSearcher = AutoMigrationSearcher(),
     private val getManga: GetManga = Injekt.get(),
     private val getAnime: GetAnime = Injekt.get(),
     private val getChaptersByMangaId: GetChaptersByMangaId = Injekt.get(),
@@ -573,19 +654,25 @@ class AutoMigrationCompareScreenModel(
                     .filter { it.isManga == isManga && it.sourceId == sourceId }
                     .toImmutableList()
                 mutableState.update { it.copy(pairs = myPairs, reviewItems = myItems) }
-                loadCounts(myPairs, myItems)
+                loadEntryData(myPairs, myItems)
             }
         }
     }
 
-    /** Chapter/episode counts from the local DB, only where available. */
-    private suspend fun loadCounts(
+    /**
+     * Chapter/episode counts from the local DB, only where available —
+     * and the live domain entries for the same ids, so covers load
+     * through the source-aware fetcher (see EntrySide) instead of a
+     * bare URL, and with the freshest thumbnail (the detail fetch may
+     * have updated it since the pair was staged).
+     */
+    private suspend fun loadEntryData(
         pairs: ImmutableList<AutoMigrationStagedPair>,
         items: ImmutableList<AutoMigrationReviewItem>,
     ) {
         // Load only what this section shows: staged pairs for the
-        // staged section, review items otherwise. Counts for the
-        // other sections' entries are never fetched.
+        // staged section, review items otherwise. Counts and entries
+        // for the other sections' entries are never fetched.
         val ids = mutableSetOf<Long>()
         when (section) {
             AutoMigrationCompareScreen.SECTION_STAGED -> {
@@ -603,7 +690,8 @@ class AutoMigrationCompareScreenModel(
         }
         val missing = ids.filter { it !in mutableState.value.counts }
         if (missing.isEmpty()) return
-        val loaded = mutableMapOf<Long, Int>()
+        val loadedCounts = mutableMapOf<Long, Int>()
+        val loadedEntries = mutableMapOf<Long, Any>()
         for (id in missing) {
             val count = runCatching {
                 if (isManga) {
@@ -612,14 +700,60 @@ class AutoMigrationCompareScreenModel(
                     getEpisodesByAnimeId.await(id).size
                 }
             }.getOrNull() ?: 0
-            loaded[id] = count
+            loadedCounts[id] = count
+            runCatching {
+                if (isManga) getManga.await(id) else getAnime.await(id)
+            }.getOrNull()?.let { loadedEntries[id] = it }
         }
-        mutableState.update { it.copy(counts = it.counts + loaded) }
+        mutableState.update { it.copy(counts = it.counts + loadedCounts, entries = it.entries + loadedEntries) }
     }
 
     /** Takes a pair out of the staged set — the entry stays in the old source. */
     fun unstage(pair: AutoMigrationStagedPair) {
         store.removeStagedPair(pair.oldEntryId, isManga)
+    }
+
+    /**
+     * Per-entry retry search: re-searches ONLY this entry with the
+     * user-edited name (the typed query first, then the original title
+     * parsed from the description). Same logic as the review screen's
+     * research — the review item's candidates update in the store, so
+     * this screen (which subscribes to the same flow) refreshes.
+     */
+    fun research(item: AutoMigrationReviewItem, query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return
+        screenModelScope.launchIO {
+            mutableState.update { it.copy(searchingIds = it.searchingIds + item.entryId) }
+            try {
+                val candidates = if (isManga) {
+                    val oldManga = getManga.await(item.entryId) ?: return@launchIO
+                    val queries = listOfNotNull(
+                        trimmed,
+                        parseOriginalTitle(oldManga.description)?.trim()?.takeIf { it.isNotEmpty() },
+                    ).distinct()
+                    searcher.searchManga(oldManga, queries, sourceId).candidates
+                } else {
+                    val oldAnime = getAnime.await(item.entryId) ?: return@launchIO
+                    val queries = listOfNotNull(
+                        trimmed,
+                        parseOriginalTitle(oldAnime.description)?.trim()?.takeIf { it.isNotEmpty() },
+                    ).distinct()
+                    searcher.searchAnime(oldAnime, queries, sourceId).candidates
+                }
+                // Exact matches of the typed query first, like the covers picker.
+                val sorted = candidates.sortedByDescending {
+                    isExactTitleMatch(trimmed, it.title)
+                }
+                store.updateReviewItem(item.entryId, isManga) {
+                    it.copy(candidates = sorted, lastQuery = trimmed)
+                }
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e) { "Auto-migration compare: search failed for ${item.entryId}" }
+            } finally {
+                mutableState.update { it.copy(searchingIds = it.searchingIds - item.entryId) }
+            }
+        }
     }
 
     /** Excludes a non-exact entry from the migration (X button): it is
@@ -675,6 +809,10 @@ class AutoMigrationCompareScreenModel(
         val pairs: ImmutableList<AutoMigrationStagedPair> = persistentListOf(),
         val reviewItems: ImmutableList<AutoMigrationReviewItem> = persistentListOf(),
         val counts: Map<Long, Int> = emptyMap(),
+        /** Live domain entries for the visible section's ids, so covers
+         * load through the source-aware fetcher. */
+        val entries: Map<Long, Any> = emptyMap(),
         val stagingIds: Set<Long> = emptySet(),
+        val searchingIds: Set<Long> = emptySet(),
     )
 }

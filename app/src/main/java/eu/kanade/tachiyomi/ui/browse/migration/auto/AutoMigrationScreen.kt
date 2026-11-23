@@ -101,12 +101,29 @@ data class AutoMigrationScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        if (state.otherRunActive) {
+                        if (state.otherRun != null) {
+                            // Another source's run is active: the progress
+                            // lives in THAT source's screen, so say which
+                            // one it is and let the user jump straight to
+                            // it instead of opening sources one by one.
                             Text(
                                 text = stringResource(MR.strings.auto_migration_already_running),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.error,
                             )
+                            OutlinedButton(
+                                onClick = {
+                                    navigator.push(
+                                        AutoMigrationScreen(
+                                            isManga = state.otherRun.isManga,
+                                            sourceId = state.otherRun.sourceId,
+                                        ),
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(text = state.otherRun.sourceName)
+                            }
                         } else {
                             Button(
                                 onClick = { screenModel.startRun(context) },
@@ -359,9 +376,16 @@ class AutoMigrationScreenModel(
             // every 300 ms — progress still looks live.
             AutoMigrationStore.runStateFlow.sample(300).collect { run ->
                 val matching = run?.takeIf { it.isManga == isManga && it.sourceId == sourceId }
-                val otherActive = run != null && run.isRunning && matching == null
+                // A run of another source is active (or waiting for
+                // confirmation): keep it so the screen can name it and
+                // offer a jump to it.
+                val otherRun = if (matching == null) {
+                    run?.takeIf { it.isRunning || it.isApplying || it.isAwaitingConfirmation }
+                } else {
+                    null
+                }
                 mutableState.update {
-                    it.copy(run = matching, otherRunActive = otherActive)
+                    it.copy(run = matching, otherRun = otherRun)
                 }
             }
         }
@@ -403,7 +427,7 @@ class AutoMigrationScreenModel(
         val run: AutoMigrationRunState? = null,
         val reviewCount: Int = 0,
         val stagedCount: Int = 0,
-        val otherRunActive: Boolean = false,
+        val otherRun: AutoMigrationRunState? = null,
         val isLoading: Boolean = true,
     )
 }
