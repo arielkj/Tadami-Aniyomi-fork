@@ -9,6 +9,7 @@ import androidx.compose.material.icons.outlined.Book
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Devices
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Gesture
 import androidx.compose.material.icons.outlined.GetApp
@@ -34,6 +35,7 @@ import eu.kanade.presentation.more.settings.screen.player.PlayerSettingsPlayerSc
 import eu.kanade.presentation.more.settings.screen.player.PlayerSettingsSubtitleScreen
 import eu.kanade.presentation.more.settings.screen.player.PlayerSettingsTorrentScreen
 import eu.kanade.presentation.more.settings.screen.player.custombutton.PlayerSettingsCustomButtonScreen
+import eu.kanade.presentation.more.settings.screen.sync.DeviceSyncScreen
 import eu.kanade.presentation.more.settings.screen.player.editor.PlayerSettingsEditorScreen
 import eu.kanade.presentation.more.settings.screen.player.layout.PlayerSettingsLayoutMainScreen
 import eu.kanade.tachiyomi.ui.setting.PlayerSettingsScreen
@@ -137,6 +139,13 @@ internal fun mainSettingsNavigationItems(): List<SettingsNavigationItem> = listO
         subtitleRes = MR.strings.pref_backup_summary,
         icon = Icons.Outlined.Storage,
         screen = SettingsDataScreen,
+    ),
+    SettingsNavigationItem(
+        key = "device_sync",
+        titleRes = MR.strings.device_sync_title,
+        subtitleRes = MR.strings.device_sync_summary,
+        icon = Icons.Outlined.Devices,
+        screen = DeviceSyncScreen(),
     ),
     SettingsNavigationItem(
         key = "security",

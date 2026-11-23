@@ -235,6 +235,18 @@ object SettingsAppearanceScreen : SearchableSettings {
                     ),
                 )
                 add(
+                    Preference.PreferenceItem.SwitchPreference(
+                        preference = uiPreferences.auroraTabletTvMode(),
+                        title = stringResource(MR.strings.pref_tablet_tv_mode),
+                        subtitle = stringResource(MR.strings.pref_tablet_tv_mode_summary),
+                        onValueChanged = {
+                            // Apply immediately: recreate the activity so the layout flips.
+                            (context as? Activity)?.let { ActivityCompat.recreate(it) }
+                            true
+                        },
+                    ),
+                )
+                add(
                     Preference.PreferenceItem.ListPreference(
                         preference = uiPreferences.startScreen(),
                         entries = StartScreen.entries

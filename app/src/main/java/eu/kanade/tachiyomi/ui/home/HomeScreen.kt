@@ -364,13 +364,11 @@ object HomeScreen : Screen() {
                                             // inferior: sin "Más" (vive en los menús ⋮ de
                                             // arriba) y Títulos son dos iconos separados,
                                             // Anime y Manga.
+                                            // v7.9.36 (Tablet / TV): exactamente 4 iconos
+                                            // pequeños, centrados verticalmente: Anime,
+                                            // Manga, Actualizaciones, Buscar/Fuentes.
                                             val railLibraryState =
                                                 rememberLibrarySectionBarState(isAuroraTheme)
-                                            navStyle.tabs.filter {
-                                                it::class != AnimeLibraryTab::class && it::class != MoreTab::class
-                                            }.fastForEach {
-                                                NavigationRailItem(it)
-                                            }
                                             listOfNotNull(
                                                 AnimeLibraryTab.Section.Anime.takeIf {
                                                     railLibraryState.showAnimeSection
@@ -383,6 +381,11 @@ object HomeScreen : Screen() {
                                                     section = section,
                                                     state = railLibraryState,
                                                 )
+                                            }
+                                            navStyle.tabs.filter {
+                                                it::class == UpdatesTab::class || it::class == BrowseTab::class
+                                            }.fastForEach {
+                                                NavigationRailItem(it)
                                             }
                                         }
                                     }
@@ -1623,14 +1626,17 @@ object HomeScreen : Screen() {
             AnimeLibraryTab.Section.Anime.takeIf { railLibraryState.showAnimeSection },
             AnimeLibraryTab.Section.Manga.takeIf { railLibraryState.showMangaSection },
         )
+        // v7.9.36 (Tablet / TV): the rail has exactly 4 small icons, vertically
+        // centered: Anime, Manga, Updates, Browse (search/sources). History and
+        // "More" stay in the ⋮ menus, as on the bottom bar.
         val railTabs = tabs.filter {
-            it::class != AnimeLibraryTab::class && it::class != MoreTab::class
+            it::class == UpdatesTab::class || it::class == BrowseTab::class
         }
         val selectedIndex = if (railLibraryState.isLibraryTab) {
-            val sectionIndex = visibleLibrarySections.indexOf(railLibraryState.currentSection)
-            if (sectionIndex >= 0) railTabs.size + sectionIndex else -1
+            visibleLibrarySections.indexOf(railLibraryState.currentSection)
         } else {
-            railTabs.indexOfFirst { it::class == tabNavigator.current::class }
+            val tabIndex = railTabs.indexOfFirst { it::class == tabNavigator.current::class }
+            if (tabIndex >= 0) visibleLibrarySections.size + tabIndex else -1
         }
         val baseModifier = Modifier
             .windowInsetsPadding(NavigationRailDefaults.windowInsets)
@@ -1659,7 +1665,6 @@ object HomeScreen : Screen() {
             contentColor = auroraColors.textPrimary,
             windowInsets = WindowInsets(0),
         ) {
-            railTabs.forEachIndexed { _, tab -> AuroraNavigationRailItem(tab, celestialRail, auroraColors) }
             visibleLibrarySections.forEach { section ->
                 AuroraLibrarySectionRailItem(
                     section = section,
@@ -1668,6 +1673,7 @@ object HomeScreen : Screen() {
                     auroraColors = auroraColors,
                 )
             }
+            railTabs.forEachIndexed { _, tab -> AuroraNavigationRailItem(tab, celestialRail, auroraColors) }
         }
     }
 

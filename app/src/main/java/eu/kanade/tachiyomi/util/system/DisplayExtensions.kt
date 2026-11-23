@@ -24,7 +24,11 @@ fun Configuration.isTabletUi(): Boolean {
 // TODO: move the logic to `isTabletUi()` when main activity is rewritten in Compose
 fun Context.prepareTabletUiContext(): Context {
     val configuration = resources.configuration
-    val expected = when (Injekt.get<UiPreferences>().tabletUiMode().get()) {
+    // v7.9.36: Tablet / TV mode — when ON, landscape always uses the wide layout
+    // (side rail); portrait keeps the bottom bar. Overrides the tabletUiMode setting.
+    val expected = if (Injekt.get<UiPreferences>().auroraTabletTvMode().get()) {
+        configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    } else when (Injekt.get<UiPreferences>().tabletUiMode().get()) {
         TabletUiMode.AUTOMATIC ->
             configuration.smallestScreenWidthDp >= when (configuration.orientation) {
                 Configuration.ORIENTATION_PORTRAIT -> TABLET_UI_MIN_SCREEN_WIDTH_PORTRAIT_DP
@@ -65,7 +69,11 @@ fun Context.isNightMode(): Boolean {
  * mode); [newConfig] is the real incoming configuration.
  */
 fun Context.tabletUiNeedsRecreate(newConfig: Configuration): Boolean {
-    val expected = when (Injekt.get<UiPreferences>().tabletUiMode().get()) {
+    // v7.9.36: Tablet / TV mode — when ON, landscape always uses the wide layout
+    // (side rail); portrait keeps the bottom bar. Overrides the tabletUiMode setting.
+    val expected = if (Injekt.get<UiPreferences>().auroraTabletTvMode().get()) {
+        newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+    } else when (Injekt.get<UiPreferences>().tabletUiMode().get()) {
         TabletUiMode.AUTOMATIC ->
             newConfig.smallestScreenWidthDp >= when (newConfig.orientation) {
                 Configuration.ORIENTATION_PORTRAIT -> TABLET_UI_MIN_SCREEN_WIDTH_PORTRAIT_DP

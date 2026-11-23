@@ -92,6 +92,7 @@ import eu.kanade.tachiyomi.data.cache.ChapterCache
 import eu.kanade.tachiyomi.data.download.anime.AnimeDownloadCache
 import eu.kanade.tachiyomi.data.download.manga.MangaDownloadCache
 import eu.kanade.tachiyomi.data.notification.NotificationReceiver
+import eu.kanade.tachiyomi.data.sync.direct.DirectSyncManager
 import eu.kanade.tachiyomi.data.updater.AppUpdateChecker
 import eu.kanade.tachiyomi.data.updater.AppUpdateJob
 import eu.kanade.tachiyomi.data.updater.GITHUB_REPO
@@ -326,6 +327,10 @@ class MainActivity : BaseActivity() {
 
                             // Reset Incognito Mode on relaunch
                             preferences.incognitoMode().set(false)
+
+                            // v7.9.36: direct device sync — in auto mode, start the local
+                            // server and try the paired device (silent on failure).
+                            runCatching { Injekt.get<DirectSyncManager>().onAppLaunch() }
                         }
                     }
                     // PERF: defer per-screen incognito tracking off the initial composition pass.

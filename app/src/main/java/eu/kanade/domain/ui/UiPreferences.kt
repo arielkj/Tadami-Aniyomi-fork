@@ -41,6 +41,10 @@ class UiPreferences(
 
     fun tabletUiMode() = preferenceStore.getEnum("tablet_ui_mode", TabletUiMode.AUTOMATIC)
 
+    // v7.9.36: Tablet / TV mode — when ON and the device is in landscape, the wide
+    // layout (side rail) is used. Phone portrait keeps the bottom-bar layout.
+    fun auroraTabletTvMode() = preferenceStore.getBoolean("aurora_tablet_tv_mode", false)
+
     fun startScreen() = preferenceStore.getEnum("start_screen", StartScreen.ANIME)
 
     fun showAnimeSection() = preferenceStore.getBoolean("aurora_show_anime_section", true)

@@ -29,7 +29,9 @@ import datanovel.Novel_chapters
 import datanovel.Novel_history
 import datanovel.Novels
 import eu.kanade.domain.extension.novel.interactor.TrustNovelExtension
+import eu.kanade.domain.sync.DeviceSyncPreferences
 import eu.kanade.domain.sync.SyncPreferences
+import eu.kanade.tachiyomi.data.sync.direct.DirectSyncManager
 import eu.kanade.domain.track.anime.store.DelayedAnimeTrackingStore
 import eu.kanade.domain.track.manga.store.DelayedMangaTrackingStore
 import eu.kanade.domain.track.novel.store.DelayedNovelTrackingStore
@@ -909,6 +911,10 @@ class AppModule(val app: Application) : InjektModule {
         // Sync preferences and Google Drive service
         addSingletonFactory { SyncPreferences(get()) }
         addSingletonFactory { GoogleDriveService(app) }
+
+        // v7.9.36: direct device-to-device library sync (no account, no server)
+        addSingletonFactory { DeviceSyncPreferences(get()) }
+        addSingletonFactory { DirectSyncManager(app) }
 
         // Asynchronously init expensive components for a faster cold start.
         // V7.5: las extensiones vuelven a precargarse al arrancar, en segundo
