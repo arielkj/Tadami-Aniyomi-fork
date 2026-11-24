@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 258
+        versionCode = 259
 
-        // v7.9.46 DIAGNOSTIC ONLY: detecta por qué se traba el webtoon (formato, tamaño, conversión, setImage, rebinds, heap) — overlay en cada página + logcat ReaderDiag + archivo reader-diag.txt; quitar antes de una versión normal
-        versionName = "0.63.41"
+        // v7.9.47: parte las tiras muy altas (r>12) al leer en línea, como la descarga — la 7.9.46 demostró que el trabón sigue la altura (r23 se traba, r9.7 no); diagnóstico quitado
+        versionName = "0.63.42"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
