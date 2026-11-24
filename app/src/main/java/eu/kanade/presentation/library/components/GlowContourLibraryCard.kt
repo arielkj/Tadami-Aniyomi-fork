@@ -858,13 +858,11 @@ private fun GlowContourLibraryCard(
                         drawContext.canvas.translate(dx, dy)
                     }
 
-                    // Diffused glow pass
-                    drawPath(
-                        path = zones.shellPath,
-                        brush = auraStrokeBrush,
-                        alpha = flickerAlpha,
-                        style = auraGlowStroke,
-                    )
+                    // v7.9.51: sin brillo — se quita el pase de brillo difuso
+                    // (el trazo ancho de 4dp con gradiente alrededor de la
+                    // tarjeta). El borde fino (Core outline, 1.5dp) se queda
+                    // tal cual, así la tarjeta sigue definida sin el brillo
+                    // que costaba dibujar en cada cuadro al hacer scroll.
                     // Core outline pass
                     drawPath(
                         path = zones.shellPath,
@@ -1110,31 +1108,12 @@ private fun GlowContourLibraryCard(
                 },
         )
 
-        // V7.8: en modo rendimiento (bibliotecas de más de 500 títulos, o sea
-        // siempre en este usuario) se salta el brillo inferior: un rectángulo
-        // de gradiente a toda la tarjeta en cada cuadro, por un tinte tenue
-        // (alfa ~0,13) en el borde inferior. El modo rendimiento ya existía
-        // pero solo atenuaba el aura; ahora sí quita trabajo por cuadro.
-        if (!performanceMode) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .drawWithCache {
-                        val carryGlowBrush = Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0f to Color.Transparent,
-                                0.78f to Color.Transparent,
-                                1f to colors.accent.copy(alpha = blendSpec.topCarryGlowAlpha * 0.7f),
-                            ),
-                            startY = 0f,
-                            endY = size.height,
-                        )
-                        onDrawBehind {
-                            drawRect(brush = carryGlowBrush)
-                        }
-                    },
-            )
-        }
+        // v7.9.51: sin gradiente inferior — el rectángulo de gradiente a
+        // toda la tarjeta (carry glow) se quita en todos los casos, no solo
+        // en modo rendimiento. Era un degradado a toda la tarjeta en cada
+        // cuadro al hacer scroll. El borde fino (Core outline) se queda.
+        // (El bloque if (!performanceMode) que dibujaba ese gradiente se
+        // eliminó aquí.)
 
         if (progressState.showTrack) {
             val progressSpec = DEFAULT_GLOW_CONTOUR_PROGRESS_LINE_RENDER_SPEC

@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 262
+        versionCode = 263
 
-        // v7.9.50: teselas webtoon 2048 -> 1024 (el diagnóstico 7.9.49 probó que el trabón es el DIBUJO — nSyncAndDrawFrame subiendo texturas — no la decodificación); diagnóstico quitado, versión limpia
-        versionName = "0.63.45"
+        // v7.9.51: tarjetas de la biblioteca sin brillo ni gradiente inferior (se quita el pase de brillo difuso y el rectángulo de gradiente a toda la tarjeta); el borde fino (Core outline 1.5dp) se queda tal cual
+        versionName = "0.63.46"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
