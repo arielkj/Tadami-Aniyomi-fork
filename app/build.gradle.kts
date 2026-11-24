@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 261
+        versionCode = 262
 
-        // v7.9.49: DIAGNOSTIC ONLY — mide el trabón (tiempo por cuadro + qué hace el hilo principal durante el congelamiento) en vez de adivinar; overlay por página + reader-diag.txt
-        versionName = "0.63.44"
+        // v7.9.50: teselas webtoon 2048 -> 1024 (el diagnóstico 7.9.49 probó que el trabón es el DIBUJO — nSyncAndDrawFrame subiendo texturas — no la decodificación); diagnóstico quitado, versión limpia
+        versionName = "0.63.45"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")

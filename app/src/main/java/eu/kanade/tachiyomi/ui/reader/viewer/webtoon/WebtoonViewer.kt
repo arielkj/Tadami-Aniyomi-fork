@@ -147,9 +147,6 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
             .threshold
 
     init {
-        // v7.9.49 (diagnostic): frame times + UI-thread sampler while the
-        // reader is open. Idempotent; stopped in destroy().
-        ReaderDiag.start(activity)
         recycler.setItemViewCacheSize(RECYCLER_VIEW_CACHE_SIZE)
         recycler.isVisible = false // Don't let the recycler layout yet
         recycler.layoutParams = ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT)
@@ -372,8 +369,6 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
      */
     override fun destroy() {
         super.destroy()
-        // v7.9.49 (diagnostic): stop frame tracking + the sampler.
-        ReaderDiag.stop()
         stopPendingRelativeRestoreLoop()
         autoScrollManager.destroy()
         // Detaching the recycler from the window does NOT call onViewRecycled; without this the

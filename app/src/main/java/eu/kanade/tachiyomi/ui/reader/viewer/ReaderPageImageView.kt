@@ -65,8 +65,14 @@ import java.io.File
  * screen tall per tile: each tile decodes in ~15-30ms and scrolling stays
  * smooth. Same idea as the downloader splitting tall images, but at tile
  * level, so the page model and zoom are untouched.
+ * v7.9.50: 2048 -> 1024. The 7.9.49 diagnostic proved the freeze is in
+ * the DRAW (HardwareRenderer.nSyncAndDrawFrame), not the decode: when a
+ * tall page enters view the phone must upload the new tile textures to
+ * the GPU, and that upload is what freezes the frame ~50ms. Smaller
+ * tiles mean smaller texture uploads per frame and less overdraw beyond
+ * the visible screen, so the work spreads instead of arriving at once.
  */
-private const val WEBTOON_MAX_TILE_SIZE = 2048
+private const val WEBTOON_MAX_TILE_SIZE = 1024
 
 /**
  * A wrapper view for showing page image.
