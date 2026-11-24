@@ -275,7 +275,7 @@ open class ReaderPageImageView @JvmOverloads constructor(
         smartFitJob = null
         cancelCoilRequest()
         prepareNonAnimatedImageView()
-        setNonAnimatedImage(ImageSource.uri(Uri.fromFile(file)), config)
+        setNonAnimatedImage(ImageSource.uri(context, Uri.fromFile(file)), config)
     }
 
     fun recycle() {
