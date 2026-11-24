@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 259
+        versionCode = 260
 
-        // v7.9.47: parte las tiras muy altas (r>12) al leer en línea, como la descarga — la 7.9.46 demostró que el trabón sigue la altura (r23 se traba, r9.7 no); diagnóstico quitado
-        versionName = "0.63.42"
+        // v7.9.48: sin carga ansiosa en los trozos partidos (cada trozo decodifica solo lo visible) + precarga ligera de las imágenes del siguiente capítulo (solo descarga, sin decodificar)
+        versionName = "0.63.43"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")

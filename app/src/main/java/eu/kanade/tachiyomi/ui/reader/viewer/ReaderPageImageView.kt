@@ -365,7 +365,10 @@ open class ReaderPageImageView @JvmOverloads constructor(
                 // gestures settle" made tall images stutter at certain heights
                 // (tiles decoded late mid-scroll). Costs some extra decode work
                 // during fast flings, but scrolling stays smooth.
-                setEagerLoadingEnabled(true)
+                // v7.9.48: split pieces pass eagerLoading=false (see Config):
+                // all pieces decoding at once on (re)bind froze the screen in
+                // both directions; a piece decodes only its visible tiles.
+                setEagerLoadingEnabled(config?.eagerLoading ?: true)
                 // v7.9.43: cap the tile size (see WEBTOON_MAX_TILE_SIZE). This
                 // overrides the texture-limit default set above, webtoon only.
                 setMaxTileSize(WEBTOON_MAX_TILE_SIZE)
@@ -621,6 +624,15 @@ open class ReaderPageImageView @JvmOverloads constructor(
          */
         val isTallImage: Boolean? = null,
         val canUseHardwareBitmap: Boolean? = null,
+        /**
+         * v7.9.48: decode tiles eagerly (ahead of the visible area) in
+         * webtoon mode. True for normal pages (tiles are ready when the
+         * user scrolls to them). False for split pieces: all pieces of a
+         * tall strip would start decoding at once when the page is
+         * (re)bound and freeze the screen in both scroll directions;
+         * with it off each piece decodes only its visible tiles.
+         */
+        val eagerLoading: Boolean = true,
     )
 
     enum class ZoomStartPosition {

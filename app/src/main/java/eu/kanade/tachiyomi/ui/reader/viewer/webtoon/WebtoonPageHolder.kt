@@ -734,7 +734,11 @@ class WebtoonPageHolder(
         pieceViews.forEachIndexed { index, view ->
             view.setImage(
                 pieces[index].file,
-                config.copy(enablePinchToZoom = false, isTallImage = true),
+                // v7.9.48: no eager tile decoding on split pieces — all
+                // pieces decoding at once on (re)bind froze the screen in
+                // both scroll directions; each piece now decodes only its
+                // visible tiles, when visible.
+                config.copy(enablePinchToZoom = false, isTallImage = true, eagerLoading = false),
             )
         }
     }
