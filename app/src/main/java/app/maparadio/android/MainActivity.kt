@@ -72,7 +72,9 @@ import com.mapbox.mapboxsdk.camera.CameraUpdateFactory
 import com.mapbox.mapboxsdk.maps.MapboxMap
 import com.mapbox.mapboxsdk.maps.MapView
 import com.mapbox.mapboxsdk.maps.Style
+import com.mapbox.mapboxsdk.style.expressions.Expression
 import com.mapbox.mapboxsdk.style.layers.CircleLayer
+import com.mapbox.mapboxsdk.style.layers.FillExtrusionLayer
 import com.mapbox.mapboxsdk.style.layers.LineLayer
 import com.mapbox.mapboxsdk.style.layers.Property
 import com.mapbox.mapboxsdk.style.layers.PropertyFactory
@@ -302,6 +304,10 @@ class MainActivity : AppCompatActivity() {
     private var simplified = false
     private var manualZoomUntil = 0L
     private var lastZoomBand = -1
+    // Vista 3D pendiente (v1.0.10): si al aceptar la ruta no habia
+    // posicion, enterDrivingView() no puede centrar todavia; se marca
+    // aqui y se entra en 3D en el primer fix valido.
+    private var drivingViewPending = false
     private var guidanceExpanded = false
     private var offlineDownloading = false
 
@@ -581,6 +587,49 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupLayers(style: Style) {
+        // Edificios en 3D (v1.0.10): extrusion de las teselas
+        // vectoriales. OpenMapTiles trae render_height en metros para
+        // casi todos los edificios de RD (verificado en el tile de
+        // Santo Domingo: 105 edificios, todos con altura, mediana
+        // 16 m, maximo 107 m). Solo cerca de la camara (minzoom 15)
+        // para no cargar la GPU debil del radio, colores planos segun
+        // el modo y SIN sombras (MapLibre no las dibuja en extrusion).
+        // El id empieza por "building", asi que el modo simplificado
+        // lo esconde solo en los trayectos largos. Se inserta justo
+        // encima de la capa "building" del estilo, debajo de las
+        // rutas y del carro.
+        try {
+            if (style.getLayer("building") != null) {
+                val color = if (isNightNow()) "#23262D" else "#CFCFCF"
+                val extrusion = FillExtrusionLayer("building-3d", "openmaptiles")
+                    .withSourceLayer("building")
+                    .withMinZoom(15.0f)
+                    .withFilter(
+                        Expression.neq(Expression.get("hide_3d"), Expression.literal(true))
+                    )
+                    .withProperties(
+                        PropertyFactory.fillExtrusionColor(color),
+                        PropertyFactory.fillExtrusionHeight(
+                            Expression.coalesce(
+                                Expression.toNumber(Expression.get("render_height")),
+                                Expression.literal(8)
+                            )
+                        ),
+                        PropertyFactory.fillExtrusionBase(
+                            Expression.coalesce(
+                                Expression.toNumber(Expression.get("render_min_height")),
+                                Expression.literal(0)
+                            )
+                        ),
+                        PropertyFactory.fillExtrusionOpacity(0.9f),
+                        PropertyFactory.fillExtrusionVerticalGradient(false),
+                    )
+                style.addLayerAbove(extrusion, "building")
+            }
+        } catch (_: Exception) {
+            // Sin capa "building" en este estilo: sin edificios 3D;
+            // el resto del 3D (inclinacion + ruta + etiquetas) sigue.
+        }
         // Rutas alternativas (v1.7): las grises van DEBAJO de la azul.
         altRouteSource = GeoJsonSource("alt-src", FeatureCollection.fromFeatures(emptyList()))
         style.addSource(altRouteSource!!)
@@ -992,7 +1041,14 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
             }
-            if (followMode) {
+            // Vista 3D pendiente (v1.0.10): si al aceptar la ruta no
+            // habia posicion, entrar en 3D en este primer fix valido
+            // y no pasar por el auto-zoom en este fix, para que no
+            // cancele la animacion de entrada.
+            if (drivingViewPending && lastCarPos != null) {
+                drivingViewPending = false
+                enterDrivingView()
+            } else if (followMode) {
                 val zt = autoZoomFor(lastProgressMeters)
                 lastCarPos?.let { moveCamera(it, lastBearing, zt?.first, zt?.second) }
             }
@@ -1011,11 +1067,13 @@ class MainActivity : AppCompatActivity() {
             }
             lastCarPos = displayPos
             updateCarMarker()
+            // Sin ruta tambien en 3D (v1.0.10): perspectiva 55, zoom
+            // 16, rumbo arriba; el boton de centrar vuelve aqui.
             if (followMode) {
                 map?.animateCamera(
                     CameraUpdateFactory.newCameraPosition(
                         com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
-                            .target(displayPos).zoom(15.0).tilt(45.0)
+                            .target(displayPos).zoom(16.0).tilt(55.0)
                             .bearing(if (headingUp) lastBearing else 0.0).build()
                     ),
                     700,
@@ -1150,7 +1208,7 @@ class MainActivity : AppCompatActivity() {
         map?.animateCamera(
             CameraUpdateFactory.newCameraPosition(
                 com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
-                    .target(pos).zoom(16.0).tilt(45.0)
+                    .target(pos).zoom(16.0).tilt(55.0)
                     .bearing(if (headingUp) lastBearing else 0.0).build()
             ),
             700,
@@ -1239,8 +1297,9 @@ class MainActivity : AppCompatActivity() {
      * antes de que la primera animacion surtiera efecto), asi que el
      * cambio de zoom nunca se aplicaba y la vista se quedaba en la
      * general de la ruta (v1.0.9). Inclinacion 55 en conduccion (antes
-     * 45), para la vista 3D estilo Tesla; el trayecto largo recto
-     * sigue de arriba (tilt 0) y simplificado, como estaba acordado.
+     * 45), para la vista 3D estilo Tesla; en guia NUNCA se vuelve a
+     * la vista de arriba (v1.0.10: el trayecto largo tambien va en
+     * 3D, solo cambia el zoom y sigue simplificado).
      */
     private fun autoZoomFor(progressMeters: Double): Pair<Double, Double>? {
         val r = route ?: return null
@@ -1258,7 +1317,7 @@ class MainActivity : AppCompatActivity() {
         val (zoom, tilt, simple) = when (band) {
             3 -> Triple(17.5, 55.0, false)
             2 -> Triple(16.5, 55.0, false)
-            0 -> Triple(14.0, 0.0, true) // trayecto largo recto: de arriba, simple
+            0 -> Triple(15.0, 55.0, true) // trayecto largo: en 3D, alejado y simple
             else -> Triple(15.5, 55.0, false)
         }
         setSimplified(simple)
@@ -1329,9 +1388,17 @@ class MainActivity : AppCompatActivity() {
      * no re-anima).
      */
     private fun enterDrivingView() {
-        val target = lastCarPos ?: currentOrigin() ?: return
+        val target = lastCarPos ?: currentOrigin()
+        if (target == null) {
+            // Sin posicion todavia (v1.0.10): no callar como antes —
+            // entrar en 3D en el primer fix valido (drivingViewPending).
+            drivingViewPending = true
+            return
+        }
+        drivingViewPending = false
         lastZoomBand = 2
         moveCamera(target, lastBearing, 16.5, 55.0, 900)
+        CrashLog.logEvent(this, "Vista de conduccion 3D activada")
     }
 
     /**
@@ -1339,6 +1406,7 @@ class MainActivity : AppCompatActivity() {
      * centrada en el carro, de arriba y con el norte arriba.
      */
     private fun exitDrivingView() {
+        drivingViewPending = false
         val target = lastCarPos ?: currentOrigin() ?: return
         lastZoomBand = -1
         moveCamera(target, 0.0, 15.0, 0.0, 900)
