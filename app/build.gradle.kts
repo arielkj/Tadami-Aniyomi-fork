@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 256
+        versionCode = 257
 
-        // v7.9.44: webtoon muestra las tiras largas directo del archivo (sin copiarlas enteras a RAM dos veces por cada rebindeo); quita el congelamiento al volver a desplazar por el mismo capítulo
-        versionName = "0.63.39"
+        // v7.9.45: webtoon convierte las tiras altas WebP/AVIF a JPEG una sola vez (cacheada); quita el congelamiento al desplazar en fuentes como ikigai manga y miau scan
+        versionName = "0.63.40"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")

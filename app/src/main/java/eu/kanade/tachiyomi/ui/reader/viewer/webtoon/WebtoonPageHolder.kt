@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.webtoon
 
 import android.content.res.Resources
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.view.LayoutInflater
 import android.view.ViewGroup
@@ -37,6 +39,8 @@ import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Holder of the webtoon reader for a single page of a chapter.
@@ -450,6 +454,11 @@ class WebtoonPageHolder(
         if (viewer.config.webtoonSmartFit || viewer.config.imageCropBorders) return false
         val imageUrl = page.imageUrl ?: return false
         val file = Injekt.get<ChapterCache>().getImageFile(imageUrl).takeIf { it.exists() } ?: return false
+        // v7.9.45: tall WebP/AVIF strips decode regions slowly, which freezes
+        // the screen while scrolling. Convert once to JPEG (cached) and show
+        // that instead; JPEG region decoding is fast. Falls back to the
+        // original file when the format is already fast or conversion fails.
+        val displayFile = withIOContext { resolveDisplayFile(file) } ?: file
         val canUseHardware = ImageUtil.canUseHardwareBitmap(dims.width, dims.height)
         withUIContext {
             val ratio = dims.height.toFloat() / dims.width.toFloat()
@@ -458,7 +467,7 @@ class WebtoonPageHolder(
             refreshLayoutParams()
             refreshPlaceholderHeight()
             frame.setImage(
-                file,
+                displayFile,
                 ReaderPageImageView.Config(
                     zoomDuration = viewer.config.doubleTapAnimDuration,
                     minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
@@ -471,6 +480,50 @@ class WebtoonPageHolder(
             removeErrorLayout()
         }
         return true
+    }
+
+    /**
+     * v7.9.45: returns the JPEG version of a tall WebP/AVIF strip, converting
+     * it once and caching the result, so the reader decodes fast JPEG regions
+     * instead of slow WebP/AVIF ones. Returns null to keep the original file
+     * (already a fast format, or anything failed). Runs on the IO dispatcher;
+     * the one-time decode + encode takes a few seconds per page and is
+     * cached, so later scrolls are smooth like a downloaded chapter.
+     */
+    private fun resolveDisplayFile(file: File): File? {
+        return try {
+            val type = file.inputStream().use { ImageUtil.findImageType(it) } ?: return null
+            if (type != ImageUtil.ImageType.WEBP && type != ImageUtil.ImageType.AVIF) return null
+            val dir = File(viewer.activity.cacheDir, "webtoon_converted").apply { mkdirs() }
+            val converted = File(dir, file.name + ".jpg")
+            if (converted.exists() && converted.length() > 0) return converted
+            val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return null
+            try {
+                val tmp = File.createTempFile(file.name + "_", ".tmp.jpg", dir)
+                try {
+                    FileOutputStream(tmp).use { out ->
+                        if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) return null
+                    }
+                    if (converted.exists() && converted.length() > 0) {
+                        tmp.delete()
+                        return converted
+                    }
+                    if (!tmp.renameTo(converted)) return null
+                    converted
+                } catch (e: Exception) {
+                    tmp.delete()
+                    throw e
+                }
+            } finally {
+                bitmap.recycle()
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "Failed to convert tall WebP/AVIF to JPEG, using original" }
+            null
+        } catch (e: OutOfMemoryError) {
+            logcat(LogPriority.WARN) { "OOM converting tall WebP/AVIF to JPEG, using original" }
+            null
+        }
     }
 
     private fun process(imageSource: BufferedSource): ProcessedPageImage {
