@@ -909,7 +909,9 @@ class MangaDownloader(
                 fileName in listOf(COMIC_INFO_FILE, NOMEDIA_FILE) -> false
                 fileName.endsWith(".tmp") -> false
                 // Only count the first split page and not the others
-                fileName.contains("__") && !fileName.endsWith("__001.jpg") -> false
+                // (v7.9.45: split pieces are now .webp; keep .jpg for chapters
+                // downloaded before this change)
+                fileName.contains("__") && !fileName.endsWith("__001.jpg") && !fileName.endsWith("__001.webp") -> false
                 else -> true
             }
         }

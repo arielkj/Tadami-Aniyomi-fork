@@ -20,7 +20,7 @@ android {
         applicationId = "com.tadami.aurora"
         versionCode = 257
 
-        // v7.9.45: webtoon convierte las tiras altas WebP/AVIF a JPEG una sola vez (cacheada); quita el congelamiento al desplazar en fuentes como ikigai manga y miau scan
+        // v7.9.45: webtoon convierte las tiras altas WebP/AVIF a JPEG una sola vez (cacheada); descargas: las tiras partidas se guardan en WebP para ocupar menos almacenamiento
         versionName = "0.63.40"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")

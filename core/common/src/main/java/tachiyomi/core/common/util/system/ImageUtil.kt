@@ -335,7 +335,10 @@ object ImageUtil {
 
                 splitFile.openOutputStream().use { outputStream ->
                     val splitBitmap = bitmapRegionDecoder.decodeRegion(region, options)
-                    splitBitmap.compress(Bitmap.CompressFormat.JPEG, 100, outputStream)
+                    // v7.9.45: split pieces are WebP (not JPEG q=100) so downloads
+                    // take much less storage; a piece is only ~2 screens tall,
+                    // so WebP region decoding stays fast for it.
+                    splitBitmap.compress(Bitmap.CompressFormat.WEBP, 90, outputStream)
                     splitBitmap.recycle()
                 }
                 logcat {
@@ -360,7 +363,7 @@ object ImageUtil {
     private fun splitImageName(filenamePrefix: String, index: Int) = "${filenamePrefix}__${"%03d".format(
         Locale.ENGLISH,
         index + 1,
-    )}.jpg"
+    )}.webp"
 
     private val BitmapFactory.Options.splitData
         get(): List<SplitData> {
