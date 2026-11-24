@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ids de la vista dividida Tesla (v1.1.0-tablet). Se declaran aqui
+     (res principal) para que existan en R en TODOS los sabores: el
+     layout de la tablet (app/src/tablet/res/layout/activity_main.xml)
+     los usa, y MainActivity los busca solo cuando el sabor es tablet.
+     En el radio no existen como vistas y nunca se tocan. -->
+<resources>
+    <item name="map3dCapsule" type="id" />
+    <item name="mapView3d" type="id" />
+    <item name="musicCapsuleBig" type="id" />
+    <item name="musicArtBig" type="id" />
+    <item name="musicTitleBig" type="id" />
+    <item name="musicArtistBig" type="id" />
+    <item name="musicPrevBig" type="id" />
+    <item name="musicPlayPauseBig" type="id" />
+    <item name="musicNextBig" type="id" />
+    <item name="etaBar" type="id" />
+</resources>

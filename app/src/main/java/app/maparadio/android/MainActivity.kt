@@ -89,7 +89,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * Mapa Radio v1.2 (prueba en el telefono).
@@ -128,6 +130,17 @@ import kotlin.math.roundToInt
  * SOBRE la polilinea de la ruta (el GPS solo mide el avance); sin ruta se
  * usa el GPS suavizado. Estacionado (velocidad ~0) el carro se congela para
  * que el ruido del GPS no lo mueva.
+ *
+ * v1.1.0-tablet (sabor "tablet"): version GENERAL para probar en la
+ * tablet del usuario sin ir al vehiculo. Vista dividida estilo
+ * Tesla/LiteDash: panel 3D a la izquierda (~30%, segundo MapView con
+ * la camara inclinada 60 siguiendo al carro de cerca, carro grande
+ * visto desde atras, cinta de ruta azul ancha) + mapa general 2D a
+ * la derecha (~70%, cenital) con la capsula de musica GRANDE arriba
+ * (caratula + titulo + artista + atras/pausa/siguiente) y la barra
+ * ETA abajo. Las indicaciones de giro van en el panel del carro.
+ * Velocidad en km/h. Todo el codigo de la tablet va detras de
+ * isTablet (BuildConfig.FLAVOR == "tablet"): el radio no cambia.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -174,6 +187,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mapView: MapView
     private var map: MapboxMap? = null
     private var style: Style? = null
+    // Vista dividida Tesla (v1.1.0-tablet): segundo mapa 3D a la
+    // izquierda. Solo existe en el sabor tablet (su layout); en el
+    // radio estos campos nunca se tocan.
+    private val isTablet: Boolean get() = BuildConfig.FLAVOR == "tablet"
+    private lateinit var mapView3d: MapView
+    private var map3d: MapboxMap? = null
+    private var style3d: Style? = null
+    private var routeSource3d: GeoJsonSource? = null
+    private var altRouteSource3d: GeoJsonSource? = null
+    private var destSource3d: GeoJsonSource? = null
+    private var carSource3d: GeoJsonSource? = null
+    private var carLayer3d: SymbolLayer? = null
     // Pantalla partida (v1.4): capsula del mapa + estado del split.
     private lateinit var mapCapsule: FrameLayout
     private var splitAnimator: ValueAnimator? = null
@@ -223,6 +248,13 @@ class MainActivity : AppCompatActivity() {
     private var selectedPlayerPkg: String? = null
     private var musicJob: Job? = null
     private var lastMusicArtKey: String? = null
+    // Capsula de musica GRANDE (v1.1.0-tablet): arriba del mapa general.
+    // Solo existe en el sabor tablet; en el radio nunca se toca.
+    private lateinit var musicArtBig: ImageView
+    private lateinit var musicTitleBig: TextView
+    private lateinit var musicArtistBig: TextView
+    private lateinit var musicPlayPauseBig: ImageButton
+    private lateinit var etaBar: TextView
 
     // Favoritos en tira bajo el buscador (v1.3), filtrada por
     // categoria en v1.6: la capsula de categorias (Locales,
@@ -382,6 +414,20 @@ class MainActivity : AppCompatActivity() {
         mapView = findViewById(R.id.mapView)
         mapCapsule = findViewById(R.id.mapCapsule)
         mapView.onCreate(savedInstanceState)
+        if (isTablet) {
+            mapView3d = findViewById(R.id.mapView3d)
+            // Sin estado guardado: evita choques de bundle entre los
+            // dos MapView; el panel 3D se recentra en el primer fix.
+            mapView3d.onCreate(null)
+            musicArtBig = findViewById(R.id.musicArtBig)
+            musicTitleBig = findViewById(R.id.musicTitleBig)
+            musicArtistBig = findViewById(R.id.musicArtistBig)
+            musicPlayPauseBig = findViewById(R.id.musicPlayPauseBig)
+            etaBar = findViewById(R.id.etaBar)
+            musicPlayPauseBig.setOnClickListener { currentPlayer?.let { MusicController.togglePlayPause(it) }; refreshMusic() }
+            findViewById<ImageButton>(R.id.musicPrevBig).setOnClickListener { currentPlayer?.let { MusicController.skipPrevious(it) }; refreshMusic() }
+            findViewById<ImageButton>(R.id.musicNextBig).setOnClickListener { currentPlayer?.let { MusicController.skipNext(it) }; refreshMusic() }
+        }
         searchInput = findViewById(R.id.searchInput)
         searchResults = findViewById(R.id.searchResults)
         speedValue = findViewById(R.id.speedValue)
@@ -555,6 +601,35 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        // Segundo mapa 3D (v1.1.0-tablet): solo vista, sin gestos —
+        // el panel 3D muestra, no se toca. La camara la mueve el
+        // codigo (moveCamera3d), nunca el usuario.
+        if (isTablet) {
+            mapView3d.getMapAsync { map3dMap ->
+                map3d = map3dMap
+                map3dMap.uiSettings.apply {
+                    isAttributionEnabled = false
+                    isLogoEnabled = false
+                    isCompassEnabled = false
+                    isRotateGesturesEnabled = false
+                    isTiltGesturesEnabled = false
+                    isScrollGesturesEnabled = false
+                    isZoomGesturesEnabled = false
+                }
+                map3dMap.setLatLngBoundsForCameraTarget(DR_BOUNDS)
+                map3dMap.setMinZoomPreference(DR_MIN_ZOOM)
+                map3dMap.addOnMapClickListener { hideOverlays(); true }
+                loadStyle3d(styleUrlForMode())
+                map3dMap.animateCamera(
+                    CameraUpdateFactory.newCameraPosition(
+                        com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
+                            .target(SANTO_DOMINGO).zoom(17.0).tilt(60.0).bearing(0.0).build()
+                    ),
+                    1,
+                )
+            }
+        }
+
         // Modo guardado (oscuro por defecto). Si cambia respecto al
         // supuesto inicial, se recarga el estilo.
         scope.launch {
@@ -584,54 +659,25 @@ class MainActivity : AppCompatActivity() {
             updateCarMarker()
             setSimplified(simplified)
         }
+        // La tablet lleva el mismo estilo en los dos mapas.
+        if (isTablet) loadStyle3d(url)
+    }
+
+    /** Estilo del panel 3D (v1.1.0-tablet): mismas capas que el mapa
+        general, pero con la cinta de ruta ancha y el carro grande
+        visto desde atras. */
+    private fun loadStyle3d(url: String) {
+        map3d?.setStyle(Style.Builder().fromUri(url)) { loaded ->
+            style3d = loaded
+            setupLayers3d(loaded)
+            redrawRoute()
+            if (previewRoutes != null) drawPreviewLines()
+            updateCarMarker()
+        }
     }
 
     private fun setupLayers(style: Style) {
-        // Edificios en 3D (v1.0.10): extrusion de las teselas
-        // vectoriales. OpenMapTiles trae render_height en metros para
-        // casi todos los edificios de RD (verificado en el tile de
-        // Santo Domingo: 105 edificios, todos con altura, mediana
-        // 16 m, maximo 107 m). Solo cerca de la camara (minzoom 15)
-        // para no cargar la GPU debil del radio, colores planos segun
-        // el modo y SIN sombras (MapLibre no las dibuja en extrusion).
-        // El id empieza por "building", asi que el modo simplificado
-        // lo esconde solo en los trayectos largos. Se inserta justo
-        // encima de la capa "building" del estilo, debajo de las
-        // rutas y del carro.
-        try {
-            if (style.getLayer("building") != null) {
-                val color = if (isNightNow()) "#23262D" else "#CFCFCF"
-                val extrusion = FillExtrusionLayer("building-3d", "openmaptiles")
-                    .withSourceLayer("building")
-                    .withFilter(
-                        Expression.neq(Expression.get("hide_3d"), Expression.literal(true))
-                    )
-                    .withProperties(
-                        PropertyFactory.fillExtrusionColor(color),
-                        PropertyFactory.fillExtrusionHeight(
-                            Expression.coalesce(
-                                Expression.toNumber(Expression.get("render_height")),
-                                Expression.literal(8)
-                            )
-                        ),
-                        PropertyFactory.fillExtrusionBase(
-                            Expression.coalesce(
-                                Expression.toNumber(Expression.get("render_min_height")),
-                                Expression.literal(0)
-                            )
-                        ),
-                        PropertyFactory.fillExtrusionOpacity(0.9f),
-                        PropertyFactory.fillExtrusionVerticalGradient(false),
-                    )
-                // Minimo de zoom 15: solo cerca de la camara. (No hay
-                // withMinZoom en MapLibre 10.3.7: es setMinZoom.)
-                extrusion.minZoom = 15.0f
-                style.addLayerAbove(extrusion, "building")
-            }
-        } catch (_: Exception) {
-            // Sin capa "building" en este estilo: sin edificios 3D;
-            // el resto del 3D (inclinacion + ruta + etiquetas) sigue.
-        }
+        addBuildings3d(style)
         // Rutas alternativas (v1.7): las grises van DEBAJO de la azul.
         altRouteSource = GeoJsonSource("alt-src", FeatureCollection.fromFeatures(emptyList()))
         style.addSource(altRouteSource!!)
@@ -690,6 +736,150 @@ class MainActivity : AppCompatActivity() {
             PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
         )
         style.addLayer(carLayer!!)
+    }
+
+    // Edificios en 3D (v1.0.10): extrusion de las teselas
+    // vectoriales. OpenMapTiles trae render_height en metros para
+    // casi todos los edificios de RD (verificado en el tile de
+    // Santo Domingo: 105 edificios, todos con altura, mediana
+    // 16 m, maximo 107 m). Solo cerca de la camara (minzoom 15)
+    // para no cargar la GPU, colores planos segun el modo y SIN
+    // sombras (MapLibre no las dibuja en extrusion). El id empieza
+    // por "building", asi que el modo simplificado lo esconde solo
+    // en los trayectos largos del mapa general. Se inserta justo
+    // encima de la capa "building" del estilo, debajo de las
+    // rutas y del carro. Compartido por los dos mapas (v1.1.0).
+    private fun addBuildings3d(style: Style) {
+        try {
+            if (style.getLayer("building") != null) {
+                val color = if (isNightNow()) "#23262D" else "#CFCFCF"
+                val extrusion = FillExtrusionLayer("building-3d", "openmaptiles")
+                    .withSourceLayer("building")
+                    .withFilter(
+                        Expression.neq(Expression.get("hide_3d"), Expression.literal(true))
+                    )
+                    .withProperties(
+                        PropertyFactory.fillExtrusionColor(color),
+                        PropertyFactory.fillExtrusionHeight(
+                            Expression.coalesce(
+                                Expression.toNumber(Expression.get("render_height")),
+                                Expression.literal(8)
+                            )
+                        ),
+                        PropertyFactory.fillExtrusionBase(
+                            Expression.coalesce(
+                                Expression.toNumber(Expression.get("render_min_height")),
+                                Expression.literal(0)
+                            )
+                        ),
+                        PropertyFactory.fillExtrusionOpacity(0.9f),
+                        PropertyFactory.fillExtrusionVerticalGradient(false),
+                    )
+                // Minimo de zoom 15: solo cerca de la camara. (No hay
+                // withMinZoom en MapLibre 10.3.7: es setMinZoom.)
+                extrusion.minZoom = 15.0f
+                style.addLayerAbove(extrusion, "building")
+            }
+        } catch (_: Exception) {
+            // Sin capa "building" en este estilo: sin edificios 3D;
+            // el resto del 3D (inclinacion + ruta + etiquetas) sigue.
+        }
+    }
+
+    /** Capas del panel 3D (v1.1.0-tablet): las mismas fuentes que el
+        mapa general, pero la ruta es una CINTA ancha azul (como en el
+        boceto) y el carro es el grande visto desde atras. Los ids de
+        capa/fuente son por estilo, asi que se pueden repetir los del
+        mapa general; los campos Kotlin si son distintos (…3d). */
+    private fun setupLayers3d(style: Style) {
+        addBuildings3d(style)
+        altRouteSource3d = GeoJsonSource("alt-src", FeatureCollection.fromFeatures(emptyList()))
+        style.addSource(altRouteSource3d!!)
+        style.addLayer(
+            LineLayer("alt-casing", "alt-src").withProperties(
+                PropertyFactory.lineColor("#424242"),
+                PropertyFactory.lineWidth(14f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        )
+        style.addLayer(
+            LineLayer("alt-line", "alt-src").withProperties(
+                PropertyFactory.lineColor("#8A8A8A"),
+                PropertyFactory.lineWidth(10f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        )
+        routeSource3d = GeoJsonSource("route-src", FeatureCollection.fromFeatures(emptyList()))
+        style.addSource(routeSource3d!!)
+        style.addLayer(
+            LineLayer("route-casing", "route-src").withProperties(
+                PropertyFactory.lineColor("#1565C0"),
+                PropertyFactory.lineWidth(24f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        )
+        style.addLayer(
+            LineLayer("route-line", "route-src").withProperties(
+                PropertyFactory.lineColor("#2196F3"),
+                PropertyFactory.lineWidth(18f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        )
+        destSource3d = GeoJsonSource("dest-src", FeatureCollection.fromFeatures(emptyList()))
+        style.addSource(destSource3d!!)
+        style.addLayer(
+            CircleLayer("dest-layer", "dest-src").withProperties(
+                PropertyFactory.circleRadius(9f),
+                PropertyFactory.circleColor("#2196F3"),
+                PropertyFactory.circleStrokeWidth(2f),
+                PropertyFactory.circleStrokeColor("#FFFFFF"),
+            )
+        )
+        carSource3d = GeoJsonSource("car-src", FeatureCollection.fromFeatures(emptyList()))
+        style.addSource(carSource3d!!)
+        style.addImage("car-icon-3d", drawCar3dBitmap())
+        carLayer3d = SymbolLayer("car-layer", "car-src").withProperties(
+            PropertyFactory.iconImage("car-icon-3d"),
+            PropertyFactory.iconRotate(0f),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true),
+            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+        )
+        style.addLayer(carLayer3d!!)
+    }
+
+    /** Carro grande visto desde atras (v1.1.0-tablet): el del panel
+        3D, como en el boceto (blanco, luces traseras rojas, luneta
+        oscura). Se dibuja a 96dp de ancho para que se vea grande y
+        nitido en la tablet; en el mapa general sigue el marcador
+        pequeno de siempre (drawCarBitmap). Sin sombras ni blur. */
+    private fun drawCar3dBitmap(): Bitmap {
+        val density = resources.displayMetrics.density
+        val w = (96f * density).roundToInt().coerceAtLeast(1)
+        val h = (112f * density).roundToInt().coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        bmp.density = (DisplayMetrics.DENSITY_DEFAULT * density).toInt()
+        val c = Canvas(bmp)
+        c.scale(w / 96f, h / 112f)
+        val body = Paint().apply { color = Color.WHITE; isAntiAlias = true }
+        val glass = Paint().apply { color = Color.parseColor("#1A2530"); isAntiAlias = true }
+        val tail = Paint().apply { color = Color.parseColor("#E53935"); isAntiAlias = true }
+        val trim = Paint().apply { color = Color.parseColor("#CFD8DC"); isAntiAlias = true }
+        val wheel = Paint().apply { color = Color.parseColor("#263238"); isAntiAlias = true }
+        c.drawRoundRect(RectF(14f, 4f, 82f, 26f), 9f, 9f, body) // techo
+        c.drawRoundRect(RectF(6f, 20f, 90f, 104f), 14f, 14f, body) // carroceria
+        c.drawRoundRect(RectF(20f, 30f, 76f, 52f), 6f, 6f, glass) // luneta trasera
+        c.drawRoundRect(RectF(10f, 64f, 30f, 72f), 4f, 4f, tail) // luz trasera izq
+        c.drawRoundRect(RectF(66f, 64f, 86f, 72f), 4f, 4f, tail) // luz trasera der
+        c.drawRoundRect(RectF(10f, 92f, 86f, 100f), 4f, 4f, trim) // parachoques
+        c.drawRoundRect(RectF(40f, 80f, 56f, 88f), 2f, 2f, trim) // placa
+        c.drawRoundRect(RectF(8f, 96f, 20f, 108f), 3f, 3f, wheel) // rueda izq
+        c.drawRoundRect(RectF(76f, 96f, 88f, 108f), 3f, 3f, wheel) // rueda der
+        return bmp
     }
 
     private fun drawCarBitmap(): Bitmap {
@@ -951,7 +1141,10 @@ class MainActivity : AppCompatActivity() {
         }
         lastLocation = location
         lastSpeedMps = speedMps
-        speedValue.text = (speedMps * 2.23694).toInt().toString()
+        // En la tablet la velocidad va en km/h (boceto); en el radio
+        // sigue en mph como siempre.
+        speedValue.text = if (isTablet) (speedMps * 3.6).toInt().toString()
+            else (speedMps * 2.23694).toInt().toString()
 
         // ESTACIONADO: velocidad ~0 -> congelar el carro, el ruido del GPS
         // no lo mueve ni lo saca de la calle.
@@ -1072,14 +1265,20 @@ class MainActivity : AppCompatActivity() {
             // Sin ruta tambien en 3D (v1.0.10): perspectiva 55, zoom
             // 16, rumbo arriba; el boton de centrar vuelve aqui.
             if (followMode) {
-                map?.animateCamera(
-                    CameraUpdateFactory.newCameraPosition(
-                        com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
-                            .target(displayPos).zoom(16.0).tilt(55.0)
-                            .bearing(if (headingUp) lastBearing else 0.0).build()
-                    ),
-                    700,
-                )
+                if (isTablet) {
+                    // Mapa general cenital + panel 3D: moveCamera
+                    // mueve los dos (el 3D queda en 17.0/60).
+                    moveCamera(displayPos, lastBearing, 15.5, 0.0, 700)
+                } else {
+                    map?.animateCamera(
+                        CameraUpdateFactory.newCameraPosition(
+                            com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
+                                .target(displayPos).zoom(16.0).tilt(55.0)
+                                .bearing(if (headingUp) lastBearing else 0.0).build()
+                        ),
+                        700,
+                    )
+                }
             }
         }
     }
@@ -1207,14 +1406,18 @@ class MainActivity : AppCompatActivity() {
         lastCarPos = pos
         lastLocation = location
         updateCarMarker()
-        map?.animateCamera(
-            CameraUpdateFactory.newCameraPosition(
-                com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
-                    .target(pos).zoom(16.0).tilt(55.0)
-                    .bearing(if (headingUp) lastBearing else 0.0).build()
-            ),
-            700,
-        )
+        if (isTablet) {
+            moveCamera(pos, lastBearing, 15.5, 0.0, 700)
+        } else {
+            map?.animateCamera(
+                CameraUpdateFactory.newCameraPosition(
+                    com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
+                        .target(pos).zoom(16.0).tilt(55.0)
+                        .bearing(if (headingUp) lastBearing else 0.0).build()
+                ),
+                700,
+            )
+        }
         Toast.makeText(this, R.string.centered, Toast.LENGTH_SHORT).show()
     }
 
@@ -1225,6 +1428,7 @@ class MainActivity : AppCompatActivity() {
         val next = RouteEngine.nextStep(r, progressMeters)
         if (next == null) {
             guidanceCard.visibility = View.GONE
+            if (isTablet) etaBar.visibility = View.GONE
             return
         }
         val (step, remaining) = next
@@ -1246,8 +1450,22 @@ class MainActivity : AppCompatActivity() {
             SimpleDateFormat("h:mm a", Locale("es", "DO")).format(eta),
             "${(remainDurMin / 60).toInt()} min",
         )
+        // Barra ETA del mapa general (v1.1.0-tablet): hora, minutos y
+        // kilometros que faltan.
+        if (isTablet) updateEtaBar(remainDist, remainDurMin)
         // El panel CRECE cuando el giro esta cerca (mockup v2).
         setGuidanceExpanded(remaining < 300)
+    }
+
+    /** Barra ETA del mapa general (v1.1.0-tablet): "ETA · 18:08 ·
+        8 min · 6.5 km". remainDurSec son segundos (igual que en
+        updateGuidance). */
+    private fun updateEtaBar(remainDistM: Double, remainDurSec: Long) {
+        val eta = Date(System.currentTimeMillis() + remainDurSec * 1000)
+        val time = SimpleDateFormat("h:mm a", Locale("es", "DO")).format(eta)
+        val km = remainDistM / 1000.0
+        etaBar.text = "ETA · $time · ${remainDurSec / 60} min · ${"%.1f".format(km)} km"
+        etaBar.visibility = View.VISIBLE
     }
 
     /**
@@ -1276,6 +1494,7 @@ class MainActivity : AppCompatActivity() {
             SimpleDateFormat("h:mm a", Locale("es", "DO")).format(eta),
             "${(remainDurMin / 60).toInt()} min",
         )
+        if (isTablet) updateEtaBar(remainDist, remainDurMin)
     }
 
     private fun setGuidanceExpanded(expanded: Boolean) {
@@ -1356,7 +1575,9 @@ class MainActivity : AppCompatActivity() {
         val m = map ?: return
         val cur = m.cameraPosition
         val newZoom = zoom ?: cur.zoom
-        val newTilt = tilt ?: cur.tilt
+        // En la tablet el mapa general es cenital: la inclinacion 55
+        // de la vista de conduccion va solo al panel 3D.
+        val newTilt = if (isTablet) 0.0 else (tilt ?: cur.tilt)
         val newBearing = if (headingUp) bearing else 0.0
         // En el radio debil, no re-animar si la camara ya esta ahi:
         // evita encadenar animaciones que se cancelan entre si.
@@ -1379,6 +1600,49 @@ class MainActivity : AppCompatActivity() {
             ),
             durationMs,
         )
+        // Panel 3D (v1.1.0-tablet): misma posicion, cerca e inclinado.
+        if (isTablet) moveCamera3d(target, bearing, zoom, durationMs)
+    }
+
+    /** Camara del panel 3D (v1.1.0-tablet): cerca (zoom 17.0-17.5),
+        inclinada 60 y con el rumbo arriba. El carro queda ABAJO en
+        el panel: la camara apunta ~120 m por delante del carro (a
+        zoom 17 eso son unos 150 px), asi la carretera se abre hacia
+        el horizonte como en el boceto. */
+    private fun moveCamera3d(
+        target: LatLng, bearing: Double, zoom: Double?, durationMs: Int,
+    ) {
+        val m3 = map3d ?: return
+        val cur = m3.cameraPosition
+        val newZoom = (zoom ?: cur.zoom).coerceAtLeast(17.0)
+        val newBearing = if (headingUp) bearing else 0.0
+        val ahead = pointAhead(target, newBearing, 120.0)
+        val curTarget = cur.target
+        val bearingDiff = abs((newBearing - cur.bearing + 540.0) % 360.0 - 180.0)
+        if (curTarget != null &&
+            RouteEngine.metersBetween(curTarget, ahead) < 2.0 &&
+            bearingDiff < 2.0 &&
+            abs(newZoom - cur.zoom) < 0.05 && abs(60.0 - cur.tilt) < 0.5
+        ) return
+        m3.animateCamera(
+            CameraUpdateFactory.newCameraPosition(
+                com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
+                    .target(ahead)
+                    .zoom(newZoom)
+                    .tilt(60.0)
+                    .bearing(newBearing)
+                    .build()
+            ),
+            durationMs,
+        )
+    }
+
+    /** Punto a N metros del origen siguiendo un rumbo (grados). */
+    private fun pointAhead(from: LatLng, bearingDeg: Double, meters: Double): LatLng {
+        val r = Math.toRadians(bearingDeg)
+        val dLat = meters * cos(r) / 111_320.0
+        val dLng = meters * sin(r) / (111_320.0 * cos(Math.toRadians(from.latitude)))
+        return LatLng(from.latitude + dLat, from.longitude + dLng)
     }
 
     /**
@@ -1422,6 +1686,10 @@ class MainActivity : AppCompatActivity() {
                 if (headingUp) 0f else lastBearing.toFloat()
             )
         )
+        // Panel 3D: el carro siempre apunta arriba (la camara lleva
+        // el rumbo); el icono es el grande visto desde atras.
+        carSource3d?.setGeoJson(Feature.fromGeometry(Point.fromLngLat(pos.longitude, pos.latitude)))
+        carLayer3d?.setProperties(PropertyFactory.iconRotate(0f))
     }
 
     // ------------------------------------------------------------- ruta
@@ -1629,9 +1897,15 @@ class MainActivity : AppCompatActivity() {
         val routes = previewRoutes ?: return
         val sel = routes.getOrNull(previewSelected) ?: return
         val pts = sel.points.map { Point.fromLngLat(it.longitude, it.latitude) }
+        val selFeature = Feature.fromGeometry(LineString.fromLngLats(pts))
         routeSource?.setGeoJson(
             FeatureCollection.fromFeatures(
-                listOf(Feature.fromGeometry(LineString.fromLngLats(pts)))
+                listOf(selFeature)
+            )
+        )
+        routeSource3d?.setGeoJson(
+            FeatureCollection.fromFeatures(
+                listOf(selFeature)
             )
         )
         val feats = ArrayList<Feature>()
@@ -1646,6 +1920,7 @@ class MainActivity : AppCompatActivity() {
             feats.add(f)
         }
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(feats))
+        altRouteSource3d?.setGeoJson(FeatureCollection.fromFeatures(feats))
     }
 
     /** Muestra el panel con las rutas: nombre (calle principal o
@@ -1656,6 +1931,9 @@ class MainActivity : AppCompatActivity() {
         previewSelected = 0
         val dest = previewDest ?: return
         destSource?.setGeoJson(
+            Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
+        )
+        destSource3d?.setGeoJson(
             Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
         )
         drawPreviewLines()
@@ -1737,6 +2015,9 @@ class MainActivity : AppCompatActivity() {
         previewRoutes = null
         val dest = previewDest ?: return
         destSource?.setGeoJson(
+            Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
+        )
+        destSource3d?.setGeoJson(
             Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
         )
         previewTitle.text = previewDestName ?: getString(R.string.choose_route)
@@ -1851,6 +2132,9 @@ class MainActivity : AppCompatActivity() {
         destSource?.setGeoJson(
             Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
         )
+        destSource3d?.setGeoJson(
+            Feature.fromGeometry(Point.fromLngLat(dest.longitude, dest.latitude))
+        )
         redrawRoute()
         // Vista de conduccion (v1.0.9): centrar en el vehiculo en 3D
         // al arrancar, no quedarse en la vista general de la ruta.
@@ -1869,12 +2153,14 @@ class MainActivity : AppCompatActivity() {
         routePreviewPanel.visibility = View.GONE
         previewRows.removeAllViews()
         altRouteSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        altRouteSource3d?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
     }
 
     /** "Cancelar" del panel: cierra la vista previa y quita el pin. */
     private fun onPreviewCancel() {
         cancelPreview()
         destSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        destSource3d?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         destination = null
         destinationName = null
         followMode = followBeforePreview
@@ -1902,12 +2188,20 @@ class MainActivity : AppCompatActivity() {
         val r = route
         if (r == null) {
             routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            routeSource3d?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
             return
         }
         val points = r.points.map { Point.fromLngLat(it.longitude, it.latitude) }
+        val feature = Feature.fromGeometry(LineString.fromLngLats(points))
         routeSource?.setGeoJson(
             FeatureCollection.fromFeatures(
-                listOf(Feature.fromGeometry(LineString.fromLngLats(points)))
+                listOf(feature)
+            )
+        )
+        // La misma linea en el panel 3D (cinta ancha azul).
+        routeSource3d?.setGeoJson(
+            FeatureCollection.fromFeatures(
+                listOf(feature)
             )
         )
     }
@@ -1924,8 +2218,10 @@ class MainActivity : AppCompatActivity() {
         lastProgressMeters = 0.0
         btnCancelRoute.visibility = View.GONE
         guidanceCard.visibility = View.GONE
+        if (isTablet) etaBar.visibility = View.GONE
         setSimplified(false)
         destSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        destSource3d?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         redrawRoute()
         // Al terminar o cancelar, volver a la vista general.
         exitDrivingView()
@@ -2178,6 +2474,9 @@ class MainActivity : AppCompatActivity() {
      * cambio es instantaneo.
      */
     private fun applySplitLayout(musicOn: Boolean) {
+        // En la tablet no hay capsula lateral: la musica vive en la
+        // capsula grande de arriba del mapa general.
+        if (isTablet) return
         if (musicOn == musicSplitOn) return
         musicSplitOn = musicOn
         splitAnimator?.cancel()
@@ -2236,6 +2535,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshMusic() {
         val players = MusicController.activePlayers(this)
+        // En la tablet la musica va a la capsula grande de arriba del
+        // mapa general (siempre visible); la capsula lateral no existe.
+        if (isTablet) {
+            refreshMusicBig(players)
+            return
+        }
         if (players.isEmpty()) {
             currentPlayer = null
             lastMusicArtKey = null
@@ -2285,6 +2590,49 @@ class MainActivity : AppCompatActivity() {
             musicTimeTotal.text = ""
         }
         musicPlayPause.setImageResource(
+            if (current.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+        )
+    }
+
+    /** Capsula de musica GRANDE (v1.1.0-tablet): arriba del mapa
+        general, siempre visible. Caratula grande + titulo + artista
+        + atras/pausa/siguiente. Sin nada sonando muestra el texto
+        de "Sin música" (la capsula no se esconde: es parte del
+        diseno de la tablet). La portada solo se recarga si cambia
+        la cancion, igual que en la capsula del radio. */
+    private fun refreshMusicBig(players: List<PlayerInfo>) {
+        if (players.isEmpty()) {
+            currentPlayer = null
+            lastMusicArtKey = null
+            musicTitleBig.text = "Sin música"
+            musicArtistBig.text = "Toca algo en tu reproductor"
+            musicArtBig.setImageBitmap(null)
+            musicArtBig.visibility = View.INVISIBLE
+            musicPlayPauseBig.setImageResource(R.drawable.ic_play)
+            btnShowMusic.visibility = View.GONE
+            return
+        }
+        val current = players.find { it.packageName == selectedPlayerPkg } ?: players.first()
+        if (players.none { it.packageName == selectedPlayerPkg }) {
+            selectedPlayerPkg = current.packageName
+        }
+        currentPlayer = current
+        btnShowMusic.visibility = View.GONE
+        musicTitleBig.text = current.title
+        musicArtistBig.text = current.artist
+        val artKey = current.packageName + "|" + current.title
+        if (artKey != lastMusicArtKey) {
+            lastMusicArtKey = artKey
+            val art = current.albumArt
+            if (art != null) {
+                musicArtBig.setImageBitmap(art)
+                musicArtBig.visibility = View.VISIBLE
+            } else {
+                musicArtBig.setImageBitmap(null)
+                musicArtBig.visibility = View.INVISIBLE
+            }
+        }
+        musicPlayPauseBig.setImageResource(
             if (current.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
         )
     }
@@ -2704,11 +3052,13 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         mapView.onStart()
+        if (isTablet) mapView3d.onStart()
     }
 
     override fun onResume() {
         super.onResume()
         mapView.onResume()
+        if (isTablet) mapView3d.onResume()
         // Al volver de Ajustes del sistema (permiso), arrancar si ya hay permiso.
         if (hasLocationPermission() && !locationStarted) {
             startLocation()
@@ -2749,16 +3099,19 @@ class MainActivity : AppCompatActivity() {
         PhoneLinkServer.stop()
         BluetoothLinkServer.stop()
         mapView.onPause()
+        if (isTablet) mapView3d.onPause()
     }
 
     override fun onStop() {
         super.onStop()
         mapView.onStop()
+        if (isTablet) mapView3d.onStop()
     }
 
     override fun onLowMemory() {
         super.onLowMemory()
         mapView.onLowMemory()
+        if (isTablet) mapView3d.onLowMemory()
     }
 
     override fun onDestroy() {
@@ -2776,6 +3129,7 @@ class MainActivity : AppCompatActivity() {
         centerTimeoutJob?.cancel()
         scope.coroutineContext[Job]?.cancel()
         mapView.onDestroy()
+        if (isTablet) mapView3d.onDestroy()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

@@ -1,0 +1,69 @@
+name: Build Mapa Radio TABLET (1.1.0, vista dividida Tesla)
+
+# Version GENERAL para probar en la tablet del usuario sin ir al
+# vehiculo: vista dividida Tesla (panel 3D + mapa general), arm64 +
+# armeabi-v7a. Se dispara solo cuando cambia este workflow o el
+# marcador tablet-trigger.txt. NO toca la version del radio (esa es
+# build-mapa-final.yml).
+on:
+  push:
+    branches: [mapa-radio]
+    paths:
+      - '.github/workflows/build-mapa-tablet.yml'
+      - 'tablet-trigger.txt'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout mapa-radio
+        uses: actions/checkout@v4
+        with:
+          ref: mapa-radio
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # El runner ya trae un Android SDK (ANDROID_HOME). No usar
+      # android-actions/setup-android: falla con cmdline-tools 16.0.
+      - name: Install Android SDK packages
+        run: |
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$SDKMGR" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          yes | "$SDKMGR" --licenses
+
+      # Extracto de Geofabrik de la isla (Haiti + Republica Dominicana):
+      # no hay extracto solo de RD; el grafo cubre la isla entera y la
+      # app sigue limitada a RD por sus limites de camara.
+      - name: Download Hispaniola OSM extract
+        run: |
+          curl -L --fail -o haiti-and-domrep-latest.osm.pbf \
+            https://download.geofabrik.de/central-america/haiti-and-domrep-latest.osm.pbf
+          ls -lh haiti-and-domrep-latest.osm.pbf
+          test $(stat -c%s haiti-and-domrep-latest.osm.pbf) -gt 10000000
+
+      # El grafo se construye con la MISMA version de GraphHopper que
+      # usa la app (7.0, modulo :tools) y se empaqueta en assets.
+      - name: Build offline graph (GraphHopper 7.0)
+        run: |
+          ./gradlew :tools:buildGraph \
+            -Ppbf=$PWD/haiti-and-domrep-latest.osm.pbf \
+            -PgraphDir=$PWD/app/src/main/assets/graphhopper \
+            --stacktrace
+          echo "--- grafo ---"
+          du -sh app/src/main/assets/graphhopper
+          ls app/src/main/assets/graphhopper
+
+      - name: Build TABLET release APK (arm64 + armeabi-v7a)
+        run: ./gradlew :app:assembleTabletRelease --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapa-radio-tablet-apk
+          path: app/build/outputs/apk/tablet/release/*.apk
+          if-no-files-found: error
+          retention-days: 7

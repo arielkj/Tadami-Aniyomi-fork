@@ -1,0 +1,7 @@
+Mapa Radio v1.1.0-tablet — version GENERAL para probar en la tablet del usuario sin ir al vehiculo.
+Este archivo existe solo para disparar el workflow build-mapa-tablet.yml:
+al cambiarlo, CI construye la version tablet. No borrar.
+v1.1.0-tablet: vista dividida Tesla (panel 3D a la izquierda ~30% + mapa general a la derecha ~70%),
+capsula de musica GRANDE arriba del mapa (caratula + titulo + artista + atras/pausa/siguiente),
+indicaciones de giro en el panel del carro, velocidad en km/h, carro 3D grande visto desde atras,
+cinta de ruta azul ancha en el panel 3D. arm64-v8a + armeabi-v7a, minSdk 26.
