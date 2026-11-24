@@ -861,8 +861,9 @@ class WebtoonViewer(val activity: ReaderActivity, val hasPageGaps: Boolean = fal
     }
 }
 
-// Double the cache size to reduce rebinds/recycles incurred by the extra layout space on scroll direction changes
-private const val RECYCLER_VIEW_CACHE_SIZE = 4
+// v7.9.42: 8 cached holders (was 4) to reduce rebinds/recycles while scrolling;
+// every rebind re-reads the whole page file and re-arms the tile decoder.
+private const val RECYCLER_VIEW_CACHE_SIZE = 8
 
 private data class PendingRelativeRestore(
     var adapterPosition: Int,

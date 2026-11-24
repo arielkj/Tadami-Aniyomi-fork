@@ -332,11 +332,12 @@ open class ReaderPageImageView @JvmOverloads constructor(
             setPanLimit(SubsamplingScaleImageView.PAN_LIMIT_INSIDE)
             setMinimumTileDpi(180)
             if (isWebtoon) {
-                // Defer high-res tile decoding until gestures/flings settle. This
-                // reduces decode churn while scrolling through long strips, which
-                // is a major source of dropped frames on high refresh rate
-                // displays (90/120Hz+).
-                setEagerLoadingEnabled(false)
+                // v7.9.42: decode tiles eagerly so the parts of a long strip are
+                // ready before the user scrolls to them. The old "defer until
+                // gestures settle" made tall images stutter at certain heights
+                // (tiles decoded late mid-scroll). Costs some extra decode work
+                // during fast flings, but scrolling stays smooth.
+                setEagerLoadingEnabled(true)
             }
             setOnStateChangedListener(
                 object : SubsamplingScaleImageView.OnStateChangedListener {

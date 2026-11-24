@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 253
+        versionCode = 254
 
-        // v7.9.41: fix NetworkOnMainThreadException en "Sincronizar ahora" (sync en IO)
-        versionName = "0.63.36"
+        // v7.9.42: webtoon decodifica las teselas por adelantado (eager loading) + más caché de vistas; quita el trabón dentro de imágenes largas
+        versionName = "0.63.37"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
