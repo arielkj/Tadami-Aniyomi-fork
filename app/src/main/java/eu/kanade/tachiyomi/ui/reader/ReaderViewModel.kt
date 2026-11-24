@@ -34,7 +34,6 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.ui.reader.loader.ChapterLoader
-import eu.kanade.tachiyomi.ui.reader.loader.DownloadPageLoader
 import eu.kanade.tachiyomi.ui.reader.model.InsertPage
 import eu.kanade.tachiyomi.ui.reader.model.PageRatioTracker
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
@@ -719,9 +718,6 @@ class ReaderViewModel @JvmOverloads constructor(
                 reloadSentForChapterId = cid
                 eventChannel.trySend(Event.ReloadViewerChapters)
             }
-            // v7.9.48: the page list is already here; now preload the
-            // images too so entering the chapter loads in full quality.
-            preloadChapterImages(chapter)
             return
         }
         if (chapter.state == ReaderChapter.State.Loading) {
@@ -760,24 +756,8 @@ class ReaderViewModel @JvmOverloads constructor(
             }
             return
         }
-        // v7.9.48: page list is loaded; preload the images lightly in the
-        // background so entering the chapter loads in full quality at once.
-        preloadChapterImages(chapter)
         reloadSentForChapterId = chapter.chapter.id
         eventChannel.trySend(Event.ReloadViewerChapters)
-    }
-
-    /**
-     * v7.9.48: light image preload of an adjacent chapter (the one the user
-     * is heading toward). Downloads the page bytes into the cache in the
-     * background — no decode, no split — so entering the chapter loads in
-     * full quality at once. Skipped on metered connections (mobile data)
-     * to keep it light; the page-list preload above still runs there.
-     */
-    private fun preloadChapterImages(chapter: ReaderChapter) {
-        if (connectivityManager.isActiveNetworkMetered) return
-        val pages = chapter.pages ?: return
-        chapter.pageLoader?.preloadPageImages(pages)
     }
 
     fun onViewerLoaded(viewer: Viewer?) {
@@ -835,21 +815,17 @@ class ReaderViewModel @JvmOverloads constructor(
     private fun downloadNextChapters(triggerChapterId: Long?) {
         if (downloadAheadAmount == 0) return
         val manga = manga ?: return
-
-        // Only download ahead if current + next chapter is already downloaded too to avoid jank
-        if (getCurrentChapter()?.pageLoader !is DownloadPageLoader) return
         val nextChapter = state.value.viewerChapters?.nextChapter?.chapter ?: return
 
+        // v7.9.53: la descarga por adelantado también funciona al leer
+        // online. Antes solo se disparaba si el capítulo actual era
+        // descargado Y el siguiente ya estaba descargado, así que leyendo
+        // online y sin nada descargado nunca bajaba nada aunque la opción
+        // estuviera activa ("Siguientes 2 capítulos sin leer"). Ahora
+        // descarga los siguientes capítulos sin leer estés leyendo online
+        // o descargado; el gestor ya ignora los que están descargados o
+        // en cola, así que no se duplica nada.
         viewModelScope.launchIO {
-            val isNextChapterDownloaded = downloadManager.isChapterDownloaded(
-                nextChapter.name,
-                nextChapter.scanlator,
-                manga.title,
-                manga.source,
-                mangaId = manga.id,
-                chapterId = nextChapter.id,
-            )
-            if (!isNextChapterDownloaded) return@launchIO
             downloadAheadTriggeredForChapterId = triggerChapterId
 
             val chaptersToDownload = getNextChapters.await(manga.id, nextChapter.id!!)

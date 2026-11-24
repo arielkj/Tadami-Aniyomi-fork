@@ -6,7 +6,6 @@ import android.graphics.RectF
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.net.Uri
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -55,24 +54,6 @@ import okio.BufferedSource
 import tachiyomi.core.common.util.system.ImageUtil
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import java.io.File
-
-/**
- * Max tile size for webtoon (continuous) mode, in pixels. The default is the
- * device texture limit (up to 16384px), which turns a long strip into 2-3
- * giant tiles of tens of MB each; decoding one (and the GC it triggers)
- * froze the screen for 100-200ms while scrolling. 2048px is about one
- * screen tall per tile: each tile decodes in ~15-30ms and scrolling stays
- * smooth. Same idea as the downloader splitting tall images, but at tile
- * level, so the page model and zoom are untouched.
- * v7.9.50: 2048 -> 1024. The 7.9.49 diagnostic proved the freeze is in
- * the DRAW (HardwareRenderer.nSyncAndDrawFrame), not the decode: when a
- * tall page enters view the phone must upload the new tile textures to
- * the GPU, and that upload is what freezes the frame ~50ms. Smaller
- * tiles mean smaller texture uploads per frame and less overdraw beyond
- * the visible screen, so the work spreads instead of arriving at once.
- */
-private const val WEBTOON_MAX_TILE_SIZE = 1024
 
 /**
  * A wrapper view for showing page image.
@@ -269,21 +250,6 @@ open class ReaderPageImageView @JvmOverloads constructor(
         }
     }
 
-    /**
-     * v7.9.44: shows a page straight from a FILE instead of an in-memory
-     * copy. The region decoder reads the file directly (seekable), so a
-     * giant strip is NOT copied into RAM twice per rebind. Only for tall,
-     * non-animated pages; the caller checks that.
-     */
-    fun setImage(file: File, config: Config) {
-        this.config = config
-        smartFitJob?.cancel()
-        smartFitJob = null
-        cancelCoilRequest()
-        prepareNonAnimatedImageView()
-        setNonAnimatedImage(ImageSource.uri(context, Uri.fromFile(file)), config)
-    }
-
     fun recycle() {
         smartFitJob?.cancel()
         smartFitJob = null
@@ -366,18 +332,11 @@ open class ReaderPageImageView @JvmOverloads constructor(
             setPanLimit(SubsamplingScaleImageView.PAN_LIMIT_INSIDE)
             setMinimumTileDpi(180)
             if (isWebtoon) {
-                // v7.9.42: decode tiles eagerly so the parts of a long strip are
-                // ready before the user scrolls to them. The old "defer until
-                // gestures settle" made tall images stutter at certain heights
-                // (tiles decoded late mid-scroll). Costs some extra decode work
-                // during fast flings, but scrolling stays smooth.
-                // v7.9.48: split pieces pass eagerLoading=false (see Config):
-                // all pieces decoding at once on (re)bind froze the screen in
-                // both directions; a piece decodes only its visible tiles.
-                setEagerLoadingEnabled(config?.eagerLoading ?: true)
-                // v7.9.43: cap the tile size (see WEBTOON_MAX_TILE_SIZE). This
-                // overrides the texture-limit default set above, webtoon only.
-                setMaxTileSize(WEBTOON_MAX_TILE_SIZE)
+                // Defer high-res tile decoding until gestures/flings settle. This
+                // reduces decode churn while scrolling through long strips, which
+                // is a major source of dropped frames on high refresh rate
+                // displays (90/120Hz+).
+                setEagerLoadingEnabled(false)
             }
             setOnStateChangedListener(
                 object : SubsamplingScaleImageView.OnStateChangedListener {
@@ -527,12 +486,6 @@ open class ReaderPageImageView @JvmOverloads constructor(
                         coilDisposable = context.imageLoader.enqueue(request)
                     }
             }
-            is ImageSource -> {
-                // v7.9.44: file-backed page (no copy, the decoder reads the file)
-                config.canUseHardwareBitmap?.let { setHardwareConfig(it) }
-                setImage(data)
-                isVisible = true
-            }
             else -> {
                 throw IllegalArgumentException("Not implemented for class ${data::class.simpleName}")
             }
@@ -630,15 +583,6 @@ open class ReaderPageImageView @JvmOverloads constructor(
          */
         val isTallImage: Boolean? = null,
         val canUseHardwareBitmap: Boolean? = null,
-        /**
-         * v7.9.48: decode tiles eagerly (ahead of the visible area) in
-         * webtoon mode. True for normal pages (tiles are ready when the
-         * user scrolls to them). False for split pieces: all pieces of a
-         * tall strip would start decoding at once when the page is
-         * (re)bound and freeze the screen in both scroll directions;
-         * with it off each piece decodes only its visible tiles.
-         */
-        val eagerLoading: Boolean = true,
     )
 
     enum class ZoomStartPosition {

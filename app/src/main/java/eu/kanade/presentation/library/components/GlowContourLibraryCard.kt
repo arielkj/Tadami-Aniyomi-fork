@@ -785,20 +785,16 @@ private fun GlowContourLibraryCard(
                 startX = shellBoundsLeft,
                 endX = size.width,
             )
-            // H5: was built inside onDrawWithContent (per frame, including a getBounds
-            // call) while its selected-stroke sibling was already hoisted here.
-            val auraStrokeBrush = auraColors?.let { auraPalette ->
-                Brush.horizontalGradient(
-                    colors = auraPalette,
-                    startX = shellBoundsLeft,
-                    endX = size.width,
-                )
-            }
+            // v7.9.53: borde sólido en vez de gradiente — el gradiente
+            // horizontal costaba más dibujarlo en cada cuadro al hacer
+            // scroll; un color sólido (el primer color de la paleta del
+            // aura) se ve casi igual a 1.5dp y pesa menos.
+            val auraSolidColor = auraColors?.firstOrNull()
 
             onDrawWithContent {
                 drawContent()
 
-                if (auraStrokeBrush != null) {
+                if (auraSolidColor != null) {
                     val (isBurst, intensity, flicker) = burstState.value
                     // H6: timeState was read (and a Random allocated) twice per frame.
                     val burstFrame = (timeState.value * 100f).toInt()
@@ -858,15 +854,12 @@ private fun GlowContourLibraryCard(
                         drawContext.canvas.translate(dx, dy)
                     }
 
-                    // v7.9.51: sin brillo — se quita el pase de brillo difuso
-                    // (el trazo ancho de 4dp con gradiente alrededor de la
-                    // tarjeta). El borde fino (Core outline, 1.5dp) se queda
-                    // tal cual, así la tarjeta sigue definida sin el brillo
-                    // que costaba dibujar en cada cuadro al hacer scroll.
+                    // v7.9.53: borde sólido (color del aura) en vez de
+                    // gradiente; el borde fino de 1.5dp se queda tal cual.
                     // Core outline pass
                     drawPath(
                         path = zones.shellPath,
-                        brush = auraStrokeBrush,
+                        color = auraSolidColor,
                         alpha = 0.85f,
                         style = coreStroke,
                     )

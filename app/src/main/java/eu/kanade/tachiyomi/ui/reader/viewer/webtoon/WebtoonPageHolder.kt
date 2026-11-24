@@ -1,8 +1,6 @@
 package eu.kanade.tachiyomi.ui.reader.viewer.webtoon
 
 import android.content.res.Resources
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.view.LayoutInflater
 import android.view.ViewGroup
@@ -15,7 +13,6 @@ import androidx.core.view.updateMargins
 import androidx.recyclerview.widget.RecyclerView
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.tadami.aurora.databinding.ReaderErrorBinding
-import eu.kanade.tachiyomi.data.cache.ChapterCache
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.ProcessedPageImage
@@ -37,10 +34,6 @@ import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
-import java.io.File
-import java.io.FileOutputStream
 
 /**
  * Holder of the webtoon reader for a single page of a chapter.
@@ -351,10 +344,6 @@ class WebtoonPageHolder(
         val currentPage = page ?: return
         val streamFn = currentPage.stream ?: return
 
-        // v7.9.44: tall online pages are shown straight from the cache file
-        // (no whole-file copy into RAM). If it applies, it returns early.
-        if (trySetImageFromFile(currentPage)) return
-
         try {
             var sniffedDims: ImageUtil.ImageDimensions? = null
             val prepared = withIOContext {
@@ -432,95 +421,6 @@ class WebtoonPageHolder(
             withUIContext {
                 markDecodeError()
             }
-        }
-    }
-
-    /**
-     * v7.9.44: shows a tall online page straight from the chapter-cache
-     * file instead of copying the whole file into RAM (Buffer) and letting
-     * the region decoder copy it again. A giant strip copied twice per
-     * rebind (10-30MB) is what stalls the screen while re-scrolling over
-     * it. Returns true when the file path was used. Falls back to the
-     * Buffer path (false) when the file is missing, the page is animated,
-     * its size is unknown, or a transform needs the bytes.
-     * v7.9.52: the 7.9.47 split is REMOVED — one single piece per page.
-     * The user noted the freeze is at the change from one sheet/page to
-     * another, so the split (several pieces = more changes) was the wrong
-     * direction; a single piece keeps the 1024px tiles (7.9.50) and the
-     * file path (7.9.44).
-     */
-    private suspend fun trySetImageFromFile(page: ReaderPage): Boolean {
-        val imageUrl = page.imageUrl ?: return false
-        if (page.isAnimatedImage) return false
-        val dims = page.imageDimensions ?: return false
-        val ratio = dims.height.toFloat() / dims.width.toFloat()
-        val isTall = ratio > 3F
-        if (!isTall) return false
-        if (viewer.config.dualPageSplit || viewer.config.dualPageRotateToFit) return false
-        if (viewer.config.webtoonSmartFit || viewer.config.imageCropBorders) return false
-        val file = Injekt.get<ChapterCache>().getImageFile(imageUrl).takeIf { it.exists() } ?: return false
-        val displayFile = withIOContext { resolveDisplayFile(file) } ?: file
-        val canUseHardware = ImageUtil.canUseHardwareBitmap(dims.width, dims.height)
-        val config = ReaderPageImageView.Config(
-            zoomDuration = viewer.config.doubleTapAnimDuration,
-            minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
-            cropBorders = viewer.config.imageCropBorders,
-            webtoonSmartFit = viewer.config.webtoonSmartFit,
-            isTallImage = isTall,
-            canUseHardwareBitmap = canUseHardware,
-        )
-        withUIContext {
-            page.chapter.notePageRatio(ratio)
-            viewer.activity.viewModel.noteSessionPageRatio(ratio)
-            refreshLayoutParams()
-            refreshPlaceholderHeight()
-            frame.setImage(displayFile, config)
-            removeErrorLayout()
-        }
-        return true
-    }
-
-    /**
-     * v7.9.45: returns the JPEG version of a tall WebP/AVIF strip, converting
-     * it once and caching the result, so the reader decodes fast JPEG regions
-     * instead of slow WebP/AVIF ones. Returns null to keep the original file
-     * (already a fast format, or anything failed). Runs on the IO dispatcher;
-     * the one-time decode + encode takes a few seconds per page and is
-     * cached, so later scrolls are smooth like a downloaded chapter.
-     */
-    private fun resolveDisplayFile(file: File): File? {
-        return try {
-            val type = file.inputStream().use { ImageUtil.findImageType(it) } ?: return null
-            if (type != ImageUtil.ImageType.WEBP && type != ImageUtil.ImageType.AVIF) return null
-            val dir = File(viewer.activity.cacheDir, "webtoon_converted").apply { mkdirs() }
-            val converted = File(dir, file.name + ".jpg")
-            if (converted.exists() && converted.length() > 0) return converted
-            val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return null
-            try {
-                val tmp = File.createTempFile(file.name + "_", ".tmp.jpg", dir)
-                try {
-                    FileOutputStream(tmp).use { out ->
-                        if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) return null
-                    }
-                    if (converted.exists() && converted.length() > 0) {
-                        tmp.delete()
-                        return converted
-                    }
-                    if (!tmp.renameTo(converted)) return null
-                    converted
-                } catch (e: Exception) {
-                    tmp.delete()
-                    throw e
-                }
-            } finally {
-                bitmap.recycle()
-            }
-        } catch (e: Exception) {
-            logcat(LogPriority.WARN, e) { "Failed to convert tall WebP/AVIF to JPEG, using original" }
-            null
-        } catch (e: OutOfMemoryError) {
-            logcat(LogPriority.WARN) { "OOM converting tall WebP/AVIF to JPEG, using original" }
-            null
         }
     }
 

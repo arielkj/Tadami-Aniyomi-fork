@@ -1,6 +1,8 @@
 package eu.kanade.tachiyomi.data.download.manga
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import aniyomi.util.DataSaver
 import aniyomi.util.DataSaver.Companion.getImage
 import com.hippo.unifile.UniFile
@@ -751,12 +753,16 @@ class MangaDownloader(
 
             // When the page is ready, set page path, progress (just in case) and status
             splitTallImageIfNeeded(page, tmpDir, digitCount)
-            page.uri = file.uri
+            // v7.9.53: las páginas que no se dividieron se guardan como WebP
+            // q=80 (mucho más livianas que el JPEG original); las altas ya
+            // quedaron como piezas WebP en el paso anterior.
+            val finalFile = compressDownloadedPageIfNeeded(file, tmpDir, filename)
+            page.uri = finalFile.uri
             page.progress = 100
             page.status = Page.State.READY
 
             // Emit byte-level telemetry after page download
-            val fileSize = file.length()
+            val fileSize = finalFile.length()
             if (fileSize > 0L) {
                 onBytesDownloaded(fileSize)
             }
@@ -883,6 +889,54 @@ class MangaDownloader(
             ImageUtil.splitTallImage(tmpDir, imageFile, filenamePrefix)
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e) { "Failed to split downloaded image" }
+        }
+    }
+
+    /**
+     * v7.9.53: re-encodes a downloaded page to WebP q=80 so downloads weigh
+     * much less on the phone. Only for pages that were NOT split into pieces
+     * (tall pages are already WebP pieces); skips WebP originals, animated
+     * images, non-JPEG/PNG formats, and images too large to decode safely.
+     * The original is only replaced when the WebP is actually smaller.
+     * Returns the file to use (the new .webp, or the original when skipped).
+     * Runs on the IO dispatcher (the downloader already runs there).
+     */
+    private fun compressDownloadedPageIfNeeded(file: UniFile, tmpDir: UniFile, filename: String): UniFile {
+        // The original was deleted by the split (tall page) — nothing to compress.
+        if (!file.exists()) return file
+        return try {
+            val type = file.openInputStream().use { ImageUtil.findImageType(it) } ?: return file
+            // Only JPEG/PNG are worth re-encoding; WebP is already compact and
+            // GIF/AVIF/etc. are either animated or already efficient.
+            if (type != ImageUtil.ImageType.JPEG && type != ImageUtil.ImageType.PNG) return file
+            // Read dimensions without loading pixels; skip images too large to
+            // decode safely (a very tall strip is handled by the split above).
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            file.openInputStream().use { BitmapFactory.decodeStream(it, null, bounds) }
+            val pixels = bounds.outWidth.toLong() * bounds.outHeight.toLong()
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0 || pixels > MAX_COMPRESS_PIXELS) return file
+            val bitmap = file.openInputStream().use { BitmapFactory.decodeStream(it) } ?: return file
+            val webpFile = tmpDir.createFile("$filename.webp") ?: run { bitmap.recycle(); return file }
+            try {
+                webpFile.openOutputStream().use { out ->
+                    if (!bitmap.compress(Bitmap.CompressFormat.WEBP, DOWNLOAD_WEBP_QUALITY, out)) {
+                        webpFile.delete()
+                        return file
+                    }
+                }
+            } finally {
+                bitmap.recycle()
+            }
+            // Only replace the original when the WebP is actually smaller.
+            if (webpFile.length() >= file.length()) {
+                webpFile.delete()
+                return file
+            }
+            file.delete()
+            webpFile
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "Failed to compress downloaded page, keeping original" }
+            file
         }
     }
 
@@ -1082,6 +1136,14 @@ class MangaDownloader(
         private const val NETWORK_AUTO_RETRY_DELAY_MS = 10_000L
         private const val RATE_LIMIT_WINDOW_SECONDS = 60L
         private const val MAX_RATE_LIMIT_WAIT_MS = 60_000L
+
+        // v7.9.53: calidad WebP para las páginas descargadas (mucho más
+        // livianas que el JPEG original, sin diferencia visible en el teléfono).
+        private const val DOWNLOAD_WEBP_QUALITY = 80
+
+        // v7.9.53: tope de píxeles para re-codificar una página descargada
+        // (12 MP ~ 48 MB como ARGB); las tiras muy altas ya van por el split.
+        private const val MAX_COMPRESS_PIXELS = 12_000_000L
     }
 }
 

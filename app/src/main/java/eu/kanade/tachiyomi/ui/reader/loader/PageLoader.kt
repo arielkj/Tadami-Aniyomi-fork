@@ -42,13 +42,6 @@ abstract class PageLoader {
     }
 
     /**
-     * v7.9.48: light image preload of a whole (adjacent) chapter — enqueue
-     * the given pages for background download into the cache, no decode.
-     * The default is a no-op; online loaders override it.
-     */
-    open fun preloadPageImages(pages: List<ReaderPage>) {}
-
-    /**
      * Recycles this loader. Implementations must override this method to clean up any active
      * resources.
      */

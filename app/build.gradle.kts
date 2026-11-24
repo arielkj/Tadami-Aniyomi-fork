@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 264
+        versionCode = 265
 
-        // v7.9.52: se quita la división de tiras altas (7.9.47) — una sola pieza por página; el usuario notó que el trabón es en el cambio de una hoja/página a otra, y la división (varias piezas = más cambios) era la dirección contraria; se mantienen teselas 1024 (7.9.50) y tarjetas sin brillo (7.9.51)
-        versionName = "0.63.47"
+        // v7.9.53: se revierten los arreglos del lector online (7.9.42–7.9.52) a 7.9.41 por pedido del usuario; descargas más livianas (páginas a WebP q=80, piezas altas q=80) y la descarga por adelantado ahora funciona leyendo online
+        versionName = "0.63.48"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")

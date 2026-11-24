@@ -338,7 +338,9 @@ object ImageUtil {
                     // v7.9.45: split pieces are WebP (not JPEG q=100) so downloads
                     // take much less storage; a piece is only ~2 screens tall,
                     // so WebP region decoding stays fast for it.
-                    splitBitmap.compress(Bitmap.CompressFormat.WEBP, 90, outputStream)
+                    // v7.9.53: q=80 instead of q=90 — lighter downloads, same
+                    // look on the phone.
+                    splitBitmap.compress(Bitmap.CompressFormat.WEBP, 80, outputStream)
                     splitBitmap.recycle()
                 }
                 logcat {

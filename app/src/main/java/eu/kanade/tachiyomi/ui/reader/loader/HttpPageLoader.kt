@@ -221,23 +221,6 @@ internal class HttpPageLoader(
             }
     }
 
-    /**
-     * v7.9.48: light image preload of a whole (adjacent) chapter. Enqueues
-     * every not-yet-loaded page at the lowest priority (0) so the 3 workers
-     * download the bytes into the cache in the background. No decode, no
-     * split here — that heavy work still happens on display. When the user
-     * enters the chapter the images are already cached and load in full
-     * quality at once. Already-queued/cached pages are skipped by offerPage
-     * and the cache check in the worker.
-     */
-    override fun preloadPageImages(pages: List<ReaderPage>) {
-        pages.forEach { page ->
-            if (page.status == Page.State.QUEUE) {
-                offerPage(page, 0)
-            }
-        }
-    }
-
     private fun offerPage(page: ReaderPage, priority: Int): PriorityPage? {
         return synchronized(queuedPages) {
             val existing = queuedPages[page]
