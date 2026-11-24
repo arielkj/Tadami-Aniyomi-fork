@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 260
+        versionCode = 261
 
-        // v7.9.48: sin carga ansiosa en los trozos partidos (cada trozo decodifica solo lo visible) + precarga ligera de las imágenes del siguiente capítulo (solo descarga, sin decodificar)
-        versionName = "0.63.43"
+        // v7.9.49: DIAGNOSTIC ONLY — mide el trabón (tiempo por cuadro + qué hace el hilo principal durante el congelamiento) en vez de adivinar; overlay por página + reader-diag.txt
+        versionName = "0.63.44"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")

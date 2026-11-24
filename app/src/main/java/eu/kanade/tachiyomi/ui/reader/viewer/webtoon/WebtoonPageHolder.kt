@@ -4,15 +4,18 @@ import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
+import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.BitmapDrawable
 import android.os.Build
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updateMargins
@@ -120,6 +123,23 @@ class WebtoonPageHolder(
     /** v7.9.47: true once the first split piece has reported loaded. */
     private var splitDecoded = false
 
+    /**
+     * v7.9.49 (diagnostic): black overlay box (top-left) showing the page
+     * line + live frame/freeze lines, so a screenshot tells decoder vs
+     * page vs layout. The text is refreshed on bind and on every freeze.
+     */
+    private var diagOverlay: TextView? = null
+    private var diagPageLine: String = ""
+    private var diagJankListener: (() -> Unit)? = null
+    private var currentRebindCount: Int = 0
+
+    /** Rebuilds the overlay text from the current page line + live diag stats. */
+    private fun refreshDiagOverlay() {
+        val overlay = diagOverlay ?: return
+        overlay.text = ReaderDiag.overlayText(diagPageLine)
+        overlay.bringToFront()
+    }
+
     init {
         refreshLayoutParams()
 
@@ -142,6 +162,21 @@ class WebtoonPageHolder(
         frame.onImageLoaded = { onImageDecoded() }
         frame.onImageLoadError = { markDecodeError() }
         frame.onScaleChanged = { viewer.activity.hideMenu() }
+
+        // v7.9.49 (diagnostic): overlay box for the page + frame/freeze lines.
+        diagOverlay = TextView(frame.context).apply {
+            setBackgroundColor(Color.argb(190, 0, 0, 0))
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            maxLines = 5
+            isClickable = false
+            isFocusable = false
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.START,
+            )
+        }.also { frame.addView(it) }
     }
 
     /**
@@ -153,6 +188,15 @@ class WebtoonPageHolder(
         // A rebind drops the previous page's split pieces (if any) before
         // the new page's image is set.
         clearSplitViews()
+        // v7.9.49 (diagnostic): start frame tracking + the UI-thread
+        // sampler (idempotent) and show this page's line. The line is
+        // refined in trySetImageFromFile once format/size are known.
+        ReaderDiag.start(viewer.activity)
+        currentRebindCount = ReaderDiag.rebindCount(page.imageUrl)
+        diagPageLine = "p${page.number} · binding… · rb:$currentRebindCount · heap:${ReaderDiag.heapMb()}MB"
+        refreshDiagOverlay()
+        diagJankListener?.let { ReaderDiag.removeJankListener(it) }
+        diagJankListener = { refreshDiagOverlay() }.also { ReaderDiag.addJankListener(it) }
         // The bind-induced layout happens in the traversal this call belongs to, so anything the
         // view reports after it has settled is a genuine reflow of this page.
         frame.post {
@@ -306,6 +350,10 @@ class WebtoonPageHolder(
         loadJob?.cancel()
         loadJob = null
 
+        // v7.9.49 (diagnostic): stop refreshing this holder's overlay.
+        diagJankListener?.let { ReaderDiag.removeJankListener(it) }
+        diagJankListener = null
+
         clearSplitViews()
         removeErrorLayout()
         frame.recycle()
@@ -455,6 +503,12 @@ class WebtoonPageHolder(
                     }
                 }
                 removeErrorLayout()
+                // v7.9.49 (diagnostic): page line for the Buffer path too.
+                sniffedDims?.let { dims ->
+                    diagPageLine = "p${currentPage.number} · buffer ${dims.width}x${dims.height} r${ReaderDiag.ratio1(dims.width, dims.height)} · rb:$currentRebindCount · heap:${ReaderDiag.heapMb()}MB"
+                    ReaderDiag.logPage(diagPageLine)
+                    refreshDiagOverlay()
+                }
             }
         } catch (e: Throwable) {
             logcat(LogPriority.ERROR, e)
@@ -488,7 +542,12 @@ class WebtoonPageHolder(
         if (viewer.config.dualPageSplit || viewer.config.dualPageRotateToFit) return false
         if (viewer.config.webtoonSmartFit || viewer.config.imageCropBorders) return false
         val file = Injekt.get<ChapterCache>().getImageFile(imageUrl).takeIf { it.exists() } ?: return false
-        val displayFile = withIOContext { resolveDisplayFile(file) } ?: file
+        // v7.9.49 (diagnostic): image format (decoder behaviour depends on
+        // it) + the display file, both read off the UI thread.
+        val (displayFile, format) = withIOContext {
+            val fmt = runCatching { file.inputStream().use { ImageUtil.findImageType(it)?.name } }.getOrNull() ?: "?"
+            (resolveDisplayFile(file) ?: file) to fmt
+        }
         val canUseHardware = ImageUtil.canUseHardwareBitmap(dims.width, dims.height)
         val config = ReaderPageImageView.Config(
             zoomDuration = viewer.config.doubleTapAnimDuration,
@@ -503,25 +562,37 @@ class WebtoonPageHolder(
         if (ratio > SPLIT_MIN_RATIO) {
             val pieces = withIOContext { splitDisplayFile(displayFile, dims) }
             if (pieces != null && pieces.size >= 2 && this.page === page) {
-                withUIContext {
+                val setImageMs = withUIContext {
+                    val t0 = System.nanoTime()
                     page.chapter.notePageRatio(ratio)
                     viewer.activity.viewModel.noteSessionPageRatio(ratio)
                     refreshLayoutParams()
                     refreshPlaceholderHeight()
                     showSplitPieces(pieces, dims, config)
                     removeErrorLayout()
+                    (System.nanoTime() - t0) / 1_000_000
                 }
+                // v7.9.49 (diagnostic): full page line + overlay refresh.
+                diagPageLine = "p${page.number} · $format ${dims.width}x${dims.height} r${ReaderDiag.ratio1(dims.width, dims.height)} · split:${pieces.size} · setImage:${setImageMs}ms · rb:$currentRebindCount · heap:${ReaderDiag.heapMb()}MB · itemH:${frame.height}px"
+                ReaderDiag.logPage(diagPageLine)
+                withUIContext { refreshDiagOverlay() }
                 return true
             }
         }
-        withUIContext {
+        val setImageMs = withUIContext {
+            val t0 = System.nanoTime()
             page.chapter.notePageRatio(ratio)
             viewer.activity.viewModel.noteSessionPageRatio(ratio)
             refreshLayoutParams()
             refreshPlaceholderHeight()
             frame.setImage(displayFile, config)
             removeErrorLayout()
+            (System.nanoTime() - t0) / 1_000_000
         }
+        // v7.9.49 (diagnostic): full page line + overlay refresh.
+        diagPageLine = "p${page.number} · $format ${dims.width}x${dims.height} r${ReaderDiag.ratio1(dims.width, dims.height)} · file · setImage:${setImageMs}ms · rb:$currentRebindCount · heap:${ReaderDiag.heapMb()}MB · itemH:${frame.height}px"
+        ReaderDiag.logPage(diagPageLine)
+        withUIContext { refreshDiagOverlay() }
         return true
     }
 
