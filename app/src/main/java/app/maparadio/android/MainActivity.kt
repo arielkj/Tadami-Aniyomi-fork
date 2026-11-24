@@ -603,7 +603,6 @@ class MainActivity : AppCompatActivity() {
                 val color = if (isNightNow()) "#23262D" else "#CFCFCF"
                 val extrusion = FillExtrusionLayer("building-3d", "openmaptiles")
                     .withSourceLayer("building")
-                    .withMinZoom(15.0f)
                     .withFilter(
                         Expression.neq(Expression.get("hide_3d"), Expression.literal(true))
                     )
@@ -624,6 +623,9 @@ class MainActivity : AppCompatActivity() {
                         PropertyFactory.fillExtrusionOpacity(0.9f),
                         PropertyFactory.fillExtrusionVerticalGradient(false),
                     )
+                // Minimo de zoom 15: solo cerca de la camara. (No hay
+                // withMinZoom en MapLibre 10.3.7: es setMinZoom.)
+                extrusion.minZoom = 15.0f
                 style.addLayerAbove(extrusion, "building")
             }
         } catch (_: Exception) {
