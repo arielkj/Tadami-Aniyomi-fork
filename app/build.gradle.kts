@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 263
+        versionCode = 264
 
-        // v7.9.51: tarjetas de la biblioteca sin brillo ni gradiente inferior (se quita el pase de brillo difuso y el rectángulo de gradiente a toda la tarjeta); el borde fino (Core outline 1.5dp) se queda tal cual
-        versionName = "0.63.46"
+        // v7.9.52: se quita la división de tiras altas (7.9.47) — una sola pieza por página; el usuario notó que el trabón es en el cambio de una hoja/página a otra, y la división (varias piezas = más cambios) era la dirección contraria; se mantienen teselas 1024 (7.9.50) y tarjetas sin brillo (7.9.51)
+        versionName = "0.63.47"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
