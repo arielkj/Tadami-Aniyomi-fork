@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 255
+        versionCode = 256
 
-        // v7.9.43: webtoon usa teselas chicas (máx 2048px) en vez de 2-3 gigantes; quita los congelamientos de 100-200ms al desplazar por tiras largas
-        versionName = "0.63.38"
+        // v7.9.44: webtoon muestra las tiras largas directo del archivo (sin copiarlas enteras a RAM dos veces por cada rebindeo); quita el congelamiento al volver a desplazar por el mismo capítulo
+        versionName = "0.63.39"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")

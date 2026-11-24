@@ -6,6 +6,7 @@ import android.graphics.RectF
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.util.AttributeSet
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -54,6 +55,7 @@ import okio.BufferedSource
 import tachiyomi.core.common.util.system.ImageUtil
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import java.io.File
 
 /**
  * Max tile size for webtoon (continuous) mode, in pixels. The default is the
@@ -259,6 +261,21 @@ open class ReaderPageImageView @JvmOverloads constructor(
             prepareNonAnimatedImageView()
             setNonAnimatedImage(source, config)
         }
+    }
+
+    /**
+     * v7.9.44: shows a page straight from a FILE instead of an in-memory
+     * copy. The region decoder reads the file directly (seekable), so a
+     * giant strip is NOT copied into RAM twice per rebind. Only for tall,
+     * non-animated pages; the caller checks that.
+     */
+    fun setImage(file: File, config: Config) {
+        this.config = config
+        smartFitJob?.cancel()
+        smartFitJob = null
+        cancelCoilRequest()
+        prepareNonAnimatedImageView()
+        setNonAnimatedImage(ImageSource.uri(Uri.fromFile(file)), config)
     }
 
     fun recycle() {
@@ -500,6 +517,12 @@ open class ReaderPageImageView @JvmOverloads constructor(
                     .let { request ->
                         coilDisposable = context.imageLoader.enqueue(request)
                     }
+            }
+            is ImageSource -> {
+                // v7.9.44: file-backed page (no copy, the decoder reads the file)
+                config.canUseHardwareBitmap?.let { setHardwareConfig(it) }
+                setImage(data)
+                isVisible = true
             }
             else -> {
                 throw IllegalArgumentException("Not implemented for class ${data::class.simpleName}")

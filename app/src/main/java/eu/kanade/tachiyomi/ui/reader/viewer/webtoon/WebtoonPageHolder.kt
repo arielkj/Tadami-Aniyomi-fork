@@ -13,6 +13,7 @@ import androidx.core.view.updateMargins
 import androidx.recyclerview.widget.RecyclerView
 import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.tadami.aurora.databinding.ReaderErrorBinding
+import eu.kanade.tachiyomi.data.cache.ChapterCache
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import eu.kanade.tachiyomi.ui.reader.viewer.ProcessedPageImage
@@ -34,6 +35,8 @@ import tachiyomi.core.common.util.lang.withIOContext
 import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
 /**
  * Holder of the webtoon reader for a single page of a chapter.
@@ -344,6 +347,10 @@ class WebtoonPageHolder(
         val currentPage = page ?: return
         val streamFn = currentPage.stream ?: return
 
+        // v7.9.44: tall online pages are shown straight from the cache file
+        // (no whole-file copy into RAM). If it applies, it returns early.
+        if (trySetImageFromFile(currentPage)) return
+
         try {
             var sniffedDims: ImageUtil.ImageDimensions? = null
             val prepared = withIOContext {
@@ -422,6 +429,48 @@ class WebtoonPageHolder(
                 markDecodeError()
             }
         }
+    }
+
+    /**
+     * v7.9.44: shows a tall online page straight from the chapter-cache
+     * file instead of copying the whole file into RAM (Buffer) and letting
+     * the region decoder copy it again. A giant strip copied twice per
+     * rebind (10-30MB) is what stalls the screen while re-scrolling over
+     * it. Returns true when the file path was used. Falls back to the
+     * Buffer path (false) when the file is missing, the page is animated,
+     * its size is unknown, or a transform needs the bytes.
+     */
+    private suspend fun trySetImageFromFile(page: ReaderPage): Boolean {
+        if (page.isAnimatedImage) return false
+        val dims = page.imageDimensions ?: return false
+        // ImageUtil.isTallImage only takes a stream; same rule here (ratio > 3)
+        val isTall = dims.height.toFloat() / dims.width.toFloat() > 3F
+        if (!isTall) return false
+        if (viewer.config.dualPageSplit || viewer.config.dualPageRotateToFit) return false
+        if (viewer.config.webtoonSmartFit || viewer.config.imageCropBorders) return false
+        val imageUrl = page.imageUrl ?: return false
+        val file = Injekt.get<ChapterCache>().getImageFile(imageUrl).takeIf { it.exists() } ?: return false
+        val canUseHardware = ImageUtil.canUseHardwareBitmap(dims.width, dims.height)
+        withUIContext {
+            val ratio = dims.height.toFloat() / dims.width.toFloat()
+            page.chapter.notePageRatio(ratio)
+            viewer.activity.viewModel.noteSessionPageRatio(ratio)
+            refreshLayoutParams()
+            refreshPlaceholderHeight()
+            frame.setImage(
+                file,
+                ReaderPageImageView.Config(
+                    zoomDuration = viewer.config.doubleTapAnimDuration,
+                    minimumScaleType = SubsamplingScaleImageView.SCALE_TYPE_FIT_WIDTH,
+                    cropBorders = viewer.config.imageCropBorders,
+                    webtoonSmartFit = viewer.config.webtoonSmartFit,
+                    isTallImage = isTall,
+                    canUseHardwareBitmap = canUseHardware,
+                ),
+            )
+            removeErrorLayout()
+        }
+        return true
     }
 
     private fun process(imageSource: BufferedSource): ProcessedPageImage {
