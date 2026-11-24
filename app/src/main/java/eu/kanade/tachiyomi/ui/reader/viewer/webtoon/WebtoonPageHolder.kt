@@ -3,12 +3,15 @@ package eu.kanade.tachiyomi.ui.reader.viewer.webtoon
 import android.content.res.Resources
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updateMargins
@@ -95,7 +98,34 @@ class WebtoonPageHolder(
      */
     private var loadJob: Job? = null
 
+    // v7.9.46 DIAGNOSTIC: one-line overlay on the page (top-left) carrying
+    // the facts for this page, so a screenshot shows them. Remove with
+    // ReaderDiag before a normal release.
+    private val diagOverlay = TextView(frame.context).apply {
+        setBackgroundColor(Color.argb(190, 0, 0, 0))
+        setTextColor(Color.WHITE)
+        textSize = 11f
+        setPadding(8, 4, 8, 4)
+        maxLines = 4
+        isClickable = false
+        isFocusable = false
+    }
+
+    /** v7.9.46 DIAGNOSTIC: rebind count and heap captured at bind time. */
+    private var currentRebindCount = 0
+    private var currentHeapMb = 0L
+
+    private fun diag(line: String) {
+        ReaderDiag.log(line)
+        diagOverlay.text = line
+        diagOverlay.bringToFront()
+    }
+
     init {
+        frame.addView(
+            diagOverlay,
+            FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.TOP or Gravity.START),
+        )
         refreshLayoutParams()
 
         // The item keeps a placeholder height until the page image is decoded. RecyclerView pins
@@ -125,6 +155,13 @@ class WebtoonPageHolder(
     fun bind(page: ReaderPage) {
         this.page = page
         layoutSettledForPage = null
+        // v7.9.46 DIAGNOSTIC: rebind count + heap for this page, and the
+        // overlay line while the image loads.
+        ReaderDiag.init(viewer.activity)
+        currentRebindCount = page.imageUrl?.let { ReaderDiag.rebindCount(it) } ?: 0
+        currentHeapMb = ReaderDiag.heapMb()
+        diagOverlay.text = "p${page.number} · binding… · rb:$currentRebindCount · heap:${currentHeapMb}MB"
+        diagOverlay.bringToFront()
         // The bind-induced layout happens in the traversal this call belongs to, so anything the
         // view reports after it has settled is a genuine reflow of this page.
         frame.post {
@@ -425,6 +462,8 @@ class WebtoonPageHolder(
                         )
                     }
                 }
+                // v7.9.46 DIAGNOSTIC: keep the overlay above the image view.
+                diagOverlay.bringToFront()
                 removeErrorLayout()
             }
         } catch (e: Throwable) {
@@ -443,29 +482,50 @@ class WebtoonPageHolder(
      * it. Returns true when the file path was used. Falls back to the
      * Buffer path (false) when the file is missing, the page is animated,
      * its size is unknown, or a transform needs the bytes.
+     * v7.9.46 DIAGNOSTIC: every decision and timing is logged (ReaderDiag)
+     * and shown on the page overlay.
      */
     private suspend fun trySetImageFromFile(page: ReaderPage): Boolean {
-        if (page.isAnimatedImage) return false
-        val dims = page.imageDimensions ?: return false
-        // ImageUtil.isTallImage only takes a stream; same rule here (ratio > 3)
-        val isTall = dims.height.toFloat() / dims.width.toFloat() > 3F
-        if (!isTall) return false
-        if (viewer.config.dualPageSplit || viewer.config.dualPageRotateToFit) return false
-        if (viewer.config.webtoonSmartFit || viewer.config.imageCropBorders) return false
-        val imageUrl = page.imageUrl ?: return false
-        val file = Injekt.get<ChapterCache>().getImageFile(imageUrl).takeIf { it.exists() } ?: return false
-        // v7.9.45: tall WebP/AVIF strips decode regions slowly, which freezes
-        // the screen while scrolling. Convert once to JPEG (cached) and show
-        // that instead; JPEG region decoding is fast. Falls back to the
-        // original file when the format is already fast or conversion fails.
-        val displayFile = withIOContext { resolveDisplayFile(file) } ?: file
+        val imageUrl = page.imageUrl ?: run {
+            diag("p${page.number} · file:SKIP no-url · rb:$currentRebindCount · heap:${currentHeapMb}MB")
+            return false
+        }
+        if (page.isAnimatedImage) {
+            diag("p${page.number} · file:SKIP animated · rb:$currentRebindCount · heap:${currentHeapMb}MB")
+            return false
+        }
+        val dims = page.imageDimensions ?: run {
+            diag("p${page.number} · file:SKIP no-dims · rb:$currentRebindCount · heap:${currentHeapMb}MB")
+            return false
+        }
+        val ratio = dims.height.toFloat() / dims.width.toFloat()
+        val isTall = ratio > 3F
+        if (!isTall) {
+            diag("p${page.number} · ${dims.width}x${dims.height} r${"%.1f".format(ratio)} · file:SKIP not-tall · rb:$currentRebindCount · heap:${currentHeapMb}MB")
+            return false
+        }
+        if (viewer.config.dualPageSplit || viewer.config.dualPageRotateToFit) {
+            diag("p${page.number} · file:SKIP dual-page · rb:$currentRebindCount · heap:${currentHeapMb}MB")
+            return false
+        }
+        if (viewer.config.webtoonSmartFit || viewer.config.imageCropBorders) {
+            diag("p${page.number} · file:SKIP smartfit/crop · rb:$currentRebindCount · heap:${currentHeapMb}MB")
+            return false
+        }
+        val file = Injekt.get<ChapterCache>().getImageFile(imageUrl).takeIf { it.exists() } ?: run {
+            diag("p${page.number} · file:SKIP no-cache-file · rb:$currentRebindCount · heap:${currentHeapMb}MB")
+            return false
+        }
+        val outcome = withIOContext { resolveDisplayFile(file) }
+        val displayFile = outcome.file ?: file
         val canUseHardware = ImageUtil.canUseHardwareBitmap(dims.width, dims.height)
+        var setImageMs = -1L
         withUIContext {
-            val ratio = dims.height.toFloat() / dims.width.toFloat()
             page.chapter.notePageRatio(ratio)
             viewer.activity.viewModel.noteSessionPageRatio(ratio)
             refreshLayoutParams()
             refreshPlaceholderHeight()
+            val t0 = System.nanoTime()
             frame.setImage(
                 displayFile,
                 ReaderPageImageView.Config(
@@ -477,10 +537,28 @@ class WebtoonPageHolder(
                     canUseHardwareBitmap = canUseHardware,
                 ),
             )
+            setImageMs = (System.nanoTime() - t0) / 1_000_000L
             removeErrorLayout()
         }
+        val itemH = (viewer.recycler.width * ratio).toInt()
+        diag(
+            "p${page.number} · ${outcome.format} ${dims.width}x${dims.height} r${"%.1f".format(ratio)}" +
+                " · file · conv:${outcome.status} ${outcome.timeMs}ms" +
+                " · setImage:${setImageMs}ms · rb:$currentRebindCount" +
+                " · heap:${ReaderDiag.heapMb()}MB · itemH:${itemH}px",
+        )
         return true
     }
+
+    /** v7.9.46 DIAGNOSTIC: result of the WebP/AVIF → JPEG conversion. */
+    private data class ConvertOutcome(
+        val file: File?,
+        val format: String,
+        val status: String,
+        val timeMs: Long,
+    )
+
+    private fun elapsedMs(startNs: Long) = (System.nanoTime() - startNs) / 1_000_000L
 
     /**
      * v7.9.45: returns the JPEG version of a tall WebP/AVIF strip, converting
@@ -489,27 +567,42 @@ class WebtoonPageHolder(
      * (already a fast format, or anything failed). Runs on the IO dispatcher;
      * the one-time decode + encode takes a few seconds per page and is
      * cached, so later scrolls are smooth like a downloaded chapter.
+     * v7.9.46 DIAGNOSTIC: returns the outcome (format, status, time) so the
+     * holder can log it; a failed conversion is retried on every rebind
+     * because nothing records the failure — that retry is itself a suspect.
      */
-    private fun resolveDisplayFile(file: File): File? {
+    private fun resolveDisplayFile(file: File): ConvertOutcome {
+        val start = System.nanoTime()
         return try {
-            val type = file.inputStream().use { ImageUtil.findImageType(it) } ?: return null
-            if (type != ImageUtil.ImageType.WEBP && type != ImageUtil.ImageType.AVIF) return null
+            val type = file.inputStream().use { ImageUtil.findImageType(it) }
+            val format = type?.name ?: "UNKNOWN"
+            if (type == null) return ConvertOutcome(null, format, "FAIL:no-type", elapsedMs(start))
+            if (type != ImageUtil.ImageType.WEBP && type != ImageUtil.ImageType.AVIF) {
+                return ConvertOutcome(null, format, "SKIP:not-webp-avif", elapsedMs(start))
+            }
             val dir = File(viewer.activity.cacheDir, "webtoon_converted").apply { mkdirs() }
             val converted = File(dir, file.name + ".jpg")
-            if (converted.exists() && converted.length() > 0) return converted
-            val bitmap = BitmapFactory.decodeFile(file.absolutePath) ?: return null
+            if (converted.exists() && converted.length() > 0) {
+                return ConvertOutcome(converted, format, "CACHED", elapsedMs(start))
+            }
+            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+                ?: return ConvertOutcome(null, format, "FAIL:decode-null", elapsedMs(start))
             try {
                 val tmp = File.createTempFile(file.name + "_", ".tmp.jpg", dir)
                 try {
                     FileOutputStream(tmp).use { out ->
-                        if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) return null
+                        if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) {
+                            return ConvertOutcome(null, format, "FAIL:compress-false", elapsedMs(start))
+                        }
                     }
                     if (converted.exists() && converted.length() > 0) {
                         tmp.delete()
-                        return converted
+                        return ConvertOutcome(converted, format, "CACHED", elapsedMs(start))
                     }
-                    if (!tmp.renameTo(converted)) return null
-                    converted
+                    if (!tmp.renameTo(converted)) {
+                        return ConvertOutcome(null, format, "FAIL:rename-false", elapsedMs(start))
+                    }
+                    ConvertOutcome(converted, format, "OK", elapsedMs(start))
                 } catch (e: Exception) {
                     tmp.delete()
                     throw e
@@ -519,10 +612,10 @@ class WebtoonPageHolder(
             }
         } catch (e: Exception) {
             logcat(LogPriority.WARN, e) { "Failed to convert tall WebP/AVIF to JPEG, using original" }
-            null
+            ConvertOutcome(null, "?", "FAIL:exc:${e.javaClass.simpleName}", elapsedMs(start))
         } catch (e: OutOfMemoryError) {
             logcat(LogPriority.WARN) { "OOM converting tall WebP/AVIF to JPEG, using original" }
-            null
+            ConvertOutcome(null, "?", "FAIL:oom", elapsedMs(start))
         }
     }
 

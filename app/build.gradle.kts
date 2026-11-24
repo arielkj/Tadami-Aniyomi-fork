@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 257
+        versionCode = 258
 
-        // v7.9.45: webtoon convierte las tiras altas WebP/AVIF a JPEG una sola vez (cacheada); descargas: las tiras partidas se guardan en WebP para ocupar menos almacenamiento
-        versionName = "0.63.40"
+        // v7.9.46 DIAGNOSTIC ONLY: detecta por qué se traba el webtoon (formato, tamaño, conversión, setImage, rebinds, heap) — overlay en cada página + logcat ReaderDiag + archivo reader-diag.txt; quitar antes de una versión normal
+        versionName = "0.63.41"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
