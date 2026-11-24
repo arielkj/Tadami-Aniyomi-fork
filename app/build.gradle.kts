@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 254
+        versionCode = 255
 
-        // v7.9.42: webtoon decodifica las teselas por adelantado (eager loading) + más caché de vistas; quita el trabón dentro de imágenes largas
-        versionName = "0.63.37"
+        // v7.9.43: webtoon usa teselas chicas (máx 2048px) en vez de 2-3 gigantes; quita los congelamientos de 100-200ms al desplazar por tiras largas
+        versionName = "0.63.38"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")

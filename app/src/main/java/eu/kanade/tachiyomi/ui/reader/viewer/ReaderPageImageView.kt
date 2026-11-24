@@ -56,6 +56,17 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
 /**
+ * Max tile size for webtoon (continuous) mode, in pixels. The default is the
+ * device texture limit (up to 16384px), which turns a long strip into 2-3
+ * giant tiles of tens of MB each; decoding one (and the GC it triggers)
+ * froze the screen for 100-200ms while scrolling. 2048px is about one
+ * screen tall per tile: each tile decodes in ~15-30ms and scrolling stays
+ * smooth. Same idea as the downloader splitting tall images, but at tile
+ * level, so the page model and zoom are untouched.
+ */
+private const val WEBTOON_MAX_TILE_SIZE = 2048
+
+/**
  * A wrapper view for showing page image.
  *
  * Animated image will be drawn by [PhotoView] while [SubsamplingScaleImageView] will take non-animated image.
@@ -338,6 +349,9 @@ open class ReaderPageImageView @JvmOverloads constructor(
                 // (tiles decoded late mid-scroll). Costs some extra decode work
                 // during fast flings, but scrolling stays smooth.
                 setEagerLoadingEnabled(true)
+                // v7.9.43: cap the tile size (see WEBTOON_MAX_TILE_SIZE). This
+                // overrides the texture-limit default set above, webtoon only.
+                setMaxTileSize(WEBTOON_MAX_TILE_SIZE)
             }
             setOnStateChangedListener(
                 object : SubsamplingScaleImageView.OnStateChangedListener {
