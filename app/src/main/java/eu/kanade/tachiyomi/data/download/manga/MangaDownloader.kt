@@ -116,6 +116,13 @@ class MangaDownloader(
      * Queue where active downloads are kept.
      */
     private val _queueState = MutableStateFlow<List<MangaDownload>>(emptyList())
+
+    // v7.9.54: bloqueo para que el filtro ("ya descargado / ya en cola")
+    // y el agregado a la cola sean una sola operación atómica — sin él,
+    // dos llamadas a queueChapters a la vez (descarga por adelantado al
+    // ir para atrás y bajar de nuevo, o manual + automática) podían ver
+    // el mismo capítulo como "no encolado" y encolarlo dos veces.
+    private val queueLock = Any()
     val queueState = _queueState.asStateFlow()
 
     /**
@@ -459,23 +466,29 @@ class MangaDownloader(
 
         val source = sourceManager.get(manga.source) as? HttpSource ?: return
         val wasEmpty = queueState.value.isEmpty()
-        val chaptersToQueue = chapters.asSequence()
-            // C-L: deduplicate the input batch itself - queueState is only updated after the
-            // whole list is mapped, so duplicates within one call both passed the enqueue filter.
-            .distinctBy { it.id }
-            // Filter out those already downloaded.
-            .filter { provider.findChapterDir(it.name, it.scanlator, manga.title, manga.id, it.id, source) == null }
-            // Add chapters to queue from the start.
-            .sortedByDescending { it.sourceOrder }
-            // Filter out those already enqueued.
-            .filter { chapter -> queueState.value.none { it.chapter.id == chapter.id } }
-            // Create a download for each one.
-            .map { MangaDownload(source, manga, it) }
-            .toList()
+        // v7.9.54: filtrar y agregar bajo el mismo bloqueo — ver queueLock.
+        val chaptersToQueue: List<MangaDownload>
+        synchronized(queueLock) {
+            chaptersToQueue = chapters.asSequence()
+                // C-L: deduplicate the input batch itself - queueState is only updated after the
+                // whole list is mapped, so duplicates within one call both passed the enqueue filter.
+                .distinctBy { it.id }
+                // Filter out those already downloaded.
+                .filter { provider.findChapterDir(it.name, it.scanlator, manga.title, manga.id, it.id, source) == null }
+                // Add chapters to queue from the start.
+                .sortedByDescending { it.sourceOrder }
+                // Filter out those already enqueued.
+                .filter { chapter -> queueState.value.none { it.chapter.id == chapter.id } }
+                // Create a download for each one.
+                .map { MangaDownload(source, manga, it) }
+                .toList()
+
+            if (chaptersToQueue.isNotEmpty()) {
+                addAllToQueue(chaptersToQueue)
+            }
+        }
 
         if (chaptersToQueue.isNotEmpty()) {
-            addAllToQueue(chaptersToQueue)
-
             // Start downloader if needed
             if (autoStart) {
                 val queuedDownloads = queueState.value.count { it: MangaDownload -> it.source !is UnmeteredSource }

@@ -18,10 +18,10 @@ android {
 
     defaultConfig {
         applicationId = "com.tadami.aurora"
-        versionCode = 265
+        versionCode = 266
 
-        // v7.9.53: se revierten los arreglos del lector online (7.9.42–7.9.52) a 7.9.41 por pedido del usuario; descargas más livianas (páginas a WebP q=80, piezas altas q=80) y la descarga por adelantado ahora funciona leyendo online
-        versionName = "0.63.48"
+        // v7.9.54: arreglo del capítulo descargado dos veces (7.9.53) — la marca de descarga por adelantado ahora se pone antes de lanzar la corrutina, y filtrar+encolar en la cola de descargas es atómico bajo un bloqueo
+        versionName = "0.63.49"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")

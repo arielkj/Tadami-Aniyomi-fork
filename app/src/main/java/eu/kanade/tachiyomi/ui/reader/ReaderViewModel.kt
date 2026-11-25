@@ -802,9 +802,11 @@ class ReaderViewModel @JvmOverloads constructor(
         }
 
         val inDownloadRange = page.number.toDouble() / pages.size > 0.25
-        // At most one disk-checked download-ahead per chapter; the cheap in-memory gates below
-        // stay per-page. The trigger is consumed only once the async "next is downloaded" gate
-        // passes, so a still-downloading next chapter is retried on the following pages.
+        // v7.9.54: la marca se pone ANTES de lanzar la descarga (ver
+        // downloadNextChapters) — antes se ponía dentro de la corrutina
+        // y al ir para atrás y bajar de nuevo el lector disparaba dos
+        // veces antes de que la marca se pusiera, bajando el mismo
+        // capítulo dos veces.
         if (inDownloadRange && downloadAheadTriggeredForChapterId != selectedChapter.chapter.id) {
             downloadNextChapters(selectedChapter.chapter.id)
         }
@@ -817,17 +819,13 @@ class ReaderViewModel @JvmOverloads constructor(
         val manga = manga ?: return
         val nextChapter = state.value.viewerChapters?.nextChapter?.chapter ?: return
 
-        // v7.9.53: la descarga por adelantado también funciona al leer
-        // online. Antes solo se disparaba si el capítulo actual era
-        // descargado Y el siguiente ya estaba descargado, así que leyendo
-        // online y sin nada descargado nunca bajaba nada aunque la opción
-        // estuviera activa ("Siguientes 2 capítulos sin leer"). Ahora
-        // descarga los siguientes capítulos sin leer estés leyendo online
-        // o descargado; el gestor ya ignora los que están descargados o
-        // en cola, así que no se duplica nada.
+        // v7.9.54: la marca se pone AQUÍ, en el hilo que llama (antes de
+        // lanzar la corrutina) — si se pone dentro de launchIO, al pasar
+        // páginas rápido o ir para atrás y bajar de nuevo, onPageSelected
+        // dispara downloadNextChapters otra vez antes de que la corrutina
+        // arranque, y el mismo capítulo se encola dos veces.
+        downloadAheadTriggeredForChapterId = triggerChapterId
         viewModelScope.launchIO {
-            downloadAheadTriggeredForChapterId = triggerChapterId
-
             val chaptersToDownload = getNextChapters.await(manga.id, nextChapter.id!!)
                 .run {
                     if (readerPreferences.skipDupe().get() || isAuroraTheme) {
