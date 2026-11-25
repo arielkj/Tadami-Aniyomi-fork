@@ -28,8 +28,8 @@ android {
         }
         create("radio") {
             dimension = "device"
-            versionCode = 110
-            versionName = "1.0.10-radio"
+            versionCode = 111
+            versionName = "1.0.11-radio"
             // El radio es ARMv7 32-bit (AC8227L): SOLO armeabi-v7a.
             // El APK 32-bit tambien corre en el telefono 64-bit, asi
             // que se puede probar en el telefono antes del radio.

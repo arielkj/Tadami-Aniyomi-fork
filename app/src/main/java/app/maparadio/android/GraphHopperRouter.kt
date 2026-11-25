@@ -140,6 +140,13 @@ object GraphHopperRouter {
     var loadError: String? = null
         private set
 
+    /** Con qué acceso a datos abrió el grafo (MMAP o RAM_STORE): lo
+     *  dice el diagnóstico (v1.0.11). Antes el registro mentía y
+     *  siempre decía MMAP aunque hubiera abierto con RAM_STORE. */
+    @Volatile
+    var dataAccessUsed: String? = null
+        private set
+
     /** Tipo de acceso a datos del grafo (v1.0.8): MMAP en vez de
      *  RAM_STORE. Verificado en el jar de GraphHopper 7.0 antes de
      *  decidir (javap sobre MMapDataAccess + escaneo de todo el jar):
@@ -219,9 +226,9 @@ object GraphHopperRouter {
                 CrashLog.logEvent(
                     appContext,
                     "Grafo offline LISTO en ${totalMs / 1000} s " +
-                        "(copia ${copyMs / 1000} s, load ${loadMs / 1000} s, $DATA_ACCESS)",
+                        "(copia ${copyMs / 1000} s, load ${loadMs / 1000} s, ${dataAccessUsed ?: "?"})",
                 )
-                Log.i(TAG, "GraphHopper listo (offline, $DATA_ACCESS)")
+                Log.i(TAG, "GraphHopper listo (offline, ${dataAccessUsed ?: "?"})")
             } catch (t: Throwable) {
                 // Sin grafo (versiones de prueba) o grafo danado: se
                 // sigue con OSRM cuando hay internet. No se rompe nada.
@@ -276,6 +283,7 @@ object GraphHopperRouter {
                     try { gh.close() } catch (_: Exception) { }
                     continue
                 }
+                dataAccessUsed = dataAccess
                 return gh
             } catch (t: Throwable) {
                 loadError = "${t.javaClass.simpleName}: ${t.message} ($dataAccess)"

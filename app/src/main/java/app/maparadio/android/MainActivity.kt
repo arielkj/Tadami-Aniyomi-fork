@@ -315,6 +315,14 @@ class MainActivity : AppCompatActivity() {
     // Registro de errores (v1.0.1): ultimo cierre + compartirlo.
     private lateinit var crashLogStatus: TextView
     private lateinit var btnShareCrashLog: TextView
+
+    // Diagnóstico de rutas (v1.0.11): prueba GPS, grafo, ruta y
+    // enlace, y dice cuál parte falla.
+    private lateinit var diagResults: TextView
+    private lateinit var btnRunDiag: TextView
+    private lateinit var btnShareDiag: TextView
+    private var lastDiagReport: String? = null
+    private var diagJob: Job? = null
     private var lastFixAccuracy = -1f
     private var lastFixTimeMs = 0L
     private var lastFixProvider = ""
@@ -526,6 +534,11 @@ class MainActivity : AppCompatActivity() {
         crashLogStatus = findViewById(R.id.crashLogStatus)
         btnShareCrashLog = findViewById(R.id.btnShareCrashLog)
         btnShareCrashLog.setOnClickListener { shareCrashLog() }
+        diagResults = findViewById(R.id.diagResults)
+        btnRunDiag = findViewById(R.id.btnRunDiag)
+        btnRunDiag.setOnClickListener { runDiagnostics() }
+        btnShareDiag = findViewById(R.id.btnShareDiag)
+        btnShareDiag.setOnClickListener { shareDiagnostics() }
 
         findViewById<ImageButton>(R.id.btnSettings).setOnClickListener { toggleSettings() }
         findViewById<ImageButton>(R.id.btnCloseSettings).setOnClickListener { hideSettings() }
@@ -2663,6 +2676,151 @@ class MainActivity : AppCompatActivity() {
             return
         }
         startActivity(Intent.createChooser(intent, getString(R.string.crash_share_title)))
+    }
+
+    // --------------------------------------------- diagnostico de rutas (v1.0.11)
+
+    /** Prueba las 4 partes de una ruta y dice cuál falla: GPS, grafo
+     *  offline, cálculo de ruta y enlace con el teléfono. Solo lee
+     *  estado y calcula UNA ruta de prueba (~5 km desde donde está
+     *  el carro): no toca la ruta activa ni cambia nada. El
+     *  resultado queda en pantalla, en el registro y se puede
+     *  compartir. */
+    private fun runDiagnostics() {
+        if (!::diagResults.isInitialized) return
+        diagJob?.cancel()
+        btnRunDiag.isEnabled = false
+        btnShareDiag.visibility = View.GONE
+        diagResults.setText(R.string.diag_running)
+        diagJob = scope.launch {
+            val lines = ArrayList<String>()
+            // 1) GPS: permiso + último fix (edad y precisión).
+            lines.add(
+                when {
+                    !hasLocationPermission() ->
+                        "✗ " + getString(R.string.diag_gps_perm)
+                    lastFixTimeMs == 0L ->
+                        "✗ " + getString(R.string.diag_gps_no_fix)
+                    else -> {
+                        val ageSec = ((System.currentTimeMillis() - lastFixTimeMs) / 1000).toInt()
+                        val acc = if (lastFixAccuracy > 0) "±${lastFixAccuracy.toInt()} m"
+                            else "sin precisión"
+                        "✓ " + getString(
+                            R.string.diag_gps_ok, acc, ageSec,
+                            lastFixProvider.ifEmpty { "?" },
+                        )
+                    }
+                },
+            )
+            // 2) Grafo offline: estado + con qué acceso abrió.
+            lines.add(
+                when (GraphHopperRouter.loadState) {
+                    GhStatus.READY ->
+                        "✓ " + getString(
+                            R.string.diag_graph_ok,
+                            GraphHopperRouter.dataAccessUsed ?: "?",
+                        )
+                    GhStatus.LOADING ->
+                        "✗ " + getString(R.string.diag_graph_loading)
+                    GhStatus.FAILED ->
+                        "✗ " + getString(
+                            R.string.diag_graph_failed,
+                            GraphHopperRouter.loadError ?: "?",
+                        )
+                    GhStatus.NOT_STARTED ->
+                        "✗ " + getString(R.string.diag_graph_not_started)
+                },
+            )
+            // 3) Ruta de prueba offline: ~5 km al noreste desde el
+            // origen actual (o Santo Domingo si aún no hay fix). En
+            // IO porque GraphHopper puede tardar unos segundos.
+            val origin = currentOrigin() ?: SANTO_DOMINGO
+            val dest = LatLng(origin.latitude + 0.03, origin.longitude + 0.03)
+            val started = SystemClock.elapsedRealtime()
+            val testResult = withContext(Dispatchers.IO) {
+                try {
+                    GraphHopperRouter.fetchOfflineResult(origin, dest)
+                } catch (t: Throwable) {
+                    RouteResult(
+                        null, RouteFailure.GH_ERROR,
+                        t.message ?: t.javaClass.simpleName,
+                    )
+                }
+            }
+            val testMs = SystemClock.elapsedRealtime() - started
+            lines.add(
+                if (!testResult.routes.isNullOrEmpty()) {
+                    val r = testResult.routes.first()
+                    "✓ " + getString(
+                        R.string.diag_route_ok,
+                        String.format(Locale.US, "%.1f km", r.totalDistance / 1000.0),
+                        (r.totalDuration / 60.0).toInt(),
+                        testMs,
+                    )
+                } else {
+                    val why = routeFailureText(testResult) +
+                        if (testResult.detail.isNotEmpty()) " (${testResult.detail})" else ""
+                    "✗ " + getString(R.string.diag_route_fail, why)
+                },
+            )
+            // 4) Enlace con el teléfono: WiFi (IP:8080) y Bluetooth.
+            val ip = PhoneLinkServer.localIp(this@MainActivity)
+            lines.add(
+                if (ip != null && PhoneLinkServer.isRunning()) {
+                    "✓ " + getString(R.string.diag_phone_ok, ip, PhoneLinkServer.TCP_PORT)
+                } else {
+                    "✗ " + getString(R.string.diag_phone_off)
+                },
+            )
+            lines.add(
+                when (BluetoothLinkServer.status()) {
+                    BluetoothLinkServer.Status.LISTENING ->
+                        "✓ " + getString(R.string.phone_bt_listening)
+                    BluetoothLinkServer.Status.OFF ->
+                        "✗ " + getString(R.string.phone_bt_off)
+                    BluetoothLinkServer.Status.UNAVAILABLE ->
+                        "✗ " + getString(R.string.phone_bt_unavailable)
+                    BluetoothLinkServer.Status.FAILED ->
+                        "✗ " + getString(R.string.phone_bt_failed)
+                },
+            )
+            phoneLastReceived?.let {
+                lines.add("• " + getString(R.string.phone_received, it))
+            }
+            // Informe completo: pantalla + registro + compartir.
+            val report = buildString {
+                appendLine(getString(R.string.diag_report_title))
+                appendLine(
+                    "Fecha: " + SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+                        .format(Date()),
+                )
+                appendLine("Versión: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                appendLine(
+                    "Android: ${android.os.Build.VERSION.RELEASE} " +
+                        "(API ${android.os.Build.VERSION.SDK_INT}) — " +
+                        "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+                )
+                appendLine("Origen prueba: ${origin.latitude}, ${origin.longitude}")
+                for (line in lines) appendLine(line)
+            }.trimEnd()
+            lastDiagReport = report
+            diagResults.text = lines.joinToString("\n")
+            btnShareDiag.visibility = View.VISIBLE
+            btnRunDiag.isEnabled = true
+            CrashLog.logEvent(this@MainActivity, "Diagnóstico de rutas:\n$report")
+        }
+    }
+
+    private fun shareDiagnostics() {
+        val report = lastDiagReport ?: run {
+            Toast.makeText(this, R.string.diag_run_first, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_SUBJECT, getString(R.string.diag_report_title))
+            .putExtra(Intent.EXTRA_TEXT, report)
+        startActivity(Intent.createChooser(intent, getString(R.string.diag_share)))
     }
 
     private fun refreshOfflineStatus() {
