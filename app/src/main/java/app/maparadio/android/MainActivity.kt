@@ -197,6 +197,10 @@ class MainActivity : AppCompatActivity() {
     private var map3d: MapboxMap? = null
     private var style3d: Style? = null
     private var routeSource3d: GeoJsonSource? = null
+    // v1.1.2-tablet: la calle donde va el carro, siempre en el panel
+    // 3D (con ruta o sin ella). Geometria real del grafo offline; si
+    // no hay, banda recta por el rumbo.
+    private var streetSource3d: GeoJsonSource? = null
     private var altRouteSource3d: GeoJsonSource? = null
     private var destSource3d: GeoJsonSource? = null
     private var carSource3d: GeoJsonSource? = null
@@ -208,6 +212,11 @@ class MainActivity : AppCompatActivity() {
     private var tablet3dCentered = false
     private var chevronSource3d: GeoJsonSource? = null
     private var lastChevronProgress = -1.0
+    // v1.1.2-tablet: regulador de la cinta de la calle (no rehacer
+    // la geometria en cada fix) + que se registro por ultima vez.
+    private var lastStreetSnapPos: LatLng? = null
+    private var lastStreetSnapBearing = Double.NaN
+    private var streetRibbonWasFallback = false
     // Pantalla partida (v1.4): capsula del mapa + estado del split.
     private lateinit var mapCapsule: FrameLayout
     private var splitAnimator: ValueAnimator? = null
@@ -632,7 +641,7 @@ class MainActivity : AppCompatActivity() {
                 map3dMap.animateCamera(
                     CameraUpdateFactory.newCameraPosition(
                         com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
-                            .target(SANTO_DOMINGO).zoom(17.0).tilt(60.0).bearing(0.0).build()
+                            .target(SANTO_DOMINGO).zoom(18.0).tilt(65.0).bearing(0.0).build()
                     ),
                     1,
                 )
@@ -828,6 +837,38 @@ class MainActivity : AppCompatActivity() {
         mapa general; los campos Kotlin si son distintos (…3d). */
     private fun setupLayers3d(style: Style) {
         addBuildings3d(style)
+        // Calle del carro, SIEMPRE en el panel 3D (v1.1.2-tablet): la
+        // cinta azul y la calzada ancha no son solo de la ruta — sin
+        // ruta el panel era solo el mapa inclinado (foto del usuario
+        // 24 nov 22:36). La geometria la pone updateStreetRibbon3d()
+        // (grafo offline o banda recta por el rumbo). Van ANTES que
+        // la ruta: con ruta, la cinta de ruta dibuja encima y manda.
+        streetSource3d = GeoJsonSource("street-src", FeatureCollection.fromFeatures(emptyList()))
+        style.addSource(streetSource3d!!)
+        style.addLayer(
+            LineLayer("street-bed", "street-src").withProperties(
+                PropertyFactory.lineColor("#262A31"),
+                PropertyFactory.lineWidth(36f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        )
+        style.addLayer(
+            LineLayer("street-casing", "street-src").withProperties(
+                PropertyFactory.lineColor("#1565C0"),
+                PropertyFactory.lineWidth(24f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        )
+        style.addLayer(
+            LineLayer("street-line", "street-src").withProperties(
+                PropertyFactory.lineColor("#2196F3"),
+                PropertyFactory.lineWidth(18f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        )
         altRouteSource3d = GeoJsonSource("alt-src", FeatureCollection.fromFeatures(emptyList()))
         style.addSource(altRouteSource3d!!)
         style.addLayer(
@@ -1262,6 +1303,10 @@ class MainActivity : AppCompatActivity() {
                 // proximo fix.
                 lastCarPos?.let { moveCamera3d(it, lastBearing, null, 700) }
             }
+            // Parado tambien se dibuja la calle en el panel 3D
+            // (v1.1.2): sin ruta el panel no puede quedar como un
+            // mapa vacio; la calle del carro es la carretera azul.
+            if (isTablet) updateStreetRibbon3d()
             return
         }
 
@@ -1377,12 +1422,16 @@ class MainActivity : AppCompatActivity() {
             }
             lastCarPos = displayPos
             updateCarMarker()
+            // Sin ruta tambien se dibuja la calle del carro en el
+            // panel 3D (v1.1.2): la carretera azul siempre, no solo
+            // con ruta.
+            updateStreetRibbon3d()
             // Sin ruta tambien en 3D (v1.0.10): perspectiva 55, zoom
             // 16, rumbo arriba; el boton de centrar vuelve aqui.
             if (followMode) {
                 if (isTablet) {
                     // Mapa general cenital + panel 3D: moveCamera
-                    // mueve los dos (el 3D queda en 17.0/60).
+                    // mueve los dos (el 3D queda en 18.0/65).
                     moveCamera(displayPos, lastBearing, 15.5, 0.0, 700)
                 } else {
                     map?.animateCamera(
@@ -1621,6 +1670,74 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Calle del carro en el panel 3D, SIEMPRE (v1.1.2-tablet): la
+     * carretera azul con sus carriles se dibuja con ruta o sin ella.
+     * Con ruta manda la ruta (la calle se borra). Sin ruta, la
+     * geometria real de la calle sale del grafo offline
+     * (GraphHopperRouter.snapStreetGeometry: la arista mas cercana
+     * + continuacion por los cruces); si el grafo no esta listo o
+     * no hay calle cerca, banda recta por el rumbo actual. Se
+     * recalcula solo si el carro se movio >= 10 m o el rumbo cambio
+     * >= 20 grados, para no rehacer la geometria en cada fix. El
+     * pegado al grafo corre fuera del hilo principal.
+     */
+    private fun updateStreetRibbon3d() {
+        if (!isTablet) return
+        val src = streetSource3d ?: return
+        if (route != null) {
+            src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            lastStreetSnapPos = null
+            return
+        }
+        val pos = lastCarPos ?: return
+        val last = lastStreetSnapPos
+        if (last != null && RouteEngine.metersBetween(last, pos) < 10.0 &&
+            abs(((lastBearing - lastStreetSnapBearing + 540.0) % 360.0) - 180.0) < 20.0
+        ) return
+        lastStreetSnapPos = pos
+        lastStreetSnapBearing = lastBearing
+        val bearing = lastBearing
+        scope.launch {
+            val pts = withContext(Dispatchers.IO) {
+                GraphHopperRouter.snapStreetGeometry(pos, bearing)
+            }
+            val line: List<LatLng>
+            val wasFallback: Boolean
+            if (pts != null && pts.size >= 2) {
+                line = pts
+                wasFallback = false
+            } else {
+                // Respaldo: banda recta por el rumbo (sin geometria
+                // real del grafo). Se ve como carretera igual, pero
+                // no sigue la curva de la calle.
+                line = listOf(
+                    MapMatcher.advanceFree(pos, bearing + 180.0, 40.0),
+                    pos,
+                    MapMatcher.advanceFree(pos, bearing, 250.0),
+                )
+                wasFallback = true
+            }
+            // Mientras tanto pudo aparecer una ruta: entonces manda
+            // la ruta y la calle no se dibuja.
+            if (route != null) return@launch
+            val points = line.map { Point.fromLngLat(it.longitude, it.latitude) }
+            src.setGeoJson(
+                FeatureCollection.fromFeatures(
+                    listOf(Feature.fromGeometry(LineString.fromLngLats(points)))
+                )
+            )
+            if (wasFallback != streetRibbonWasFallback) {
+                streetRibbonWasFallback = wasFallback
+                CrashLog.logEvent(
+                    this@MainActivity,
+                    if (wasFallback) "Calle 3D: banda recta por rumbo (sin geometria del grafo)"
+                    else "Calle 3D: geometria real del grafo offline",
+                )
+            }
+        }
+    }
+
+    /**
      * Guia de vuelta a la ruta (v1.0.8, solo rutas del telefono): el
      * carro esta fuera de la linea. El panel muestra la flecha hacia
      * el punto mas cercano de la ruta (rumbo relativo al rumbo del
@@ -1756,7 +1873,7 @@ class MainActivity : AppCompatActivity() {
         if (isTablet) moveCamera3d(target, bearing, zoom, durationMs)
     }
 
-    /** Camara del panel 3D (v1.1.0-tablet): cerca, inclinada 60 y
+    /** Camara del panel 3D (v1.1.0-tablet): cerca, inclinada 65 y
         con el rumbo arriba. El carro queda ABAJO en el panel: la
         camara apunta ~70 m por delante del carro, asi la carretera
         se abre hacia el horizonte como en el boceto v6.
@@ -1764,7 +1881,9 @@ class MainActivity : AppCompatActivity() {
         (foto 24 nov 20:04). El zoom es fijo 18.0: a esa distancia se
         ven los dos carriles de la calle y lo de los lados (edificios,
         aceras, demas calles), como en Tesla/LiteDash; mas lejos la
-        calle se volvia una linea fina y no se veia ningun carril. */
+        calle se volvia una linea fina y no se veia ningun carril.
+        v1.1.2: inclinacion 60 -> 65, mas baja y cerca, como LiteDash,
+        para que la carretera llene el panel y no se lea como mapa. */
     private fun moveCamera3d(
         target: LatLng, bearing: Double, zoom: Double?, durationMs: Int,
     ) {
@@ -1782,14 +1901,14 @@ class MainActivity : AppCompatActivity() {
         if (curTarget != null &&
             RouteEngine.metersBetween(curTarget, ahead) < 2.0 &&
             bearingDiff < 2.0 &&
-            abs(newZoom - cur.zoom) < 0.05 && abs(60.0 - cur.tilt) < 0.5
+            abs(newZoom - cur.zoom) < 0.05 && abs(65.0 - cur.tilt) < 0.5
         ) return
         m3.animateCamera(
             CameraUpdateFactory.newCameraPosition(
                 com.mapbox.mapboxsdk.camera.CameraPosition.Builder()
                     .target(ahead)
                     .zoom(newZoom)
-                    .tilt(60.0)
+                    .tilt(65.0)
                     .bearing(newBearing)
                     .build()
             ),
@@ -2352,8 +2471,13 @@ class MainActivity : AppCompatActivity() {
             // Sin ruta no hay cinta ni chevrones en el panel 3D.
             chevronSource3d?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
             lastChevronProgress = -1.0
+            // Sin ruta vuelve la calle del carro al panel 3D (v1.1.2).
+            updateStreetRibbon3d()
             return
         }
+        // Con ruta manda la ruta: la calle no se dibuja encima (v1.1.2).
+        streetSource3d?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+        lastStreetSnapPos = null
         val points = r.points.map { Point.fromLngLat(it.longitude, it.latitude) }
         val feature = Feature.fromGeometry(LineString.fromLngLats(points))
         routeSource?.setGeoJson(

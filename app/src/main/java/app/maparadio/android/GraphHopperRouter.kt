@@ -12,10 +12,14 @@ import com.graphhopper.GraphHopperConfig
 import com.graphhopper.ResponsePath
 import com.graphhopper.config.CHProfile
 import com.graphhopper.config.Profile
+import com.graphhopper.routing.util.EdgeFilter
+import com.graphhopper.util.EdgeIteratorState
+import com.graphhopper.util.FetchMode
 import com.graphhopper.util.Instruction
 import com.graphhopper.util.Parameters
 import com.mapbox.mapboxsdk.geometry.LatLng
 import java.io.File
+import kotlin.math.abs
 
 /**
  * Rutas 100% sin internet (GraphHopper 7.0) para la version final
@@ -331,6 +335,164 @@ object GraphHopperRouter {
         }
         val detail = if (osrm.detail.isNotEmpty()) "${osrm.detail}; $ghDetail" else ghDetail
         return RouteResult(null, osrm.failure, detail)
+    }
+
+    /**
+     * Geometria de LA CALLE donde esta el carro (v1.1.2-tablet).
+     * El panel 3D estilo Tesla tiene que mostrar la carretera
+     * siempre, con ruta o sin ella: en v1.1.1 la cinta solo existia
+     * con ruta (route-src vacio sin ruta) y parado el panel era solo
+     * el mapa inclinado (foto del usuario 24 nov 22:36).
+     *
+     * 100% offline: usa el indice de ubicacion del grafo
+     * (LocationIndex) para pegar la posicion a la arista de calle
+     * mas cercana y seguir su geometria, con continuacion por los
+     * cruces (la arista que sigue mas recta). Devuelve los puntos de
+     * la calle desde [behindM] detras del punto pegado hasta [aheadM]
+     * por delante, en el sentido del rumbo [headingDeg]. Null si el
+     * grafo no esta listo, no hay calle a menos de 50 m o algo falla
+     * (el llamador usa la banda recta por el rumbo como respaldo).
+     */
+    fun snapStreetGeometry(
+        pos: LatLng,
+        headingDeg: Double,
+        behindM: Double = 40.0,
+        aheadM: Double = 250.0,
+    ): List<LatLng>? {
+        val gh = hopper ?: return null
+        if (!isReady) return null
+        return try {
+            val snap = gh.locationIndex.findClosest(
+                pos.latitude, pos.longitude, EdgeFilter.ALL_EDGES,
+            )
+            val edge = snap.closestEdge ?: return null
+            if (snap.queryDistance > 50.0) return null
+            val sp = snap.snappedPoint
+            val snapped = LatLng(sp.lat, sp.lon)
+            val fwd = walkStreet(gh, edge, snapped, headingDeg, aheadM)
+            val back = walkStreet(gh, edge, snapped, headingDeg + 180.0, behindM)
+            if (fwd.size < 2) return null
+            // back viene [pegado, ...hacia atras]; al reves queda
+            // [..., pegado] y se une con fwd (que empieza en pegado).
+            back.asReversed().dropLast(1) + fwd
+        } catch (t: Throwable) {
+            Log.w(TAG, "snapStreet fallo: ${t.javaClass.simpleName}: ${t.message}")
+            null
+        }
+    }
+
+    /** Camina por la calle desde [from] en el sentido de [headingDeg]
+     *  hasta [maxM] metros. Sigue la geometria de la arista y, al
+     *  llegar a un cruce, continua por la arista que sigue mas recta
+     *  (nunca da la vuelta). Devuelve los puntos recorridos, empezando
+     *  en [from]. Como mucho 8 aristas: un tramo de calle rara vez
+     *  pasa de 250 m. */
+    private fun walkStreet(
+        gh: GraphHopper,
+        startEdge: EdgeIteratorState,
+        from: LatLng,
+        headingDeg: Double,
+        maxM: Double,
+    ): List<LatLng> {
+        val out = ArrayList<LatLng>()
+        out.add(from)
+        var remaining = maxM
+        var curEdge = startEdge
+        var curPos = from
+        var curBearing = headingDeg
+        val visited = HashSet<Int>()
+        var hops = 0
+        while (remaining > 0 && hops < 8) {
+            hops++
+            visited.add(curEdge.edge)
+            val geom = curEdge.fetchWayGeometry(FetchMode.ALL)
+            if (geom.size() < 2) break
+            val pts = ArrayList<LatLng>(geom.size())
+            for (i in 0 until geom.size()) {
+                val p = geom.get(i)
+                pts.add(LatLng(p.lat, p.lon))
+            }
+            // Vertice mas cercano a la posicion actual.
+            var idx = 0
+            var bestD = Double.MAX_VALUE
+            for (i in pts.indices) {
+                val d = RouteEngine.metersBetween(curPos, pts[i])
+                if (d < bestD) { bestD = d; idx = i }
+            }
+            // Sentido por esta arista: el vecino cuyo rumbo se parece
+            // mas al rumbo que llevamos.
+            val upB = if (idx + 1 < pts.size) {
+                RouteEngine.bearingBetween(pts[idx], pts[idx + 1])
+            } else null
+            val dnB = if (idx - 1 >= 0) {
+                RouteEngine.bearingBetween(pts[idx], pts[idx - 1])
+            } else null
+            val goUp = when {
+                upB != null && dnB != null ->
+                    angDiff(upB, curBearing) <= angDiff(dnB, curBearing)
+                upB != null -> true
+                dnB != null -> false
+                else -> break
+            }
+            val endNode = if (goUp) curEdge.adjNode else curEdge.baseNode
+            val step = if (goUp) 1 else -1
+            var j = idx + step
+            var prev = curPos
+            var lastSegBearing = curBearing
+            while (j in pts.indices) {
+                val seg = RouteEngine.metersBetween(prev, pts[j])
+                if (seg > remaining) break
+                out.add(pts[j])
+                lastSegBearing = RouteEngine.bearingBetween(prev, pts[j])
+                remaining -= seg
+                prev = pts[j]
+                j += step
+            }
+            if (remaining <= 0) break
+            curPos = prev
+            curBearing = lastSegBearing
+            // Continuacion en el cruce: la arista que sigue mas recta.
+            // El extremo de la arista que toca el cruce es el ultimo
+            // punto caminado (curPos): la geometria de la arista
+            // candidata empieza o termina ahi.
+            val graph = gh.baseGraph
+            val explorer = graph.createEdgeExplorer(EdgeFilter.ALL_EDGES)
+            val it = explorer.setBaseNode(endNode)
+            var best: EdgeIteratorState? = null
+            var bestDiff = Double.MAX_VALUE
+            while (it.next()) {
+                if (it.edge == curEdge.edge || it.edge in visited) continue
+                val g2 = it.fetchWayGeometry(FetchMode.ALL)
+                if (g2.size() < 2) continue
+                val first = LatLng(g2.get(0).lat, g2.get(0).lon)
+                val last = LatLng(g2.get(g2.size() - 1).lat, g2.get(g2.size() - 1).lon)
+                val b = when {
+                    RouteEngine.metersBetween(curPos, first) < 1.0 ->
+                        RouteEngine.bearingBetween(
+                            first, LatLng(g2.get(1).lat, g2.get(1).lon),
+                        )
+                    RouteEngine.metersBetween(curPos, last) < 1.0 ->
+                        RouteEngine.bearingBetween(
+                            last, LatLng(g2.get(g2.size() - 2).lat, g2.get(g2.size() - 2).lon),
+                        )
+                    else -> continue
+                }
+                val diff = angDiff(b, curBearing)
+                if (diff < bestDiff) { bestDiff = diff; best = it.detach(false) }
+            }
+            // Sin continuacion recta (cruce en T, fin de la calle):
+            // la cinta termina aqui; no se inventa camino.
+            if (best == null || bestDiff > 135.0) break
+            curEdge = best
+        }
+        return out
+    }
+
+    /** Diferencia angular 0..180 entre dos rumbos. */
+    private fun angDiff(a: Double, b: Double): Double {
+        var d = abs(a - b) % 360.0
+        if (d > 180) d = 360 - d
+        return d
     }
 
     /** Solo el grafo offline, con motivo (v1.0.3). */

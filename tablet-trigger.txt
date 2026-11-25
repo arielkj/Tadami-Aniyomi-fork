@@ -1,9 +1,12 @@
-Mapa Radio v1.1.1-tablet — version GENERAL para probar en la tablet del usuario sin ir al vehiculo.
+Mapa Radio v1.1.2-tablet — version GENERAL para probar en la tablet del usuario sin ir al vehiculo.
 Este archivo existe solo para disparar el workflow build-mapa-tablet.yml:
 al cambiarlo, CI construye la version tablet. No borrar.
-v1.1.1-tablet: vista dividida Tesla 40/60 exacto (panel 3D a la izquierda 40% + mapa general a la derecha 60%),
-capsula de musica GRANDE arriba del mapa (caratula + titulo + artista + atras/pausa/siguiente),
-indicaciones de giro en el panel del carro, velocidad en km/h mas pequena, carro 3D de buen tamano y entero,
-cinta de ruta azul ancha hacia el frente en el panel 3D con chevrones blancos antes del giro,
-fondo del panel 3D con mapa real (TextureView, carga de estilo protegida con reintento).
+v1.1.2-tablet: la calle del carro se dibuja SIEMPRE en el panel 3D como carretera azul
+con sus carriles, con ruta o sin ruta (geometria real de la calle desde el grafo offline
+de GraphHopper; si no hay, banda recta por el rumbo). Con ruta manda la ruta.
+Camara 3D mas baja y cerca (inclinacion 65, zoom 18) como LiteDash, para que la
+carretera llene el panel y no se lea como un mapa. Resto igual que v1.1.1: vista
+dividida Tesla 40/60 exacto, capsula de musica GRANDE arriba del mapa, indicaciones
+de giro en el panel del carro, velocidad en km/h mas pequena, carro 3D de buen
+tamano y entero, chevrones blancos antes del giro, fondo del panel 3D con mapa real.
 arm64-v8a + armeabi-v7a, minSdk 26.
