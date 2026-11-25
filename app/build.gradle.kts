@@ -39,11 +39,11 @@ android {
         }
         create("tablet") {
             dimension = "device"
-            versionCode = 111
-            versionName = "1.1.0-tablet"
+            versionCode = 112
+            versionName = "1.1.1-tablet"
             // Version GENERAL para probar en la tablet del usuario sin
-            // ir al vehiculo (v1.1.0): vista dividida Tesla (panel 3D
-            // + mapa general). La tablet es 64-bit, pero se incluyen
+            // ir al vehiculo (v1.1.1): vista dividida Tesla 40/60
+            // (panel 3D + mapa general). La tablet es 64-bit, pero se incluyen
             // las dos ABI para que el mismo APK corra en cualquier
             // telefono/tablet Android.
             ndk {

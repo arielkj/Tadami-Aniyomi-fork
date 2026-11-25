@@ -12,6 +12,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.location.Location
@@ -19,6 +20,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
@@ -199,6 +201,13 @@ class MainActivity : AppCompatActivity() {
     private var destSource3d: GeoJsonSource? = null
     private var carSource3d: GeoJsonSource? = null
     private var carLayer3d: SymbolLayer? = null
+    // v1.1.1-tablet: carga del estilo 3D (una sola vez, con registro
+    // y reintento) + centrado 3D + chevrones de la cinta.
+    private var style3dLoading = false
+    private var style3dLoaded = false
+    private var tablet3dCentered = false
+    private var chevronSource3d: GeoJsonSource? = null
+    private var lastChevronProgress = -1.0
     // Pantalla partida (v1.4): capsula del mapa + estado del split.
     private lateinit var mapCapsule: FrameLayout
     private var splitAnimator: ValueAnimator? = null
@@ -665,15 +674,41 @@ class MainActivity : AppCompatActivity() {
 
     /** Estilo del panel 3D (v1.1.0-tablet): mismas capas que el mapa
         general, pero con la cinta de ruta ancha y el carro grande
-        visto desde atras. */
+        visto desde atras.
+        v1.1.1: UNA sola carga. Antes se llamaba a setStyle dos veces
+        seguidas (getMapAsync del 3D + loadStyle del mapa general) y
+        la segunda llamada cancelaba la primera a mitad de carga: el
+        panel 3D podia quedarse sin estilo (fondo negro #0B0E12,
+        foto 24 nov 20:04). Ahora hay guarda (si ya esta cargando no
+        se vuelve a llamar), registro en el CrashLog y un reintento
+        si a los 8 s sigue sin cargar. */
     private fun loadStyle3d(url: String) {
-        map3d?.setStyle(Style.Builder().fromUri(url)) { loaded ->
+        if (style3dLoading) return
+        val m3 = map3d ?: return
+        style3dLoading = true
+        style3dLoaded = false
+        m3.setStyle(Style.Builder().fromUri(url)) { loaded ->
+            style3dLoaded = true
+            style3dLoading = false
             style3d = loaded
             setupLayers3d(loaded)
             redrawRoute()
             if (previewRoutes != null) drawPreviewLines()
             updateCarMarker()
+            // Si ya hay posicion, centrar la camara 3D ahora que el
+            // estilo esta listo (el primer fix pudo llegar antes).
+            if (followMode) lastCarPos?.let { moveCamera(it, lastBearing) }
+            CrashLog.logEvent(this, "Mapa 3D estilo cargado")
         }
+        // Vigilancia: si el estilo no carga, no quedarse en negro en
+        // silencio — registrarlo y reintentar una vez.
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isFinishing && !style3dLoaded && style3dLoading) {
+                style3dLoading = false
+                CrashLog.logEvent(this, "Mapa 3D estilo SIN cargar tras 8 s: reintentando")
+                loadStyle3d(url)
+            }
+        }, 8_000)
     }
 
     private fun setupLayers(style: Style) {
@@ -813,6 +848,22 @@ class MainActivity : AppCompatActivity() {
         )
         routeSource3d = GeoJsonSource("route-src", FeatureCollection.fromFeatures(emptyList()))
         style.addSource(routeSource3d!!)
+        // Calzada ancha bajo la cinta (v1.1.1-tablet, detalle del
+        // usuario 24 nov): en el panel 3D tiene que verse LA CALLE
+        // con sus dos carriles y lo de los lados, no solo la cinta
+        // azul sobre fondo vacio. La calzada oscura y ancha es la
+        // calle misma; la cinta azul va por su centro y a los lados
+        // quedan las aceras, los edificios y las demas calles del
+        // mapa real. Sin esta calzada la cinta tapaba la calle
+        // entera y no se veia ningun carril.
+        style.addLayer(
+            LineLayer("route-bed", "route-src").withProperties(
+                PropertyFactory.lineColor("#262A31"),
+                PropertyFactory.lineWidth(36f),
+                PropertyFactory.lineCap(Property.LINE_CAP_ROUND),
+                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+            )
+        )
         style.addLayer(
             LineLayer("route-casing", "route-src").withProperties(
                 PropertyFactory.lineColor("#1565C0"),
@@ -850,17 +901,34 @@ class MainActivity : AppCompatActivity() {
             PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
         )
         style.addLayer(carLayer3d!!)
+        // Chevrones blancos sobre la cinta (v1.1.1-tablet, toque
+        // Tesla del boceto v6): marcan el giro que viene flotando
+        // sobre la ruta, por delante del carro. Cada marcador gira
+        // con el rumbo de la ruta en ese punto (propiedad "bearing").
+        chevronSource3d = GeoJsonSource("chevron-src", FeatureCollection.fromFeatures(emptyList()))
+        style.addSource(chevronSource3d!!)
+        style.addImage("chevron-icon", drawChevronBitmap())
+        style.addLayer(
+            SymbolLayer("chevron-layer", "chevron-src").withProperties(
+                PropertyFactory.iconImage("chevron-icon"),
+                PropertyFactory.iconRotate(Expression.get("bearing")),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+            )
+        )
     }
 
     /** Carro grande visto desde atras (v1.1.0-tablet): el del panel
         3D, como en el boceto (blanco, luces traseras rojas, luneta
-        oscura). Se dibuja a 96dp de ancho para que se vea grande y
-        nitido en la tablet; en el mapa general sigue el marcador
-        pequeno de siempre (drawCarBitmap). Sin sombras ni blur. */
+        oscura). v1.1.1: de 96dp a 72dp de ancho — a 96dp salia
+        gigante y cortado abajo (foto del usuario 24 nov 20:04). En
+        el mapa general sigue el marcador pequeno de siempre
+        (drawCarBitmap). Sin sombras ni blur. */
     private fun drawCar3dBitmap(): Bitmap {
         val density = resources.displayMetrics.density
-        val w = (96f * density).roundToInt().coerceAtLeast(1)
-        val h = (112f * density).roundToInt().coerceAtLeast(1)
+        val w = (72f * density).roundToInt().coerceAtLeast(1)
+        val h = (84f * density).roundToInt().coerceAtLeast(1)
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         bmp.density = (DisplayMetrics.DENSITY_DEFAULT * density).toInt()
         val c = Canvas(bmp)
@@ -879,6 +947,38 @@ class MainActivity : AppCompatActivity() {
         c.drawRoundRect(RectF(40f, 80f, 56f, 88f), 2f, 2f, trim) // placa
         c.drawRoundRect(RectF(8f, 96f, 20f, 108f), 3f, 3f, wheel) // rueda izq
         c.drawRoundRect(RectF(76f, 96f, 88f, 108f), 3f, 3f, wheel) // rueda der
+        return bmp
+    }
+
+    /** Chevron blanco doble (v1.1.1-tablet): flecha flotante sobre
+        la cinta de ruta antes del giro, como Tesla (boceto v6). Se
+        dibuja apuntando arriba y cada marcador gira con el rumbo de
+        la ruta en ese punto (propiedad "bearing" de la capa). */
+    private fun drawChevronBitmap(): Bitmap {
+        val density = resources.displayMetrics.density
+        val w = (48f * density).roundToInt().coerceAtLeast(1)
+        val h = (40f * density).roundToInt().coerceAtLeast(1)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        bmp.density = (DisplayMetrics.DENSITY_DEFAULT * density).toInt()
+        val c = Canvas(bmp)
+        c.scale(w / 48f, h / 40f)
+        val paint = Paint().apply {
+            color = Color.WHITE
+            isAntiAlias = true
+            style = Paint.Style.STROKE
+            strokeWidth = 7f
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+        // Dos chevrones apilados, como en el boceto v6.
+        val top = Path().apply {
+            moveTo(10f, 16f); lineTo(24f, 4f); lineTo(38f, 16f)
+        }
+        val bottom = Path().apply {
+            moveTo(10f, 32f); lineTo(24f, 20f); lineTo(38f, 32f)
+        }
+        c.drawPath(top, paint)
+        c.drawPath(bottom, paint)
         return bmp
     }
 
@@ -1148,7 +1248,22 @@ class MainActivity : AppCompatActivity() {
 
         // ESTACIONADO: velocidad ~0 -> congelar el carro, el ruido del GPS
         // no lo mueve ni lo saca de la calle.
-        if (speedMps < 0.5 && lastCarPos != null) return
+        if (speedMps < 0.5 && lastCarPos != null) {
+            // v1.1.1-tablet: aunque este estacionado, si el panel 3D
+            // nunca se centro en el carro (el primer fix llego antes
+            // de cargar el estilo y el marcador no se coloco), poner
+            // el carro y centrar la camara 3D ahora, una sola vez.
+            // Sin esto el panel 3D se queda sin carro hasta que el
+            // carro se mueva (foto del usuario 24 nov 20:03).
+            if (isTablet && !tablet3dCentered) {
+                updateCarMarker()
+                // moveCamera3d marca tablet3dCentered solo si el mapa
+                // 3D existe; si aun no existe, se reintenta en el
+                // proximo fix.
+                lastCarPos?.let { moveCamera3d(it, lastBearing, null, 700) }
+            }
+            return
+        }
 
         val r = route
         if (r != null) {
@@ -1429,6 +1544,9 @@ class MainActivity : AppCompatActivity() {
         if (next == null) {
             guidanceCard.visibility = View.GONE
             if (isTablet) etaBar.visibility = View.GONE
+            // Sin proximo giro no hay chevrones que mostrar.
+            chevronSource3d?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            lastChevronProgress = -1.0
             return
         }
         val (step, remaining) = next
@@ -1455,6 +1573,8 @@ class MainActivity : AppCompatActivity() {
         if (isTablet) updateEtaBar(remainDist, remainDurMin)
         // El panel CRECE cuando el giro esta cerca (mockup v2).
         setGuidanceExpanded(remaining < 300)
+        // Chevrones sobre la cinta, por delante del carro.
+        updateChevrons3d(progressMeters)
     }
 
     /** Barra ETA del mapa general (v1.1.0-tablet): "ETA · 18:08 ·
@@ -1466,6 +1586,38 @@ class MainActivity : AppCompatActivity() {
         val km = remainDistM / 1000.0
         etaBar.text = "ETA · $time · ${remainDurSec / 60} min · ${"%.1f".format(km)} km"
         etaBar.visibility = View.VISIBLE
+    }
+
+    /** Chevrones sobre la cinta (v1.1.1-tablet, boceto v6): dos
+        flechas blancas flotando sobre la ruta por delante del carro,
+        antes del proximo giro. Solo con ruta y solo en el panel 3D.
+        Se recalculan cuando el avance cambia 15 m o mas (barato: dos
+        puntos por fix como mucho). */
+    private fun updateChevrons3d(progressMeters: Double) {
+        if (!isTablet) return
+        val src = chevronSource3d ?: return
+        val r = route
+        if (r == null) {
+            src.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            lastChevronProgress = -1.0
+            return
+        }
+        if (lastChevronProgress >= 0 &&
+            abs(progressMeters - lastChevronProgress) < 15.0
+        ) return
+        lastChevronProgress = progressMeters
+        val mapBearing = map3d?.cameraPosition?.bearing ?: 0.0
+        val feats = listOf(50.0, 110.0).mapNotNull { ahead ->
+            val p = progressMeters + ahead
+            if (p > r.totalDistance) return@mapNotNull null
+            val at = MapMatcher.pointAlongRoute(r, p)
+            val b = MapMatcher.bearingAlongRoute(r, p)
+            val rel = (b - mapBearing + 540.0) % 360.0 - 180.0
+            val f = Feature.fromGeometry(Point.fromLngLat(at.longitude, at.latitude))
+            f.addNumberProperty("bearing", rel)
+            f
+        }
+        src.setGeoJson(FeatureCollection.fromFeatures(feats))
     }
 
     /**
@@ -1604,19 +1756,27 @@ class MainActivity : AppCompatActivity() {
         if (isTablet) moveCamera3d(target, bearing, zoom, durationMs)
     }
 
-    /** Camara del panel 3D (v1.1.0-tablet): cerca (zoom 17.0-17.5),
-        inclinada 60 y con el rumbo arriba. El carro queda ABAJO en
-        el panel: la camara apunta ~120 m por delante del carro (a
-        zoom 17 eso son unos 150 px), asi la carretera se abre hacia
-        el horizonte como en el boceto. */
+    /** Camara del panel 3D (v1.1.0-tablet): cerca, inclinada 60 y
+        con el rumbo arriba. El carro queda ABAJO en el panel: la
+        camara apunta ~70 m por delante del carro, asi la carretera
+        se abre hacia el horizonte como en el boceto v6.
+        v1.1.1: antes eran 120 m y el carro quedaba cortado abajo
+        (foto 24 nov 20:04). El zoom es fijo 18.0: a esa distancia se
+        ven los dos carriles de la calle y lo de los lados (edificios,
+        aceras, demas calles), como en Tesla/LiteDash; mas lejos la
+        calle se volvia una linea fina y no se veia ningun carril. */
     private fun moveCamera3d(
         target: LatLng, bearing: Double, zoom: Double?, durationMs: Int,
     ) {
         val m3 = map3d ?: return
+        tablet3dCentered = true
         val cur = m3.cameraPosition
-        val newZoom = (zoom ?: cur.zoom).coerceAtLeast(17.0)
+        // El zoom del panel 3D es fijo: el del mapa general (15-17.5)
+        // no manda aqui; 18.0 es el que ensena la calle con sus dos
+        // carriles y los lados. Se ignora el zoom que llega.
+        val newZoom = 18.0
         val newBearing = if (headingUp) bearing else 0.0
-        val ahead = pointAhead(target, newBearing, 120.0)
+        val ahead = pointAhead(target, newBearing, 70.0)
         val curTarget = cur.target
         val bearingDiff = abs((newBearing - cur.bearing + 540.0) % 360.0 - 180.0)
         if (curTarget != null &&
@@ -2189,6 +2349,9 @@ class MainActivity : AppCompatActivity() {
         if (r == null) {
             routeSource?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
             routeSource3d?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            // Sin ruta no hay cinta ni chevrones en el panel 3D.
+            chevronSource3d?.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            lastChevronProgress = -1.0
             return
         }
         val points = r.points.map { Point.fromLngLat(it.longitude, it.latitude) }
